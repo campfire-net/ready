@@ -1,0 +1,171 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+)
+
+// createPayload is the JSON payload for a work:create message.
+type createPayload struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Context  string `json:"context,omitempty"`
+	Type     string `json:"type"`
+	Level    string `json:"level,omitempty"`
+	Project  string `json:"project,omitempty"`
+	For      string `json:"for"`
+	By       string `json:"by,omitempty"`
+	Priority string `json:"priority"`
+	ParentID string `json:"parent_id,omitempty"`
+	ETA      string `json:"eta,omitempty"`
+	Due      string `json:"due,omitempty"`
+}
+
+var createCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a new work item",
+	Long: `Create a new work item in the project campfire.
+
+The item ID must be unique and match ^[a-z0-9][a-z0-9-]{2,63}$.
+Example: ready-a1b
+
+If --eta is omitted, it is derived from priority:
+  p0 = now, p1 = +4h, p2 = +24h, p3 = +72h`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		title, _ := cmd.Flags().GetString("title")
+		context, _ := cmd.Flags().GetString("context")
+		itemType, _ := cmd.Flags().GetString("type")
+		level, _ := cmd.Flags().GetString("level")
+		project, _ := cmd.Flags().GetString("project")
+		forParty, _ := cmd.Flags().GetString("for")
+		by, _ := cmd.Flags().GetString("by")
+		priority, _ := cmd.Flags().GetString("priority")
+		parentID, _ := cmd.Flags().GetString("parent-id")
+		eta, _ := cmd.Flags().GetString("eta")
+		due, _ := cmd.Flags().GetString("due")
+
+		// Validation.
+		if id == "" {
+			return fmt.Errorf("--id is required")
+		}
+		if title == "" {
+			return fmt.Errorf("--title is required")
+		}
+		if itemType == "" {
+			return fmt.Errorf("--type is required")
+		}
+		if forParty == "" {
+			return fmt.Errorf("--for is required")
+		}
+		if priority == "" {
+			return fmt.Errorf("--priority is required")
+		}
+
+		// Validate type.
+		validTypes := map[string]bool{
+			"task": true, "decision": true, "review": true, "reminder": true,
+			"deadline": true, "prep": true, "message": true, "directive": true,
+		}
+		if !validTypes[itemType] {
+			return fmt.Errorf("invalid --type %q: must be one of task, decision, review, reminder, deadline, prep, message, directive", itemType)
+		}
+
+		// Validate priority.
+		validPriorities := map[string]bool{"p0": true, "p1": true, "p2": true, "p3": true}
+		if !validPriorities[priority] {
+			return fmt.Errorf("invalid --priority %q: must be one of p0, p1, p2, p3", priority)
+		}
+
+		// Validate level if provided.
+		if level != "" {
+			validLevels := map[string]bool{"epic": true, "task": true, "subtask": true}
+			if !validLevels[level] {
+				return fmt.Errorf("invalid --level %q: must be one of epic, task, subtask", level)
+			}
+		}
+
+		agentID, s, err := requireAgentAndStore()
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+
+		// Build payload.
+		p := createPayload{
+			ID:       id,
+			Title:    title,
+			Context:  context,
+			Type:     itemType,
+			Level:    level,
+			Project:  project,
+			For:      forParty,
+			By:       by,
+			Priority: priority,
+			ParentID: parentID,
+			ETA:      eta,
+			Due:      due,
+		}
+		payloadBytes, err := json.Marshal(p)
+		if err != nil {
+			return fmt.Errorf("encoding payload: %w", err)
+		}
+
+		// Build tags.
+		tags := []string{"work:create"}
+		tags = append(tags, "work:type:"+itemType)
+		tags = append(tags, "work:for:"+forParty)
+		tags = append(tags, "work:priority:"+priority)
+		if level != "" {
+			tags = append(tags, "work:level:"+level)
+		}
+		if by != "" {
+			tags = append(tags, "work:by:"+by)
+		}
+		if project != "" {
+			tags = append(tags, "work:project:"+project)
+		}
+
+		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, nil)
+		if err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			out := map[string]interface{}{
+				"id":          id,
+				"msg_id":      msg.ID,
+				"campfire_id": campfireID,
+				"title":       title,
+				"type":        itemType,
+				"priority":    priority,
+				"for":         forParty,
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(out)
+		}
+
+		fmt.Printf("created %s (msg: %s)\n", id, msg.ID)
+		return nil
+	},
+}
+
+func init() {
+	createCmd.Flags().String("id", "", "item ID (required, e.g. ready-a1b)")
+	createCmd.Flags().String("title", "", "short title (required)")
+	createCmd.Flags().String("context", "", "full context / description")
+	createCmd.Flags().String("type", "", "type: task, decision, review, reminder, deadline, prep, message, directive (required)")
+	createCmd.Flags().String("for", "", "who needs this outcome (required)")
+	createCmd.Flags().String("priority", "", "priority: p0, p1, p2, p3 (required)")
+	createCmd.Flags().String("level", "", "level: epic, task, subtask")
+	createCmd.Flags().String("by", "", "who will do the work")
+	createCmd.Flags().String("project", "", "project name")
+	createCmd.Flags().String("parent-id", "", "parent item ID")
+	createCmd.Flags().String("eta", "", "ETA in RFC3339 format (default: derived from priority)")
+	createCmd.Flags().String("due", "", "hard deadline in RFC3339 format")
+	rootCmd.AddCommand(createCmd)
+}
