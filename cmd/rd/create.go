@@ -9,16 +9,25 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/3dl-dev/ready/pkg/state"
 	"github.com/3dl-dev/ready/pkg/timeparse"
 )
 
-// generateID returns a random 8-char hex item ID.
-func generateID() (string, error) {
-	b := make([]byte, 4)
+// generateID returns the shortest hex ID that doesn't collide with any
+// existing item ID in the campfire, with a minimum length of 3 characters.
+func generateID(existingIDs map[string]struct{}) (string, error) {
+	b := make([]byte, 8) // 16 hex chars — enough headroom
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generating id: %w", err)
 	}
-	return hex.EncodeToString(b), nil
+	full := hex.EncodeToString(b)
+	for length := 3; length <= len(full); length++ {
+		candidate := full[:length]
+		if _, collision := existingIDs[candidate]; !collision {
+			return candidate, nil
+		}
+	}
+	return full, nil
 }
 
 // createPayload is the JSON payload for a work:create message.
@@ -106,15 +115,6 @@ If --eta is omitted, it is derived from priority:
 		eta, _ := cmd.Flags().GetString("eta")
 		due, _ := cmd.Flags().GetString("due")
 
-		// Generate ID if not provided.
-		if id == "" {
-			generated, err := generateID()
-			if err != nil {
-				return err
-			}
-			id = generated
-		}
-
 		// Validation.
 		if title == "" {
 			return fmt.Errorf("--title is required")
@@ -174,6 +174,24 @@ If --eta is omitted, it is derived from priority:
 			return err
 		}
 		defer s.Close()
+
+		// Generate ID if not provided — use minimum chars for uniqueness.
+		if id == "" {
+			campfireID, _, ok := projectRoot()
+			existingIDs := map[string]struct{}{}
+			if ok {
+				if items, err := state.DeriveFromStore(s, campfireID); err == nil {
+					for k := range items {
+						existingIDs[k] = struct{}{}
+					}
+				}
+			}
+			generated, err := generateID(existingIDs)
+			if err != nil {
+				return err
+			}
+			id = generated
+		}
 
 		// Build payload and tags via extracted function.
 		payloadBytes, tags, err := BuildCreatePayload(id, title, context, itemType, level, project, forParty, by, priority, parentID, eta, due)
