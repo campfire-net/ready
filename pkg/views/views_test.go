@@ -192,3 +192,55 @@ func TestNamed_AllViewsResolvable(t *testing.T) {
 		}
 	}
 }
+
+func TestFocusFilter_NoGate(t *testing.T) {
+	f := views.FocusFilter("")
+
+	// Active item with near ETA and no gate — should appear.
+	item := makeItem("t1", state.StatusActive, "p1", futureETA(1*time.Hour), "a@b.com", "")
+	if !f(item) {
+		t.Error("expected active near-ETA item to appear in focus view with no gate filter")
+	}
+
+	// Done item — should not appear.
+	done := makeItem("t2", state.StatusDone, "p1", futureETA(1*time.Hour), "a@b.com", "")
+	if f(done) {
+		t.Error("expected done item to not appear in focus view")
+	}
+
+	// Item with far ETA — should not appear.
+	far := makeItem("t3", state.StatusActive, "p1", futureETA(10*time.Hour), "a@b.com", "")
+	if f(far) {
+		t.Error("expected far-ETA item to not appear in focus view")
+	}
+}
+
+func TestFocusFilter_WithGate(t *testing.T) {
+	// Add gate to makeItem by constructing directly.
+	nearETA := futureETA(1 * time.Hour)
+
+	designItem := &state.Item{
+		ID: "t1", Status: state.StatusActive, Priority: "p1",
+		ETA: nearETA, For: "a@b.com", Type: "task", Gate: "design",
+	}
+	noGateItem := &state.Item{
+		ID: "t2", Status: state.StatusActive, Priority: "p1",
+		ETA: nearETA, For: "a@b.com", Type: "task", Gate: "",
+	}
+	budgetItem := &state.Item{
+		ID: "t3", Status: state.StatusActive, Priority: "p1",
+		ETA: nearETA, For: "a@b.com", Type: "task", Gate: "budget",
+	}
+
+	f := views.FocusFilter("design")
+
+	if !f(designItem) {
+		t.Error("expected design gate item to appear with FocusFilter(design)")
+	}
+	if f(noGateItem) {
+		t.Error("expected no-gate item to not appear with FocusFilter(design)")
+	}
+	if f(budgetItem) {
+		t.Error("expected budget gate item to not appear with FocusFilter(design)")
+	}
+}
