@@ -119,7 +119,7 @@ discoverability. Run this whenever you're ready to add naming.`,
 		if readyID == "" {
 			// Create ready namespace campfire.
 			readyDesc := org + " ready namespace"
-			readyID, err = createLocalCampfire(agentID, s, "open", []string{"beacon:registration"}, readyDesc)
+			readyID, err = createLocalCampfire(agentID, s, "invite-only", []string{"beacon:registration"}, readyDesc)
 			if err != nil {
 				return fmt.Errorf("creating ready namespace: %w", err)
 			}

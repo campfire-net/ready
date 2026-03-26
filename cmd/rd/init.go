@@ -64,7 +64,7 @@ Use 'rd register' later to add naming when you're ready.`,
 
 		// --- Create the campfire ---
 
-		campfireID, err := createLocalCampfire(agentID, s, "open", []string{"work:create"}, description)
+		campfireID, err := createLocalCampfire(agentID, s, "invite-only", []string{"work:create"}, description)
 		if err != nil {
 			return err
 		}
