@@ -33,6 +33,10 @@ Example:
 		resolution, _ := cmd.Flags().GetString("resolution")
 		reason, _ := cmd.Flags().GetString("reason")
 
+		if reason == "" {
+			return fmt.Errorf("--reason is required (why is this item being closed?)")
+		}
+
 		if resolution == "" {
 			resolution = "done"
 		}

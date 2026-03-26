@@ -59,6 +59,10 @@ Example:
 		reason, _ := cmd.Flags().GetString("reason")
 		cascade, _ := cmd.Flags().GetBool("cascade")
 
+		if reason == "" {
+			return fmt.Errorf("--reason is required (why is this item being closed?)")
+		}
+
 		agentID, s, err := requireAgentAndStore()
 		if err != nil {
 			return err
@@ -325,6 +329,10 @@ func runCloseAlias(resolution string) func(cmd *cobra.Command, args []string) er
 	return func(cmd *cobra.Command, args []string) error {
 		itemID := args[0]
 		reason, _ := cmd.Flags().GetString("reason")
+
+		if reason == "" {
+			return fmt.Errorf("--reason is required (why is this item being closed?)")
+		}
 
 		agentID, s, err := requireAgentAndStore()
 		if err != nil {
