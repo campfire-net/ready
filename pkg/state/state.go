@@ -367,32 +367,33 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			if !ok {
 				continue
 			}
+			// Apply field updates. The sentinel "-" clears a field.
 			if p.Title != "" {
-				item.Title = p.Title
+				item.Title = clearOrSet(p.Title)
 			}
 			if p.Context != "" {
-				item.Context = p.Context
+				item.Context = clearOrSet(p.Context)
 			}
 			if p.Priority != "" {
-				item.Priority = p.Priority
+				item.Priority = clearOrSet(p.Priority)
 			}
 			if p.ETA != "" {
-				item.ETA = p.ETA
+				item.ETA = clearOrSet(p.ETA)
 			}
 			if p.Due != "" {
-				item.Due = p.Due
+				item.Due = clearOrSet(p.Due)
 			}
 			if p.Level != "" {
-				item.Level = p.Level
+				item.Level = clearOrSet(p.Level)
 			}
 			if p.For != "" {
-				item.For = p.For
+				item.For = clearOrSet(p.For)
 			}
 			if p.By != "" {
-				item.By = p.By
+				item.By = clearOrSet(p.By)
 			}
 			if p.Gate != "" {
-				item.Gate = p.Gate
+				item.Gate = clearOrSet(p.Gate)
 			}
 			item.UpdatedAt = m.Timestamp
 
@@ -527,6 +528,17 @@ func DeriveFromStore(s store.Store, campfireID string) (map[string]*Item, error)
 		return nil, err
 	}
 	return Derive(campfireID, msgs), nil
+}
+
+// ClearSentinel is the value that clears a field in work:update.
+const ClearSentinel = "-"
+
+// clearOrSet returns "" if val is the clear sentinel, otherwise returns val.
+func clearOrSet(val string) string {
+	if val == ClearSentinel {
+		return ""
+	}
+	return val
 }
 
 // appendUnique appends val to slice only if not already present.

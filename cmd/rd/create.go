@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/third-division/ready/pkg/timeparse"
 )
 
 // createPayload is the JSON payload for a work:create message.
@@ -86,6 +88,23 @@ If --eta is omitted, it is derived from priority:
 			if !validLevels[level] {
 				return fmt.Errorf("invalid --level %q: must be one of epic, task, subtask", level)
 			}
+		}
+
+		// Normalize ETA to UTC if provided.
+		if eta != "" {
+			normalized, err := timeparse.Parse(eta, time.Now())
+			if err != nil {
+				return fmt.Errorf("invalid --eta: %w", err)
+			}
+			eta = normalized
+		}
+		// Normalize due to UTC if provided.
+		if due != "" {
+			normalized, err := timeparse.Parse(due, time.Now())
+			if err != nil {
+				return fmt.Errorf("invalid --due: %w", err)
+			}
+			due = normalized
 		}
 
 		agentID, s, err := requireAgentAndStore()

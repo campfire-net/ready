@@ -77,19 +77,32 @@ Example:
 
 		var closedIDs []string
 
-		// Cascade: close open children first.
+		// Cascade: close open descendants (recursive subtree).
 		if cascade {
 			allItems, err := resolve.AllItems(s)
 			if err != nil {
 				return fmt.Errorf("loading items for cascade: %w", err)
 			}
-			for _, child := range allItems {
-				if child.ParentID != item.ID {
-					continue
+			// Build parent→children index.
+			childrenOf := make(map[string][]*state.Item)
+			for _, it := range allItems {
+				if it.ParentID != "" {
+					childrenOf[it.ParentID] = append(childrenOf[it.ParentID], it)
 				}
-				if state.IsTerminal(child) {
-					continue
+			}
+			// Walk subtree depth-first (close leaves before parents).
+			var descendants []*state.Item
+			var walk func(parentID string)
+			walk = func(parentID string) {
+				for _, child := range childrenOf[parentID] {
+					walk(child.ID) // grandchildren first
+					if !state.IsTerminal(child) {
+						descendants = append(descendants, child)
+					}
 				}
+			}
+			walk(item.ID)
+			for _, child := range descendants {
 				p := closePayload{
 					Target:     child.MsgID,
 					Resolution: "cancelled",
