@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/third-division/ready/pkg/resolve"
-	"github.com/third-division/ready/pkg/state"
-	"github.com/third-division/ready/pkg/timeparse"
+	"github.com/3dl-dev/ready/pkg/resolve"
+	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/3dl-dev/ready/pkg/timeparse"
 )
 
 // doneCmd closes an item with resolution=done.

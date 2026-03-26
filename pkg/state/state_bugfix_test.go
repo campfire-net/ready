@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/third-division/ready/pkg/state"
+	"github.com/3dl-dev/ready/pkg/state"
 )
 
 // BUG-12: Verify that the clear sentinel "-" clears fields via work:update.

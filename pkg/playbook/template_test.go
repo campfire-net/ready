@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/third-division/ready/pkg/playbook"
+	"github.com/3dl-dev/ready/pkg/playbook"
 )
 
 var itemIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{2,63}$`)

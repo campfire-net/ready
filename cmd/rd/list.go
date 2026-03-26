@@ -5,8 +5,8 @@ import (
 	"sort"
 
 	"github.com/spf13/cobra"
-	"github.com/third-division/ready/pkg/resolve"
-	"github.com/third-division/ready/pkg/state"
+	"github.com/3dl-dev/ready/pkg/resolve"
+	"github.com/3dl-dev/ready/pkg/state"
 )
 
 var listCmd = &cobra.Command{

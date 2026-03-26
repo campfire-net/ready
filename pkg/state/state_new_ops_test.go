@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/third-division/ready/pkg/state"
+	"github.com/3dl-dev/ready/pkg/state"
 )
 
 // TestDerive_Delegate verifies that a work:delegate message sets the By field.

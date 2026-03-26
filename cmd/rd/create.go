@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/third-division/ready/pkg/timeparse"
+	"github.com/3dl-dev/ready/pkg/timeparse"
 )
 
 // createPayload is the JSON payload for a work:create message.

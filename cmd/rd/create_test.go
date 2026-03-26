@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/third-division/ready/pkg/state"
+	"github.com/3dl-dev/ready/pkg/state"
 )
 
 // TestBuildCreatePayload_RequiredFields verifies that BuildCreatePayload produces

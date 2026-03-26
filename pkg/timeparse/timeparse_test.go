@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/third-division/ready/pkg/timeparse"
+	"github.com/3dl-dev/ready/pkg/timeparse"
 )
 
 // fixedNow is a fixed reference time for deterministic tests.

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/third-division/ready/pkg/state"
-	"github.com/third-division/ready/pkg/views"
+	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/3dl-dev/ready/pkg/views"
 )
 
 // TestReadyFilter_ETAExactBoundary tests the strict < boundary for the 4h threshold.

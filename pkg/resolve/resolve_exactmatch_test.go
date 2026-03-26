@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/third-division/ready/pkg/resolve"
+	"github.com/3dl-dev/ready/pkg/resolve"
 )
 
 const testCampfire = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"

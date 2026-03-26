@@ -1,4 +1,4 @@
-module github.com/third-division/ready
+module github.com/3dl-dev/ready
 
 go 1.24.0
 

@@ -21,8 +21,8 @@ import (
 	"github.com/campfire-net/campfire/pkg/message"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/campfire/pkg/transport/fs"
-	"github.com/third-division/ready/pkg/state"
-	"github.com/third-division/ready/pkg/views"
+	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/3dl-dev/ready/pkg/views"
 )
 
 // testHarness holds shared state for integration test steps.

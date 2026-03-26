@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/third-division/ready/pkg/resolve"
-	"github.com/third-division/ready/pkg/state"
+	"github.com/3dl-dev/ready/pkg/resolve"
+	"github.com/3dl-dev/ready/pkg/state"
 )
 
 // claimPayload is the JSON payload for a work:claim message.

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/third-division/ready/pkg/state"
-	"github.com/third-division/ready/pkg/timeparse"
+	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/3dl-dev/ready/pkg/timeparse"
 )
 
 // --- done / fail / cancel resolution tests ---

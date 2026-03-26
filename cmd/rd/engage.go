@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/third-division/ready/pkg/playbook"
+	"github.com/3dl-dev/ready/pkg/playbook"
 )
 
 // engagePayload is the JSON payload for a work:engage message.
