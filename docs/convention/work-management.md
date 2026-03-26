@@ -450,6 +450,120 @@ cf work close --target <create-msg-id> \
   --reason "Widget parser implemented, tests passing"
 ```
 
+### 4.12 `work:playbook-create`
+
+Register a playbook template. A playbook is a reusable pattern of work items with dependency wiring and variable substitution. Instantiate with `work:engage`.
+
+```json
+{
+  "convention": "work",
+  "version": "0.3",
+  "operation": "playbook-create",
+  "description": "Register a playbook template",
+  "args": [
+    {"name": "id", "type": "string", "required": true, "max_length": 64, "pattern": "^[a-z0-9][a-z0-9-]{2,63}$"},
+    {"name": "title", "type": "string", "required": true, "max_length": 256},
+    {"name": "description", "type": "string", "max_length": 4096},
+    {"name": "items", "type": "json", "required": true}
+  ],
+  "produces_tags": [
+    {"tag": "work:playbook-create", "cardinality": "exactly_one"},
+    {"tag": "work:playbook:*", "cardinality": "exactly_one"}
+  ],
+  "antecedents": "none",
+  "signing": "member_key"
+}
+```
+
+The `items` arg is a JSON array of template items. Each item has:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `title` | yes | Short title; may contain `{{variable}}` placeholders |
+| `type` | yes | One of: task, decision, review, reminder, deadline, prep, message, directive |
+| `priority` | yes | One of: p0, p1, p2, p3 |
+| `level` | no | One of: epic, task, subtask |
+| `context` | no | Full context; may contain `{{variable}}` placeholders |
+| `deps` | no | 0-based indices of items that must complete before this one |
+
+`deps` are indices into the items array. An item with `deps: [0, 1]` is blocked by items 0 and 1. Circular dependencies are rejected at registration time. Self-references are rejected.
+
+Example items array:
+```json
+[
+  {
+    "title": "Step 1: {{project}} setup",
+    "type": "task",
+    "level": "task",
+    "priority": "p1",
+    "context": "Set up the project scaffolding",
+    "deps": []
+  },
+  {
+    "title": "Step 2: {{project}} implementation",
+    "type": "task",
+    "level": "task",
+    "priority": "p1",
+    "context": "Implement the core feature",
+    "deps": [0]
+  }
+]
+```
+
+If a playbook ID is registered more than once, the most recent registration is authoritative.
+
+**CLI invocation:**
+```bash
+rd playbook create "SRE Incident Response" \
+  --id sre-incident \
+  --description "Standard incident response runbook" \
+  --items-file sre-incident-items.json
+```
+
+### 4.13 `work:engage`
+
+Instantiate a playbook into concrete work items. The engage operation:
+1. Resolves the playbook by ID (scans for most recent `work:playbook-create` with matching tag)
+2. Generates item IDs: `<project>-<random-3-chars>` per template item (must match `^[a-z0-9][a-z0-9-]{2,63}$`)
+3. Applies `{{variable}}` substitution to titles and contexts
+4. Sends `work:create` for each template item
+5. Sends `work:block` for each dependency edge
+6. Sends this `work:engage` message recording what was created
+
+```json
+{
+  "convention": "work",
+  "version": "0.3",
+  "operation": "engage",
+  "description": "Instantiate a playbook into work items",
+  "args": [
+    {"name": "playbook_id", "type": "string", "required": true, "max_length": 64},
+    {"name": "project", "type": "string", "required": true, "max_length": 64},
+    {"name": "for", "type": "string", "required": true, "max_length": 256},
+    {"name": "variables", "type": "json"}
+  ],
+  "produces_tags": [
+    {"tag": "work:engage", "cardinality": "exactly_one"},
+    {"tag": "work:playbook:*", "cardinality": "exactly_one"}
+  ],
+  "antecedents": "none",
+  "signing": "member_key"
+}
+```
+
+The `variables` arg is a JSON object of key→value substitutions applied to `{{variable}}` placeholders in item titles and contexts. Unknown placeholders are left as-is.
+
+The `work:engage` payload records `created_ids` — the list of item IDs instantiated. This provides an audit trail linking the engagement to the created items.
+
+**CLI invocation:**
+```bash
+rd engage sre-incident \
+  --project myapp \
+  --for baron@3dl.dev \
+  --var project=myapp \
+  --var env=prod
+```
+
 ---
 
 ## 5. Futures Integration
