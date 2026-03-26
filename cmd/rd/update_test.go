@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -183,5 +185,108 @@ func TestUpdateAutoWaiting(t *testing.T) {
 
 	if statusTo != "waiting" {
 		t.Errorf("expected status to be auto-set to waiting, got %q", statusTo)
+	}
+}
+
+// --- status alias tests ---
+
+// resolveStatusAlias applies the alias map and returns the resolved status and
+// the warning message that would be written to stderr (empty string if no alias).
+// This mirrors the logic in update.go RunE.
+func resolveStatusAlias(statusTo string) (resolved string, warning string) {
+	if canonical, ok := statusAliases[statusTo]; ok {
+		warning = fmt.Sprintf("warning: status %q is a bd alias — using %q instead\n", statusTo, canonical)
+		return canonical, warning
+	}
+	return statusTo, ""
+}
+
+// isValidStatus returns true for any canonical rd status value.
+func isValidStatus(s string) bool {
+	validStatuses := map[string]bool{
+		"inbox": true, "active": true, "scheduled": true, "waiting": true,
+		"done": true, "cancelled": true, "failed": true,
+	}
+	return validStatuses[s]
+}
+
+// TestStatusAlias_InProgress verifies that in_progress maps to active.
+func TestStatusAlias_InProgress(t *testing.T) {
+	resolved, _ := resolveStatusAlias("in_progress")
+	if resolved != "active" {
+		t.Errorf("expected in_progress → active, got %q", resolved)
+	}
+	if !isValidStatus(resolved) {
+		t.Errorf("resolved value %q is not a valid status", resolved)
+	}
+}
+
+// TestStatusAlias_Open verifies that open maps to inbox.
+func TestStatusAlias_Open(t *testing.T) {
+	resolved, _ := resolveStatusAlias("open")
+	if resolved != "inbox" {
+		t.Errorf("expected open → inbox, got %q", resolved)
+	}
+	if !isValidStatus(resolved) {
+		t.Errorf("resolved value %q is not a valid status", resolved)
+	}
+}
+
+// TestStatusAlias_Closed verifies that closed maps to done.
+func TestStatusAlias_Closed(t *testing.T) {
+	resolved, _ := resolveStatusAlias("closed")
+	if resolved != "done" {
+		t.Errorf("expected closed → done, got %q", resolved)
+	}
+	if !isValidStatus(resolved) {
+		t.Errorf("resolved value %q is not a valid status", resolved)
+	}
+}
+
+// TestStatusAlias_Unknown verifies that an unknown status is not aliased and
+// does not pass validation.
+func TestStatusAlias_Unknown(t *testing.T) {
+	resolved, warning := resolveStatusAlias("foobar")
+	if resolved != "foobar" {
+		t.Errorf("expected foobar to be unchanged, got %q", resolved)
+	}
+	if warning != "" {
+		t.Errorf("expected no warning for unknown status, got %q", warning)
+	}
+	if isValidStatus(resolved) {
+		t.Errorf("foobar should not be a valid status — validation should reject it")
+	}
+}
+
+// TestStatusAlias_WarningPrinted verifies that the deprecation warning contains
+// the expected text ("bd alias") for aliased statuses.
+func TestStatusAlias_WarningPrinted(t *testing.T) {
+	aliases := []string{"in_progress", "in-progress", "open", "closed", "completed"}
+	for _, alias := range aliases {
+		_, warning := resolveStatusAlias(alias)
+		if warning == "" {
+			t.Errorf("alias %q produced no warning", alias)
+			continue
+		}
+		var buf bytes.Buffer
+		buf.WriteString(warning)
+		if !containsStr(buf.String(), "bd alias") {
+			t.Errorf("alias %q warning does not contain 'bd alias': %q", alias, warning)
+		}
+	}
+}
+
+// TestStatusAlias_InProgres_Typo verifies that in_progres (one 's') is NOT aliased
+// and fails validation — typos should not silently succeed.
+func TestStatusAlias_InProgres_Typo(t *testing.T) {
+	resolved, warning := resolveStatusAlias("in_progres")
+	if resolved != "in_progres" {
+		t.Errorf("expected in_progres to be unchanged, got %q", resolved)
+	}
+	if warning != "" {
+		t.Errorf("expected no warning for typo, got %q", warning)
+	}
+	if isValidStatus(resolved) {
+		t.Errorf("in_progres should not be a valid status — typos must fail validation")
 	}
 }

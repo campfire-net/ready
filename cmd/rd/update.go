@@ -32,6 +32,16 @@ type updateStatusPayload struct {
 	WaitingType string `json:"waiting_type,omitempty"`
 }
 
+// statusAliases maps bd-style status names to canonical rd status values.
+// These aliases exist to ease migration from bd to rd.
+var statusAliases = map[string]string{
+	"in_progress": "active",
+	"in-progress": "active",
+	"open":        "inbox",
+	"closed":      "done",
+	"completed":   "done",
+}
+
 var updateCmd = &cobra.Command{
 	Use:   "update <item-id>",
 	Short: "Update fields on a work item",
@@ -79,6 +89,14 @@ Examples:
 			validPriorities := map[string]bool{"p0": true, "p1": true, "p2": true, "p3": true}
 			if !validPriorities[priority] {
 				return fmt.Errorf("invalid --priority %q: must be one of p0, p1, p2, p3", priority)
+			}
+		}
+
+		// Resolve status aliases (bd-compat).
+		if statusTo != "" {
+			if canonical, ok := statusAliases[statusTo]; ok {
+				fmt.Fprintf(os.Stderr, "warning: status %q is a bd alias — using %q instead\n", statusTo, canonical)
+				statusTo = canonical
 			}
 		}
 
