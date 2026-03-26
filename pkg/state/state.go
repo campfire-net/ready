@@ -347,7 +347,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			item.UpdatedAt = m.Timestamp
 			// Implicit unblock: remove all block edges where this item is the blocker.
 			// Also clean up blockMsgIndex so stale entries don't linger.
-			newEdges := blockEdges[:0]
+			var newEdges []blockEdge
 			for _, edge := range blockEdges {
 				if edge.blockerID != item.ID {
 					newEdges = append(newEdges, edge)
@@ -427,7 +427,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 				}
 			}
 			if edge, ok := blockMsgIndex[targetMsg]; ok {
-				newEdges := blockEdges[:0]
+				var newEdges []blockEdge
 				for _, e := range blockEdges {
 					if e.blockerID != edge.blockerID || e.blockedID != edge.blockedID {
 						newEdges = append(newEdges, e)
