@@ -15,7 +15,7 @@ var listCmd = &cobra.Command{
 	Long: `List work items across all campfires.
 
 Filters:
-  --status    filter by status (inbox, active, scheduled, waiting, blocked, done, cancelled, failed)
+  --status    filter by status (repeatable, OR semantics — e.g. --status inbox --status active)
   --for       filter by 'for' party
   --by        filter by 'by' party
   --project   filter by project
@@ -25,7 +25,7 @@ Filters:
 By default, terminal items (done, cancelled, failed) are excluded.
 Use --all to include them.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		statusFilter, _ := cmd.Flags().GetString("status")
+		statusFilters, _ := cmd.Flags().GetStringArray("status")
 		forFilter, _ := cmd.Flags().GetString("for")
 		byFilter, _ := cmd.Flags().GetString("by")
 		projectFilter, _ := cmd.Flags().GetString("project")
@@ -45,31 +45,7 @@ Use --all to include them.`,
 		}
 
 		// Apply filters.
-		var filtered []*state.Item
-		for _, item := range items {
-			if !all && state.IsTerminal(item) && statusFilter == "" {
-				continue
-			}
-			if statusFilter != "" && item.Status != statusFilter {
-				continue
-			}
-			if forFilter != "" && item.For != forFilter {
-				continue
-			}
-			if byFilter != "" && item.By != byFilter {
-				continue
-			}
-			if projectFilter != "" && item.Project != projectFilter {
-				continue
-			}
-			if priorityFilter != "" && item.Priority != priorityFilter {
-				continue
-			}
-			if typeFilter != "" && item.Type != typeFilter {
-				continue
-			}
-			filtered = append(filtered, item)
-		}
+		filtered := applyListFilters(items, statusFilters, forFilter, byFilter, projectFilter, priorityFilter, typeFilter, all)
 
 		// Sort by priority then ID.
 		sort.Slice(filtered, func(i, j int) bool {
@@ -95,8 +71,50 @@ Use --all to include them.`,
 	},
 }
 
+// applyListFilters filters items according to the list command's flag values.
+// statusFilters uses OR semantics: an item matches if its status equals any of the
+// provided values. When statusFilters is empty and all is false, terminal items
+// (done, cancelled, failed) are excluded by default.
+func applyListFilters(items []*state.Item, statusFilters []string, forFilter, byFilter, projectFilter, priorityFilter, typeFilter string, all bool) []*state.Item {
+	var filtered []*state.Item
+	for _, item := range items {
+		if !all && state.IsTerminal(item) && len(statusFilters) == 0 {
+			continue
+		}
+		if len(statusFilters) > 0 {
+			matched := false
+			for _, sf := range statusFilters {
+				if item.Status == sf {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		if forFilter != "" && item.For != forFilter {
+			continue
+		}
+		if byFilter != "" && item.By != byFilter {
+			continue
+		}
+		if projectFilter != "" && item.Project != projectFilter {
+			continue
+		}
+		if priorityFilter != "" && item.Priority != priorityFilter {
+			continue
+		}
+		if typeFilter != "" && item.Type != typeFilter {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
 func init() {
-	listCmd.Flags().String("status", "", "filter by status")
+	listCmd.Flags().StringArray("status", nil, "filter by status (repeatable, OR semantics)")
 	listCmd.Flags().String("for", "", "filter by 'for' party")
 	listCmd.Flags().String("by", "", "filter by 'by' party")
 	listCmd.Flags().String("project", "", "filter by project")
