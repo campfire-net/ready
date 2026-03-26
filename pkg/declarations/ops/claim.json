@@ -1,0 +1,15 @@
+{
+  "convention": "work",
+  "version": "0.3",
+  "operation": "claim",
+  "description": "Accept work and transition to active",
+  "args": [
+    {"name": "target", "type": "message_id", "required": true},
+    {"name": "reason", "type": "string", "max_length": 1024}
+  ],
+  "produces_tags": [
+    {"tag": "work:claim", "cardinality": "exactly_one"}
+  ],
+  "antecedents": "exactly_one(target)",
+  "signing": "member_key"
+}

@@ -1,0 +1,17 @@
+{
+  "convention": "work",
+  "version": "0.3",
+  "operation": "close",
+  "description": "Close a work item",
+  "args": [
+    {"name": "target", "type": "message_id", "required": true},
+    {"name": "resolution", "type": "enum", "required": true, "values": ["done", "cancelled", "failed"]},
+    {"name": "reason", "type": "string", "max_length": 4096}
+  ],
+  "produces_tags": [
+    {"tag": "work:close", "cardinality": "exactly_one"},
+    {"tag": "work:resolution:*", "cardinality": "exactly_one"}
+  ],
+  "antecedents": "exactly_one(target)",
+  "signing": "member_key"
+}

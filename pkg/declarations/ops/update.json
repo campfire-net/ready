@@ -1,0 +1,15 @@
+{
+  "convention": "work",
+  "version": "0.3",
+  "operation": "update",
+  "description": "Modify fields on a work item",
+  "args": [
+    {"name": "target", "type": "message_id", "required": true},
+    {"name": "fields", "type": "json", "required": true}
+  ],
+  "produces_tags": [
+    {"tag": "work:update", "cardinality": "exactly_one"}
+  ],
+  "antecedents": "exactly_one(target)",
+  "signing": "member_key"
+}

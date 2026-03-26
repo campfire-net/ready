@@ -1,0 +1,18 @@
+{
+  "convention": "work",
+  "version": "0.3",
+  "operation": "engage",
+  "description": "Instantiate a playbook into work items",
+  "args": [
+    {"name": "playbook_id", "type": "string", "required": true, "max_length": 64},
+    {"name": "project", "type": "string", "required": true, "max_length": 64},
+    {"name": "for", "type": "string", "required": true, "max_length": 256},
+    {"name": "variables", "type": "json"}
+  ],
+  "produces_tags": [
+    {"tag": "work:engage", "cardinality": "exactly_one"},
+    {"tag": "work:playbook:*", "cardinality": "exactly_one"}
+  ],
+  "antecedents": "none",
+  "signing": "member_key"
+}
