@@ -6,26 +6,61 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 
+	"github.com/campfire-net/campfire/pkg/beacon"
 	"github.com/spf13/cobra"
 	"github.com/3dl-dev/ready/pkg/state"
 	"github.com/3dl-dev/ready/pkg/timeparse"
 )
 
-// generateID returns the shortest hex ID that doesn't collide with any
-// existing item ID in the campfire, with a minimum length of 3 characters.
-func generateID(existingIDs map[string]struct{}) (string, error) {
+var nonAlphanumHyphen = regexp.MustCompile(`[^a-z0-9]+`)
+
+// projectPrefix reads the project campfire's beacon description and returns
+// a sanitized prefix (e.g. "ready", "myproject"). Returns "" if unavailable.
+func projectPrefix(campfireID string) string {
+	beacons, err := beacon.Scan(beacon.DefaultBeaconDir())
+	if err != nil {
+		return ""
+	}
+	for _, b := range beacons {
+		if b.CampfireIDHex() == campfireID && b.Description != "" {
+			// Take first whitespace-delimited token, lowercase, strip non-alphanumeric.
+			token := strings.Fields(b.Description)[0]
+			token = strings.ToLower(token)
+			token = nonAlphanumHyphen.ReplaceAllString(token, "")
+			if len(token) >= 2 {
+				return token
+			}
+		}
+	}
+	return ""
+}
+
+// generateID returns the shortest ID that doesn't collide with any existing
+// item ID, with a minimum of 3 hex characters. If a prefix is provided it is
+// prepended as "<prefix>-<hex>".
+func generateID(prefix string, existingIDs map[string]struct{}) (string, error) {
 	b := make([]byte, 8) // 16 hex chars — enough headroom
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generating id: %w", err)
 	}
 	full := hex.EncodeToString(b)
 	for length := 3; length <= len(full); length++ {
-		candidate := full[:length]
+		var candidate string
+		if prefix != "" {
+			candidate = prefix + "-" + full[:length]
+		} else {
+			candidate = full[:length]
+		}
 		if _, collision := existingIDs[candidate]; !collision {
 			return candidate, nil
 		}
+	}
+	if prefix != "" {
+		return prefix + "-" + full, nil
 	}
 	return full, nil
 }
@@ -175,22 +210,29 @@ If --eta is omitted, it is derived from priority:
 		}
 		defer s.Close()
 
-		// Generate ID if not provided — use minimum chars for uniqueness.
-		if id == "" {
-			campfireID, _, ok := projectRoot()
-			existingIDs := map[string]struct{}{}
-			if ok {
-				if items, err := state.DeriveFromStore(s, campfireID); err == nil {
-					for k := range items {
-						existingIDs[k] = struct{}{}
-					}
+		// Load existing IDs for collision detection.
+		campfireID, _, hasCampfire := projectRoot()
+		existingIDs := map[string]struct{}{}
+		if hasCampfire {
+			if items, err := state.DeriveFromStore(s, campfireID); err == nil {
+				for k := range items {
+					existingIDs[k] = struct{}{}
 				}
 			}
-			generated, err := generateID(existingIDs)
+		}
+
+		if id == "" {
+			prefix := ""
+			if hasCampfire {
+				prefix = projectPrefix(campfireID)
+			}
+			generated, err := generateID(prefix, existingIDs)
 			if err != nil {
 				return err
 			}
 			id = generated
+		} else if _, collision := existingIDs[id]; collision {
+			return fmt.Errorf("item %q already exists", id)
 		}
 
 		// Build payload and tags via extracted function.

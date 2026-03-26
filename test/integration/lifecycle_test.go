@@ -1,7 +1,11 @@
 //go:build integration
 
-// Package integration exercises the full rd pipeline against a real filesystem campfire.
-// No mocking — real identity, real campfire, real messages, real state derivation.
+// Package integration tests the convention layer (pkg/state + pkg/views) via the Go API
+// directly against a real campfire. It verifies that messages round-trip correctly through
+// the campfire store and that state derivation produces correct results.
+//
+// Use this layer to test: message encoding, state derivation, view predicates, compaction.
+// Use test/e2e/ to test: the rd CLI binary, flag parsing, JSON output, command behaviour.
 //
 // Run with:
 //

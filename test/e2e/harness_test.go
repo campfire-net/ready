@@ -1,3 +1,12 @@
+// Package e2e_test tests the rd CLI binary end-to-end against a real campfire.
+// It builds the binary via TestMain and exercises commands via exec.Command.
+//
+// Use this layer to test: CLI flags, command behaviour, JSON output contracts, error messages.
+// Use test/integration/ to test: the Go API, state derivation, view predicates.
+//
+// Run with:
+//
+//	go test ./test/e2e/
 package e2e_test
 
 import (

@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -213,5 +214,36 @@ func TestE2E_UpdateThenClose_AgentWorkflow(t *testing.T) {
 	e.RdMustSucceed("close", item.ID, "--reason", "done")
 	if got := e.ShowItem(item.ID); got.Status != "done" {
 		t.Errorf("after close: status=%q, want done", got.Status)
+	}
+}
+
+// TestE2E_Create_ExplicitIDCollision verifies that re-using an existing ID fails.
+func TestE2E_Create_ExplicitIDCollision(t *testing.T) {
+	e := NewEnv(t)
+	e.RdMustSucceed("create",
+		"--id", "dup-001",
+		"--title", "First",
+		"--priority", "p1",
+		"--type", "task",
+		"--for", "test@example.com",
+	)
+	stderr := e.RdMustFail("create",
+		"--id", "dup-001",
+		"--title", "Duplicate",
+		"--priority", "p1",
+		"--type", "task",
+		"--for", "test@example.com",
+	)
+	if !strings.Contains(stderr, "dup-001") {
+		t.Errorf("expected error mentioning the duplicate ID, got: %q", stderr)
+	}
+}
+
+// TestE2E_Show_NotFound verifies rd show on a nonexistent ID exits non-zero with a clear error.
+func TestE2E_Show_NotFound(t *testing.T) {
+	e := NewEnv(t)
+	stderr := e.RdMustFail("show", "doesnotexist")
+	if !strings.Contains(stderr, "not found") {
+		t.Errorf("expected 'not found' in stderr, got: %q", stderr)
 	}
 }

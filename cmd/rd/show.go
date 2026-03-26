@@ -25,6 +25,7 @@ var showCmd = &cobra.Command{
 
 		item, err := resolve.ByID(s, itemID)
 		if err != nil {
+			cmd.SilenceUsage = true
 			return err
 		}
 
