@@ -54,7 +54,7 @@ type Item struct {
 	ETA      string `json:"eta,omitempty"`
 	Due      string `json:"due,omitempty"`
 
-	ParentID string   `json:"parent_id,omitempty"`
+	ParentID  string   `json:"parent_id,omitempty"`
 	BlockedBy []string `json:"blocked_by,omitempty"`
 	Blocks    []string `json:"blocks,omitempty"`
 
@@ -62,6 +62,10 @@ type Item struct {
 	WaitingOn    string `json:"waiting_on,omitempty"`
 	WaitingType  string `json:"waiting_type,omitempty"`
 	WaitingSince string `json:"waiting_since,omitempty"`
+
+	// GateMsgID is the campfire message ID of the most recent unfulfilled
+	// work:gate message. Cleared when the gate is resolved.
+	GateMsgID string `json:"gate_msg_id,omitempty"`
 
 	// CreatedAt is the timestamp of the work:create message (unix nanos).
 	CreatedAt int64 `json:"created_at"`
@@ -142,6 +146,20 @@ type unblockPayload struct {
 	Reason string `json:"reason"`
 }
 
+// gatePayload mirrors the fields in a work:gate message payload.
+type gatePayload struct {
+	Target      string `json:"target"`
+	GateType    string `json:"gate_type"`
+	Description string `json:"description,omitempty"`
+}
+
+// gateResolvePayload mirrors the fields in a work:gate-resolve message payload.
+type gateResolvePayload struct {
+	Target     string `json:"target"`
+	Resolution string `json:"resolution"`
+	Reason     string `json:"reason,omitempty"`
+}
+
 // hasTag reports whether tags contains the given tag.
 func hasTag(tags []string, tag string) bool {
 	for _, t := range tags {
@@ -169,6 +187,22 @@ func etaFromPriority(priority string, now time.Time) string {
 	}
 }
 
+// resolveItemID finds an item ID by looking up the target in msgIndex,
+// falling back to antecedents if target is empty or not found.
+func resolveItemID(msgIndex map[string]string, target string, antecedents []string) string {
+	if target != "" {
+		if id := msgIndex[target]; id != "" {
+			return id
+		}
+	}
+	for _, ant := range antecedents {
+		if id := msgIndex[ant]; id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
 // Derive replays all work convention messages from the provided campfire message
 // records and returns the derived item states keyed by item ID. Messages must
 // be from a single campfire and are processed in timestamp order (the store
@@ -181,10 +215,20 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 	// blockEdges tracks blocker→blocked relationships.
 	// When a blocker item closes, its entries are removed.
 	type blockEdge struct {
-		blockerID string
-		blockedID string
+		blockerID  string
+		blockedID  string
+		blockMsgID string // campfire message ID of the work:block message
 	}
 	var blockEdges []blockEdge
+	// blockMsgIndex maps the work:block message ID to the edge's blockerID+blockedID
+	// for removal by work:unblock.
+	blockMsgIndex := make(map[string]struct {
+		blockerID string
+		blockedID string
+	})
+
+	// gateMsgIndex maps a gate message ID → item ID, used by work:gate-resolve.
+	gateMsgIndex := make(map[string]string)
 
 	for _, m := range msgs {
 		switch {
@@ -228,16 +272,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			if err := json.Unmarshal(m.Payload, &p); err != nil {
 				continue
 			}
-			itemID := msgIndex[p.Target]
-			if itemID == "" {
-				// Try to find target in antecedents.
-				for _, ant := range m.Antecedents {
-					if id := msgIndex[ant]; id != "" {
-						itemID = id
-						break
-					}
-				}
-			}
+			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
 			item, ok := items[itemID]
 			if !ok {
 				continue
@@ -259,15 +294,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			if err := json.Unmarshal(m.Payload, &p); err != nil {
 				continue
 			}
-			itemID := msgIndex[p.Target]
-			if itemID == "" {
-				for _, ant := range m.Antecedents {
-					if id := msgIndex[ant]; id != "" {
-						itemID = id
-						break
-					}
-				}
-			}
+			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
 			item, ok := items[itemID]
 			if !ok {
 				continue
@@ -282,15 +309,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			if err := json.Unmarshal(m.Payload, &p); err != nil {
 				continue
 			}
-			itemID := msgIndex[p.Target]
-			if itemID == "" {
-				for _, ant := range m.Antecedents {
-					if id := msgIndex[ant]; id != "" {
-						itemID = id
-						break
-					}
-				}
-			}
+			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
 			item, ok := items[itemID]
 			if !ok {
 				continue
@@ -303,15 +322,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			if err := json.Unmarshal(m.Payload, &p); err != nil {
 				continue
 			}
-			itemID := msgIndex[p.Target]
-			if itemID == "" {
-				for _, ant := range m.Antecedents {
-					if id := msgIndex[ant]; id != "" {
-						itemID = id
-						break
-					}
-				}
-			}
+			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
 			item, ok := items[itemID]
 			if !ok {
 				continue
@@ -329,10 +340,13 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			}
 			item.UpdatedAt = m.Timestamp
 			// Implicit unblock: remove all block edges where this item is the blocker.
+			// Also clean up blockMsgIndex so stale entries don't linger.
 			newEdges := blockEdges[:0]
 			for _, edge := range blockEdges {
 				if edge.blockerID != item.ID {
 					newEdges = append(newEdges, edge)
+				} else {
+					delete(blockMsgIndex, edge.blockMsgID)
 				}
 			}
 			blockEdges = newEdges
@@ -342,15 +356,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			if err := json.Unmarshal(m.Payload, &p); err != nil {
 				continue
 			}
-			itemID := msgIndex[p.Target]
-			if itemID == "" {
-				for _, ant := range m.Antecedents {
-					if id := msgIndex[ant]; id != "" {
-						itemID = id
-						break
-					}
-				}
-			}
+			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
 			item, ok := items[itemID]
 			if !ok {
 				continue
@@ -390,17 +396,20 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 				continue
 			}
 			blockEdges = append(blockEdges, blockEdge{
-				blockerID: p.BlockerID,
-				blockedID: p.BlockedID,
+				blockerID:  p.BlockerID,
+				blockedID:  p.BlockedID,
+				blockMsgID: m.ID,
 			})
+			blockMsgIndex[m.ID] = struct {
+				blockerID string
+				blockedID string
+			}{p.BlockerID, p.BlockedID}
 
 		case hasTag(m.Tags, "work:unblock"):
 			var p unblockPayload
 			if err := json.Unmarshal(m.Payload, &p); err != nil {
 				continue
 			}
-			// Target is the work:block message ID. Find and remove the edge.
-			// We don't have a block-msg index, so we remove by antecedent.
 			targetMsg := p.Target
 			if targetMsg == "" {
 				for _, ant := range m.Antecedents {
@@ -408,10 +417,75 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 					break
 				}
 			}
-			// We can't easily reverse-lookup the edge from just the message ID
-			// in this simple pass — skip if we can't resolve. In practice,
-			// work:unblock callers should include block msg ID in Target field.
-			_ = targetMsg
+			if edge, ok := blockMsgIndex[targetMsg]; ok {
+				newEdges := blockEdges[:0]
+				for _, e := range blockEdges {
+					if e.blockerID != edge.blockerID || e.blockedID != edge.blockedID {
+						newEdges = append(newEdges, e)
+					}
+				}
+				blockEdges = newEdges
+				delete(blockMsgIndex, targetMsg)
+			}
+
+		case hasTag(m.Tags, "work:gate"):
+			// work:gate implicitly transitions item to waiting with waiting_type=gate.
+			// The gate message is always sent as --future in a full implementation.
+			// TODO: when campfire transport supports --future, this should be sent
+			// with --future and resolved via cf await. For now, we send normally.
+			var p gatePayload
+			if err := json.Unmarshal(m.Payload, &p); err != nil {
+				continue
+			}
+			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
+			item, ok := items[itemID]
+			if !ok {
+				continue
+			}
+			item.Status = StatusWaiting
+			item.WaitingType = "gate"
+			item.WaitingOn = p.Description
+			item.WaitingSince = time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339)
+			item.GateMsgID = m.ID
+			item.UpdatedAt = m.Timestamp
+			// Register gate message ID → item ID for gate-resolve lookup.
+			gateMsgIndex[m.ID] = itemID
+
+		case hasTag(m.Tags, "work:gate-resolve"):
+			// work:gate-resolve fulfills the gate future. Target is the work:gate message.
+			// approved → transition to active; rejected → remain waiting.
+			var p gateResolvePayload
+			if err := json.Unmarshal(m.Payload, &p); err != nil {
+				continue
+			}
+			// Resolve via target (gate msg ID) or antecedents.
+			gateMsgID := p.Target
+			if gateMsgID == "" {
+				for _, ant := range m.Antecedents {
+					if _, ok := gateMsgIndex[ant]; ok {
+						gateMsgID = ant
+						break
+					}
+				}
+			}
+			itemID := gateMsgIndex[gateMsgID]
+			if itemID == "" {
+				continue
+			}
+			item, ok := items[itemID]
+			if !ok {
+				continue
+			}
+			if p.Resolution == "approved" {
+				item.Status = StatusActive
+				item.WaitingOn = ""
+				item.WaitingType = ""
+				item.WaitingSince = ""
+				item.GateMsgID = ""
+			}
+			// rejected: item remains waiting; gate stays open.
+			// The by party should revise approach and re-gate or resume.
+			item.UpdatedAt = m.Timestamp
 		}
 	}
 
@@ -466,7 +540,7 @@ func IsTerminal(item *Item) bool {
 	return TerminalStatuses[item.Status]
 }
 
-// HasTag reports whether a message record has the given tag prefix.
+// HasTagPrefix reports whether a message record has the given tag prefix.
 func HasTagPrefix(tags []string, prefix string) bool {
 	for _, t := range tags {
 		if strings.HasPrefix(t, prefix) {

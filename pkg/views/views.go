@@ -17,6 +17,7 @@ const (
 	ViewOverdue   = "overdue"
 	ViewDelegated = "delegated"
 	ViewMyWork    = "my-work"
+	ViewGates     = "gates"
 )
 
 // Filter is a function that tests whether an item should appear in a view.
@@ -39,6 +40,8 @@ func Named(viewName, identity string) Filter {
 		return DelegatedFilter(identity)
 	case ViewMyWork:
 		return MyWorkFilter(identity)
+	case ViewGates:
+		return GatesFilter()
 	default:
 		return nil
 	}
@@ -127,6 +130,18 @@ func MyWorkFilter(identity string) Filter {
 	}
 }
 
+// GatesFilter returns items that have an unfulfilled gate (status=waiting with
+// waiting_type=gate and a non-empty GateMsgID). These are items awaiting human
+// resolution before work can proceed.
+// Convention spec §5: gates view — pending human escalations.
+func GatesFilter() Filter {
+	return func(item *state.Item) bool {
+		return item.Status == state.StatusWaiting &&
+			item.WaitingType == "gate" &&
+			item.GateMsgID != ""
+	}
+}
+
 // Apply filters items using the provided filter function.
 func Apply(items []*state.Item, f Filter) []*state.Item {
 	var result []*state.Item
@@ -147,5 +162,6 @@ func AllNames() []string {
 		ViewOverdue,
 		ViewDelegated,
 		ViewMyWork,
+		ViewGates,
 	}
 }

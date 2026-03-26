@@ -39,6 +39,19 @@ func ByID(s store.Store, itemID string) (*state.Item, error) {
 		return nil, fmt.Errorf("listing memberships: %w", err)
 	}
 
+	// First pass: check for an exact match across all campfires.
+	// If an exact match exists, return it immediately without prefix scanning.
+	for _, m := range memberships {
+		items, err := state.DeriveFromStore(s, m.CampfireID)
+		if err != nil {
+			continue
+		}
+		if item, ok := items[itemID]; ok {
+			return item, nil
+		}
+	}
+
+	// Second pass: prefix match (no exact match found).
 	var matches []*state.Item
 	for _, m := range memberships {
 		items, err := state.DeriveFromStore(s, m.CampfireID)
@@ -46,7 +59,7 @@ func ByID(s store.Store, itemID string) (*state.Item, error) {
 			continue
 		}
 		for id, item := range items {
-			if id == itemID || strings.HasPrefix(id, itemID) {
+			if strings.HasPrefix(id, itemID) {
 				matches = append(matches, item)
 			}
 		}
