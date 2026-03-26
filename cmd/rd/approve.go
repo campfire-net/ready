@@ -18,6 +18,25 @@ type gateResolvePayload struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
+// BuildGateResolvePayload constructs the JSON payload, tags, and antecedents
+// for a work:gate-resolve message per convention §4.9. The gateMsgID is the
+// work:gate message being resolved. Resolution must be "approved" or "rejected".
+// Reason is optional.
+func BuildGateResolvePayload(gateMsgID, resolution, reason string) ([]byte, []string, []string, error) {
+	p := gateResolvePayload{
+		Target:     gateMsgID,
+		Resolution: resolution,
+		Reason:     reason,
+	}
+	payloadBytes, err := json.Marshal(p)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("encoding payload: %w", err)
+	}
+	tags := []string{"work:gate-resolve", "work:resolution:" + resolution}
+	antecedents := []string{gateMsgID}
+	return payloadBytes, tags, antecedents, nil
+}
+
 var approveCmd = &cobra.Command{
 	Use:   "approve <item-id>",
 	Short: "Approve a pending gate",
@@ -55,22 +74,11 @@ Example:
 			return fmt.Errorf("item %s is not waiting (status=%s)", item.ID, item.Status)
 		}
 
-		// Build payload — target is the work:gate message ID.
-		p := gateResolvePayload{
-			Target:     item.GateMsgID,
-			Resolution: "approved",
-			Reason:     reason,
-		}
-		payloadBytes, err := json.Marshal(p)
+		// Build payload, tags, and antecedents via extracted function per §4.9.
+		payloadBytes, tags, antecedents, err := BuildGateResolvePayload(item.GateMsgID, "approved", reason)
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
 		}
-
-		// Tags: operation tag + resolution tag per convention §4.9.
-		tags := []string{"work:gate-resolve", "work:resolution:approved"}
-
-		// Antecedents: the gate message (--fulfills implies --reply-to per convention).
-		antecedents := []string{item.GateMsgID}
 
 		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
 		if err != nil {

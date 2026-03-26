@@ -5,146 +5,128 @@ import (
 	"testing"
 )
 
-// TestBlockPayload verifies that blockPayload marshals correctly per §4.6.
-func TestBlockPayload(t *testing.T) {
-	p := blockPayload{
-		BlockerID:  "ready-t01",
-		BlockedID:  "ready-t02",
-		BlockerMsg: "msg-create-t01",
-		BlockedMsg: "msg-create-t02",
-	}
+// TestBuildBlockPayload_FieldsAndTags verifies that BuildBlockPayload produces
+// the correct JSON fields, exactly one tag (work:block), and two antecedents
+// referencing both work:create message IDs per convention §4.6.
+func TestBuildBlockPayload_FieldsAndTags(t *testing.T) {
+	blockerID := "ready-t01"
+	blockedID := "ready-t02"
+	blockerMsgID := "msg-create-t01-aaaa-bbbb-cccc-dddddddddddd"
+	blockedMsgID := "msg-create-t02-aaaa-bbbb-cccc-dddddddddddd"
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, tags, _, err := BuildBlockPayload(blockerID, blockedID, blockerMsgID, blockedMsgID)
 	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
+		t.Fatalf("BuildBlockPayload returned error: %v", err)
 	}
 
+	// Decode and verify payload fields.
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if decoded["blocker_id"] != blockerID {
+		t.Errorf("blocker_id=%v, want %q", decoded["blocker_id"], blockerID)
+	}
+	if decoded["blocked_id"] != blockedID {
+		t.Errorf("blocked_id=%v, want %q", decoded["blocked_id"], blockedID)
+	}
+	if decoded["blocker_msg"] != blockerMsgID {
+		t.Errorf("blocker_msg=%v, want %q", decoded["blocker_msg"], blockerMsgID)
+	}
+	if decoded["blocked_msg"] != blockedMsgID {
+		t.Errorf("blocked_msg=%v, want %q", decoded["blocked_msg"], blockedMsgID)
 	}
 
-	cases := map[string]string{
-		"blocker_id":  "ready-t01",
-		"blocked_id":  "ready-t02",
-		"blocker_msg": "msg-create-t01",
-		"blocked_msg": "msg-create-t02",
+	// Tags: exactly one, must be work:block per convention §4.1.
+	if len(tags) != 1 {
+		t.Errorf("expected exactly 1 tag, got %d: %v", len(tags), tags)
 	}
-	for field, want := range cases {
-		got, ok := decoded[field]
-		if !ok {
-			t.Errorf("missing field %q", field)
-			continue
-		}
-		if got != want {
-			t.Errorf("field %q: expected %q, got %v", field, want, got)
-		}
+	if tags[0] != "work:block" {
+		t.Errorf("tag[0]=%q, want 'work:block'", tags[0])
 	}
 }
 
-// TestDepUnblockPayload verifies that depUnblockPayload marshals correctly per §4.7.
-// Target must be the work:block message ID; reason is optional.
-func TestDepUnblockPayload(t *testing.T) {
-	p := depUnblockPayload{
-		Target: "msg-block-xyz",
-		Reason: "Dependency removed",
-	}
+// TestBuildBlockPayload_Antecedents verifies that both work:create message IDs
+// appear in the antecedents for a work:block message per convention §4.6.
+// This is the campfire causal ordering invariant: the block message causally
+// depends on both item creation messages.
+func TestBuildBlockPayload_Antecedents(t *testing.T) {
+	blockerMsgID := "msg-create-t01-aaaa-bbbb-cccc-dddddddddddd"
+	blockedMsgID := "msg-create-t02-aaaa-bbbb-cccc-dddddddddddd"
 
-	payloadBytes, err := json.Marshal(p)
+	_, _, antecedents, err := BuildBlockPayload("r-t01", "r-t02", blockerMsgID, blockedMsgID)
 	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
+		t.Fatalf("BuildBlockPayload returned error: %v", err)
 	}
 
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
+	// Must have exactly 2 antecedents per §4.6.
+	if len(antecedents) != 2 {
+		t.Fatalf("expected 2 antecedents, got %d: %v", len(antecedents), antecedents)
 	}
-
-	if decoded["target"] != "msg-block-xyz" {
-		t.Errorf("expected target=msg-block-xyz, got %v", decoded["target"])
+	if antecedents[0] != blockerMsgID {
+		t.Errorf("antecedents[0]=%q, want blockerMsgID=%q", antecedents[0], blockerMsgID)
 	}
-	if decoded["reason"] != "Dependency removed" {
-		t.Errorf("expected reason='Dependency removed', got %v", decoded["reason"])
+	if antecedents[1] != blockedMsgID {
+		t.Errorf("antecedents[1]=%q, want blockedMsgID=%q", antecedents[1], blockedMsgID)
 	}
 }
 
-// TestDepUnblockPayloadNoReason verifies that reason is omitted when empty (§4.7).
-func TestDepUnblockPayloadNoReason(t *testing.T) {
-	p := depUnblockPayload{
-		Target: "msg-block-xyz",
-	}
+// TestBuildUnblockPayload_TargetIsBlockMsg verifies that BuildUnblockPayload
+// sets target to the work:block message ID (not an item ID) per convention §4.7.
+// This is the key invariant: work:unblock references the block message, not the items.
+func TestBuildUnblockPayload_TargetIsBlockMsg(t *testing.T) {
+	blockMsgID := "msg-block-abc-1234-5678-9abc-def012345678"
+	reason := "No longer blocked"
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, tags, antecedents, err := BuildUnblockPayload(blockMsgID, reason)
 	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
+		t.Fatalf("BuildUnblockPayload returned error: %v", err)
 	}
 
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	// Target must be the block message ID, not an item ID.
+	if decoded["target"] != blockMsgID {
+		t.Errorf("target=%v, want blockMsgID=%q", decoded["target"], blockMsgID)
+	}
+	if decoded["reason"] != reason {
+		t.Errorf("reason=%v, want %q", decoded["reason"], reason)
+	}
+
+	// Tags: exactly one, must be work:unblock.
+	if len(tags) != 1 {
+		t.Errorf("expected 1 tag, got %d: %v", len(tags), tags)
+	}
+	if tags[0] != "work:unblock" {
+		t.Errorf("tag[0]=%q, want 'work:unblock'", tags[0])
+	}
+
+	// Antecedent is the block message being reversed.
+	if len(antecedents) != 1 {
+		t.Fatalf("expected 1 antecedent, got %d: %v", len(antecedents), antecedents)
+	}
+	if antecedents[0] != blockMsgID {
+		t.Errorf("antecedent=%q, want blockMsgID=%q", antecedents[0], blockMsgID)
+	}
+}
+
+// TestBuildUnblockPayload_ReasonOmittedWhenEmpty verifies that reason is omitted
+// from the JSON payload when empty per convention §4.7 (omitempty).
+func TestBuildUnblockPayload_ReasonOmittedWhenEmpty(t *testing.T) {
+	payloadBytes, _, _, err := BuildUnblockPayload("msg-block-xyz", "")
+	if err != nil {
+		t.Fatalf("BuildUnblockPayload returned error: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
 	}
 
 	if _, ok := decoded["reason"]; ok {
-		t.Error("expected reason to be omitted when empty")
-	}
-}
-
-// TestDepAddTags verifies the tags produced by rd dep add.
-// Convention §4.1: exactly one operation tag; §4.6: work:block.
-func TestDepAddTags(t *testing.T) {
-	tags := []string{"work:block"}
-
-	if len(tags) != 1 {
-		t.Errorf("expected exactly one tag, got %d", len(tags))
-	}
-	if tags[0] != "work:block" {
-		t.Errorf("expected tag work:block, got %q", tags[0])
-	}
-}
-
-// TestDepAddAntecedents verifies that dep add includes both work:create message IDs
-// as antecedents per §4.6.
-func TestDepAddAntecedents(t *testing.T) {
-	blockerMsgID := "msg-create-t01"
-	blockedMsgID := "msg-create-t02"
-
-	// Both must be antecedents (spec §4.6: both message IDs as antecedents).
-	antecedents := []string{blockerMsgID, blockedMsgID}
-
-	if len(antecedents) != 2 {
-		t.Errorf("expected 2 antecedents, got %d", len(antecedents))
-	}
-	if antecedents[0] != blockerMsgID {
-		t.Errorf("expected antecedents[0]=%s, got %s", blockerMsgID, antecedents[0])
-	}
-	if antecedents[1] != blockedMsgID {
-		t.Errorf("expected antecedents[1]=%s, got %s", blockedMsgID, antecedents[1])
-	}
-}
-
-// TestDepRemoveTags verifies the tags produced by rd dep remove.
-// Convention §4.1: exactly one operation tag; §4.7: work:unblock.
-func TestDepRemoveTags(t *testing.T) {
-	tags := []string{"work:unblock"}
-
-	if len(tags) != 1 {
-		t.Errorf("expected exactly one tag, got %d", len(tags))
-	}
-	if tags[0] != "work:unblock" {
-		t.Errorf("expected tag work:unblock, got %q", tags[0])
-	}
-}
-
-// TestDepRemoveAntecedents verifies that dep remove uses the block message ID
-// as the sole antecedent per §4.7: antecedents = exactly_one(target).
-func TestDepRemoveAntecedents(t *testing.T) {
-	blockMsgID := "msg-block-abc"
-	antecedents := []string{blockMsgID}
-
-	if len(antecedents) != 1 {
-		t.Errorf("expected 1 antecedent, got %d", len(antecedents))
-	}
-	if antecedents[0] != blockMsgID {
-		t.Errorf("expected antecedent=%s, got %s", blockMsgID, antecedents[0])
+		t.Error("reason should be omitted when empty (omitempty), but was present in JSON")
 	}
 }

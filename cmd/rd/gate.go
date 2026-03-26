@@ -29,6 +29,25 @@ var validGateTypes = map[string]bool{
 	"periodic": true,
 }
 
+// BuildGatePayload constructs the JSON payload, tags, and antecedents for a
+// work:gate message per convention §4.8. The targetMsgID is the work:create
+// message ID of the item being gated. The gateType must be a valid gate type
+// from validGateTypes. Description is optional.
+func BuildGatePayload(targetMsgID, gateType, description string) ([]byte, []string, []string, error) {
+	p := gatePayload{
+		Target:      targetMsgID,
+		GateType:    gateType,
+		Description: description,
+	}
+	payloadBytes, err := json.Marshal(p)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("encoding payload: %w", err)
+	}
+	tags := []string{"work:gate", "work:gate-type:" + gateType}
+	antecedents := []string{targetMsgID}
+	return payloadBytes, tags, antecedents, nil
+}
+
 var gateCmd = &cobra.Command{
 	Use:   "gate <item-id>",
 	Short: "Request human escalation on a work item",
@@ -76,22 +95,11 @@ Example:
 			return fmt.Errorf("item %s is already %s", item.ID, item.Status)
 		}
 
-		// Build payload.
-		p := gatePayload{
-			Target:      item.MsgID,
-			GateType:    gateType,
-			Description: description,
-		}
-		payloadBytes, err := json.Marshal(p)
+		// Build payload, tags, and antecedents via extracted function per §4.8.
+		payloadBytes, tags, antecedents, err := BuildGatePayload(item.MsgID, gateType, description)
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
 		}
-
-		// Tags: operation tag + gate-type tag per convention §4.8.
-		tags := []string{"work:gate", "work:gate-type:" + gateType}
-
-		// Antecedents: the work:create message per convention §4.8.
-		antecedents := []string{item.MsgID}
 
 		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
 		if err != nil {
