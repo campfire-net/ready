@@ -118,10 +118,12 @@ type closePayload struct {
 // updatePayload mirrors the fields in a work:update message payload.
 type updatePayload struct {
 	Target   string `json:"target"`
+	Title    string `json:"title,omitempty"`
 	Context  string `json:"context,omitempty"`
 	Priority string `json:"priority,omitempty"`
 	ETA      string `json:"eta,omitempty"`
 	Due      string `json:"due,omitempty"`
+	Level    string `json:"level,omitempty"`
 	For      string `json:"for,omitempty"`
 	By       string `json:"by,omitempty"`
 }
@@ -353,6 +355,9 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			if !ok {
 				continue
 			}
+			if p.Title != "" {
+				item.Title = p.Title
+			}
 			if p.Context != "" {
 				item.Context = p.Context
 			}
@@ -364,6 +369,9 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			}
 			if p.Due != "" {
 				item.Due = p.Due
+			}
+			if p.Level != "" {
+				item.Level = p.Level
 			}
 			if p.For != "" {
 				item.For = p.For

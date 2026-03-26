@@ -28,6 +28,9 @@ var rootCmd = &cobra.Command{
   rd list      list all items
   rd show      show a single item
   rd close     close an item
+  rd claim     claim a work item (accept delegation, transition to active)
+  rd update    update fields on a work item
+  rd delegate  delegate a work item to another party
 
   Work items live in your campfire. The campfire is the backend.`,
 	Version: Version,
