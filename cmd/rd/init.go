@@ -9,12 +9,13 @@ import (
 
 	"github.com/campfire-net/campfire/pkg/beacon"
 	campfirepkg "github.com/campfire-net/campfire/pkg/campfire"
+	"github.com/campfire-net/campfire/pkg/identity"
+	"github.com/campfire-net/campfire/pkg/naming"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/campfire/pkg/transport/fs"
 	"github.com/spf13/cobra"
 
 	"github.com/3dl-dev/ready/pkg/declarations"
-	"github.com/3dl-dev/ready/pkg/rdconfig"
 )
 
 var initCmd = &cobra.Command{
@@ -27,15 +28,12 @@ This command:
   2. Writes .campfire/root (linking this directory to the campfire)
   3. Posts all convention:operation declarations (making the campfire self-describing)
   4. Publishes a beacon for local discovery
+  5. Checks for a home campfire and reports what it finds
 
-If --org is provided (or configured), also registers the campfire in the naming
-tree at cf://<org>.ready.<name>. The org root (cf://<org>) may or may not exist;
-registration under it is best-effort.
-
-Use 'rd register' later to add naming when the org becomes available.`,
+The project campfire works standalone — no home campfire or naming required.
+Use 'rd register' later to add naming when you're ready.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
-		org, _ := cmd.Flags().GetString("org")
 		description, _ := cmd.Flags().GetString("description")
 
 		// Check we're not already initialized.
@@ -64,65 +62,11 @@ Use 'rd register' later to add naming when the org becomes available.`,
 			description = name + " work campfire"
 		}
 
-		// Load config for org default.
-		cfg, err := rdconfig.Load(CFHome())
-		if err != nil {
-			return fmt.Errorf("loading config: %w", err)
-		}
-		if org == "" {
-			org = cfg.Org
-		}
-
 		// --- Create the campfire ---
 
-		cf, err := campfirepkg.New("open", []string{"work:create"}, 1)
+		campfireID, err := createLocalCampfire(agentID, s, "open", []string{"work:create"}, description)
 		if err != nil {
-			return fmt.Errorf("creating campfire: %w", err)
-		}
-		cf.AddMember(agentID.PublicKey)
-		campfireID := cf.PublicKeyHex()
-
-		// Set up filesystem transport.
-		baseDir := fs.DefaultBaseDir()
-		transport := fs.New(baseDir)
-		if err := transport.Init(cf); err != nil {
-			return fmt.Errorf("initializing transport: %w", err)
-		}
-		if err := transport.WriteMember(campfireID, campfirepkg.MemberRecord{
-			PublicKey: agentID.PublicKey,
-			JoinedAt:  time.Now().UnixNano(),
-		}); err != nil {
-			return fmt.Errorf("writing member record: %w", err)
-		}
-
-		// Create and publish beacon.
-		b, err := beacon.New(
-			cf.PublicKey, cf.PrivateKey,
-			cf.JoinProtocol, cf.ReceptionRequirements,
-			beacon.TransportConfig{
-				Protocol: "filesystem",
-				Config:   map[string]string{"dir": transport.CampfireDir(campfireID)},
-			},
-			description,
-		)
-		if err != nil {
-			return fmt.Errorf("creating beacon: %w", err)
-		}
-		if err := beacon.Publish(beacon.DefaultBeaconDir(), b); err != nil {
-			return fmt.Errorf("publishing beacon: %w", err)
-		}
-
-		// Record membership in local store.
-		if err := s.AddMembership(store.Membership{
-			CampfireID:   campfireID,
-			TransportDir: transport.CampfireDir(campfireID),
-			JoinProtocol: cf.JoinProtocol,
-			Role:         store.PeerRoleCreator,
-			JoinedAt:     store.NowNano(),
-			Threshold:    cf.Threshold,
-			Description:  description,
-		}); err != nil {
-			return fmt.Errorf("recording membership: %w", err)
+			return err
 		}
 
 		// --- Write .campfire/root ---
@@ -137,9 +81,25 @@ Use 'rd register' later to add naming when the org becomes available.`,
 		}
 
 		// Also publish beacon to .campfire/beacons/ for project-local discovery.
-		projectBeaconsDir := filepath.Join(campfireDir, "beacons")
-		if err := beacon.Publish(projectBeaconsDir, b); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not publish project beacon: %v\n", err)
+		m, _ := s.GetMembership(campfireID)
+		if m != nil {
+			tr := fs.New(fs.DefaultBaseDir())
+			cfState, err := tr.ReadState(campfireID)
+			if err == nil {
+				b, err := beacon.New(
+					cfState.PublicKey, cfState.PrivateKey,
+					cfState.JoinProtocol, cfState.ReceptionRequirements,
+					beacon.TransportConfig{
+						Protocol: "filesystem",
+						Config:   map[string]string{"dir": tr.CampfireDir(campfireID)},
+					},
+					description,
+				)
+				if err == nil {
+					projectBeaconsDir := filepath.Join(campfireDir, "beacons")
+					_ = beacon.Publish(projectBeaconsDir, b)
+				}
+			}
 		}
 
 		// --- Post convention:operation declarations ---
@@ -149,14 +109,11 @@ Use 'rd register' later to add naming when the org becomes available.`,
 			return fmt.Errorf("posting declarations (%d posted before failure): %w", nDecls, err)
 		}
 
-		// --- Save org if provided ---
+		// --- Check for home campfire ---
 
-		if org != "" && cfg.Org == "" {
-			cfg.Org = org
-			if err := rdconfig.Save(CFHome(), cfg); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: could not save config: %v\n", err)
-			}
-		}
+		aliases := naming.NewAliasStore(CFHome())
+		homeID, homeErr := aliases.Get("home")
+		hasHome := homeErr == nil && homeID != ""
 
 		// --- Output ---
 
@@ -166,9 +123,10 @@ Use 'rd register' later to add naming when the org becomes available.`,
 				"name":         name,
 				"declarations": nDecls,
 				"description":  description,
+				"has_home":     hasHome,
 			}
-			if org != "" {
-				out["namespace"] = fmt.Sprintf("cf://%s.ready.%s", org, name)
+			if hasHome {
+				out["home_campfire_id"] = homeID
 			}
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
@@ -178,20 +136,76 @@ Use 'rd register' later to add naming when the org becomes available.`,
 		fmt.Printf("initialized %s\n", name)
 		fmt.Printf("  campfire: %s\n", campfireID[:12]+"...")
 		fmt.Printf("  declarations: %d operations published\n", nDecls)
-		if org != "" {
-			fmt.Printf("  namespace: cf://%s.ready.%s\n", org, name)
-			fmt.Println("  (run 'rd register' to publish naming when ready)")
+		fmt.Println()
+		if hasHome {
+			fmt.Printf("  home campfire: found (%s)\n", homeID[:12]+"...")
+			fmt.Println("  run 'rd register --org <name>' to add naming")
 		} else {
-			fmt.Println("  (run 'rd register --org <name>' to add naming later)")
+			fmt.Println("  home campfire: not found")
+			fmt.Println("  your project works standalone. to add naming later:")
+			fmt.Println("    rd register --org <name>        create a home and register")
+			fmt.Println("    rd register --home <id>         join an existing home")
 		}
 
 		return nil
 	},
 }
 
+// createLocalCampfire creates a campfire with the filesystem transport, publishes
+// its beacon, and records membership. Returns the campfire ID hex.
+func createLocalCampfire(agentID *identity.Identity, s store.Store, joinProtocol string, receptionReqs []string, description string) (string, error) {
+	cf, err := campfirepkg.New(joinProtocol, receptionReqs, 1)
+	if err != nil {
+		return "", fmt.Errorf("creating campfire: %w", err)
+	}
+	cf.AddMember(agentID.PublicKey)
+	campfireID := cf.PublicKeyHex()
+
+	baseDir := fs.DefaultBaseDir()
+	tr := fs.New(baseDir)
+	if err := tr.Init(cf); err != nil {
+		return "", fmt.Errorf("initializing transport: %w", err)
+	}
+	if err := tr.WriteMember(campfireID, campfirepkg.MemberRecord{
+		PublicKey: agentID.PublicKey,
+		JoinedAt:  time.Now().UnixNano(),
+	}); err != nil {
+		return "", fmt.Errorf("writing member record: %w", err)
+	}
+
+	b, err := beacon.New(
+		cf.PublicKey, cf.PrivateKey,
+		cf.JoinProtocol, cf.ReceptionRequirements,
+		beacon.TransportConfig{
+			Protocol: "filesystem",
+			Config:   map[string]string{"dir": tr.CampfireDir(campfireID)},
+		},
+		description,
+	)
+	if err != nil {
+		return "", fmt.Errorf("creating beacon: %w", err)
+	}
+	if err := beacon.Publish(beacon.DefaultBeaconDir(), b); err != nil {
+		return "", fmt.Errorf("publishing beacon: %w", err)
+	}
+
+	if err := s.AddMembership(store.Membership{
+		CampfireID:   campfireID,
+		TransportDir: tr.CampfireDir(campfireID),
+		JoinProtocol: cf.JoinProtocol,
+		Role:         store.PeerRoleCreator,
+		JoinedAt:     store.NowNano(),
+		Threshold:    cf.Threshold,
+		Description:  description,
+	}); err != nil {
+		return "", fmt.Errorf("recording membership: %w", err)
+	}
+
+	return campfireID, nil
+}
+
 func init() {
 	initCmd.Flags().String("name", "", "project name (default: current directory name)")
-	initCmd.Flags().String("org", "", "organization name for cf://<org>.ready.<name> naming")
 	initCmd.Flags().String("description", "", "campfire description (default: '<name> work campfire')")
 	rootCmd.AddCommand(initCmd)
 }

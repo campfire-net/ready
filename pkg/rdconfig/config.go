@@ -14,6 +14,9 @@ type Config struct {
 	// The ready namespace is cf://<org>.ready.
 	Org string `json:"org,omitempty"`
 
+	// HomeCampfireID is the hex campfire ID of the operator root / home campfire.
+	HomeCampfireID string `json:"home_campfire_id,omitempty"`
+
 	// ReadyCampfireID is the hex campfire ID of the cf://<org>.ready namespace campfire.
 	ReadyCampfireID string `json:"ready_campfire_id,omitempty"`
 }
