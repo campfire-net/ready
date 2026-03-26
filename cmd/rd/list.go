@@ -84,7 +84,7 @@ func applyListFilters(items []*state.Item, statusFilters []string, forFilter, by
 		if len(statusFilters) > 0 {
 			matched := false
 			for _, sf := range statusFilters {
-				if item.Status == sf {
+				if item.Status == resolveStatus(sf) {
 					matched = true
 					break
 				}

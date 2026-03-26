@@ -111,6 +111,90 @@ func TestList_NoStatus_AllFlagIncludesTerminal(t *testing.T) {
 	}
 }
 
+// TestList_StatusAlias_InProgress verifies that items with status=active match
+// the alias filter "in_progress" (bd-compat alias).
+func TestList_StatusAlias_InProgress(t *testing.T) {
+	items := []*state.Item{
+		makeListItem("t1", state.StatusActive),
+		makeListItem("t2", state.StatusInbox),
+		makeListItem("t3", state.StatusDone),
+	}
+
+	result := applyListFilters(items, []string{"in_progress"}, "", "", "", "", "", false)
+
+	if len(result) != 1 {
+		t.Errorf("expected 1 item (active via in_progress alias), got %d", len(result))
+	}
+	if len(result) > 0 && result[0].ID != "t1" {
+		t.Errorf("expected t1 (active), got %s", result[0].ID)
+	}
+}
+
+// TestList_StatusAlias_Closed verifies that items with status=done match
+// the alias filter "closed" (bd-compat alias).
+func TestList_StatusAlias_Closed(t *testing.T) {
+	items := []*state.Item{
+		makeListItem("t1", state.StatusActive),
+		makeListItem("t2", state.StatusDone),
+		makeListItem("t3", state.StatusCancelled),
+	}
+
+	result := applyListFilters(items, []string{"closed"}, "", "", "", "", "", false)
+
+	if len(result) != 1 {
+		t.Errorf("expected 1 item (done via closed alias), got %d", len(result))
+	}
+	if len(result) > 0 && result[0].ID != "t2" {
+		t.Errorf("expected t2 (done), got %s", result[0].ID)
+	}
+}
+
+// TestList_StatusAlias_MixedCanonicalAndAlias verifies that a filter containing
+// both an alias ("in_progress") and a canonical status ("inbox") matches items
+// of both statuses.
+func TestList_StatusAlias_MixedCanonicalAndAlias(t *testing.T) {
+	items := []*state.Item{
+		makeListItem("t1", state.StatusActive),
+		makeListItem("t2", state.StatusInbox),
+		makeListItem("t3", state.StatusWaiting),
+		makeListItem("t4", state.StatusDone),
+	}
+
+	result := applyListFilters(items, []string{"in_progress", state.StatusInbox}, "", "", "", "", "", false)
+
+	if len(result) != 2 {
+		t.Errorf("expected 2 items (active via in_progress + inbox), got %d", len(result))
+	}
+	ids := map[string]bool{}
+	for _, item := range result {
+		ids[item.ID] = true
+	}
+	if !ids["t1"] {
+		t.Errorf("expected t1 (active via in_progress alias)")
+	}
+	if !ids["t2"] {
+		t.Errorf("expected t2 (inbox canonical)")
+	}
+	if ids["t3"] {
+		t.Errorf("t3 (waiting) must not appear")
+	}
+}
+
+// TestList_StatusAlias_Unknown verifies that an unknown/unrecognised filter value
+// matches no items (not an alias, not a canonical status).
+func TestList_StatusAlias_Unknown(t *testing.T) {
+	items := []*state.Item{
+		makeListItem("t1", state.StatusActive),
+		makeListItem("t2", state.StatusInbox),
+	}
+
+	result := applyListFilters(items, []string{"foobar"}, "", "", "", "", "", false)
+
+	if len(result) != 0 {
+		t.Errorf("expected 0 items for unknown filter, got %d", len(result))
+	}
+}
+
 // TestList_MultipleStatus_IncludesTerminalExplicitly verifies that providing a
 // terminal status explicitly in --status returns those items (no default exclusion
 // when statuses are explicitly specified).
