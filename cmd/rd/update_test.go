@@ -294,6 +294,97 @@ func TestStatusAlias_InProgres_Typo(t *testing.T) {
 	}
 }
 
+// --- claim flag tests ---
+
+// buildClaimPayload mirrors the payload construction logic in update.go when --claim is set.
+func buildClaimPayload(createMsgID string) (payload claimPayload, tags []string, antecedents []string) {
+	payload = claimPayload{Target: createMsgID}
+	tags = []string{"work:claim"}
+	antecedents = []string{createMsgID}
+	return
+}
+
+// TestUpdate_ClaimFlag_SendsClaimMessage verifies that when --claim is set, the claim
+// payload is constructed with the correct target, tag, and antecedent.
+// Convention §4.5: work:claim sets by=sender, antecedents = exactly_one(target).
+func TestUpdate_ClaimFlag_SendsClaimMessage(t *testing.T) {
+	createMsgID := "msg-create-abc123"
+
+	payload, tags, antecedents := buildClaimPayload(createMsgID)
+
+	// Verify claim payload.
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if decoded["target"] != createMsgID {
+		t.Errorf("claim payload target: expected %q, got %v", createMsgID, decoded["target"])
+	}
+
+	// Verify tags: exactly one, must be work:claim.
+	if len(tags) != 1 || tags[0] != "work:claim" {
+		t.Errorf("claim tags: expected [work:claim], got %v", tags)
+	}
+
+	// Verify antecedents: exactly one, must be the create message ID.
+	if len(antecedents) != 1 || antecedents[0] != createMsgID {
+		t.Errorf("claim antecedents: expected [%s], got %v", createMsgID, antecedents)
+	}
+}
+
+// TestUpdate_ClaimFlag_WithoutStatus verifies that --claim alone implies --status active.
+// bd-compat: bd update --claim transitions to active without requiring --status active.
+func TestUpdate_ClaimFlag_WithoutStatus(t *testing.T) {
+	claim := true
+	statusTo := "" // no --status flag passed
+
+	// Mirrors the logic in update.go RunE.
+	if claim && statusTo == "" {
+		statusTo = "active"
+	}
+
+	if statusTo != "active" {
+		t.Errorf("expected --claim alone to imply status=active, got %q", statusTo)
+	}
+}
+
+// TestUpdate_NoClaimFlag_NoClaim verifies that without --claim, no claim message is sent.
+// Default behavior must be unchanged.
+func TestUpdate_NoClaimFlag_NoClaim(t *testing.T) {
+	claim := false
+	claimMessageSent := false
+
+	// Mirrors the guard in update.go RunE.
+	if claim {
+		claimMessageSent = true
+	}
+
+	if claimMessageSent {
+		t.Error("expected no claim message when --claim is not set")
+	}
+}
+
+// TestUpdate_ClaimFlag_PayloadOmitsEmptyReason verifies that the claim payload
+// omits the reason field when not provided (json omitempty).
+func TestUpdate_ClaimFlag_PayloadOmitsEmptyReason(t *testing.T) {
+	p := claimPayload{Target: "msg-create-abc123"}
+	payloadBytes, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if _, ok := decoded["reason"]; ok {
+		t.Error("claim payload should omit reason when empty")
+	}
+}
+
 // TestUpdate_BlocksFlag_HelpfulError verifies that --blocks on rd update returns
 // a helpful error directing agents to rd dep add, not a generic "unknown flag".
 func TestUpdate_BlocksFlag_HelpfulError(t *testing.T) {

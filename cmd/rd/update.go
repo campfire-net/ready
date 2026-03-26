@@ -74,6 +74,12 @@ Examples:
 		waitingOn, _ := cmd.Flags().GetString("waiting-on")
 		waitingType, _ := cmd.Flags().GetString("waiting-type")
 		note, _ := cmd.Flags().GetString("note")
+		claim, _ := cmd.Flags().GetBool("claim")
+
+		// --claim alone implies --status active (bd-compat: bd update --claim sets active).
+		if claim && statusTo == "" {
+			statusTo = state.StatusActive
+		}
 
 		// Auto-set status=waiting if --waiting-on is set without --status.
 		if waitingOn != "" && statusTo == "" {
@@ -85,8 +91,8 @@ Examples:
 			eta != "" || due != "" || level != ""
 		hasStatusUpdate := statusTo != "" || waitingOn != ""
 
-		if !hasFieldUpdate && !hasStatusUpdate {
-			return fmt.Errorf("no fields to update: specify at least one of --title, --context, --priority, --eta, --due, --level, --status, --waiting-on")
+		if !hasFieldUpdate && !hasStatusUpdate && !claim {
+			return fmt.Errorf("no fields to update: specify at least one of --title, --context, --priority, --eta, --due, --level, --status, --waiting-on, --claim")
 		}
 
 		// Validate priority if set.
@@ -223,6 +229,27 @@ Examples:
 			lastCampfireID = campfireID
 		}
 
+		// Send work:claim if --claim is set.
+		if claim {
+			cp := claimPayload{
+				Target: item.MsgID,
+			}
+			payloadBytes, err := json.Marshal(cp)
+			if err != nil {
+				return fmt.Errorf("encoding claim payload: %w", err)
+			}
+
+			tags := []string{"work:claim"}
+			antecedents := []string{item.MsgID}
+
+			msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+			if err != nil {
+				return err
+			}
+			lastMsgID = msg.ID
+			lastCampfireID = campfireID
+		}
+
 		if jsonOutput {
 			out := map[string]interface{}{
 				"id":          item.ID,
@@ -252,5 +279,6 @@ func init() {
 	updateCmd.Flags().String("note", "", "note or reason (used as reason for status transitions)")
 	updateCmd.Flags().String("blocks", "", "")
 	_ = updateCmd.Flags().MarkHidden("blocks")
+	updateCmd.Flags().Bool("claim", false, "claim the item: set by=sender and transition to active (bd-compat: bd update --claim)")
 	rootCmd.AddCommand(updateCmd)
 }
