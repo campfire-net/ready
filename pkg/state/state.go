@@ -58,6 +58,9 @@ type Item struct {
 	BlockedBy []string `json:"blocked_by,omitempty"`
 	Blocks    []string `json:"blocks,omitempty"`
 
+	// Gate is set when the item requires human escalation. Values: budget, design, scope, review, human, stall.
+	Gate string `json:"gate,omitempty"`
+
 	// WaitingOn / WaitingType / WaitingSince are set when status=waiting.
 	WaitingOn    string `json:"waiting_on,omitempty"`
 	WaitingType  string `json:"waiting_type,omitempty"`
@@ -83,6 +86,7 @@ type createPayload struct {
 	ParentID string `json:"parent_id"`
 	ETA      string `json:"eta"`
 	Due      string `json:"due"`
+	Gate     string `json:"gate"`
 }
 
 // statusPayload mirrors the fields in a work:status message payload.
@@ -126,6 +130,7 @@ type updatePayload struct {
 	Level    string `json:"level,omitempty"`
 	For      string `json:"for,omitempty"`
 	By       string `json:"by,omitempty"`
+	Gate     string `json:"gate,omitempty"`
 }
 
 // blockPayload mirrors the fields in a work:block message payload.
@@ -217,6 +222,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 				ETA:        eta,
 				Due:        p.Due,
 				ParentID:   p.ParentID,
+				Gate:       p.Gate,
 				CreatedAt:  m.Timestamp,
 				UpdatedAt:  m.Timestamp,
 			}
@@ -378,6 +384,9 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			}
 			if p.By != "" {
 				item.By = p.By
+			}
+			if p.Gate != "" {
+				item.Gate = p.Gate
 			}
 			item.UpdatedAt = m.Timestamp
 

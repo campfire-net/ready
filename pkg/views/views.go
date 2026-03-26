@@ -17,6 +17,7 @@ const (
 	ViewOverdue   = "overdue"
 	ViewDelegated = "delegated"
 	ViewMyWork    = "my-work"
+	ViewFocus     = "focus"
 )
 
 // Filter is a function that tests whether an item should appear in a view.
@@ -39,6 +40,8 @@ func Named(viewName, identity string) Filter {
 		return DelegatedFilter(identity)
 	case ViewMyWork:
 		return MyWorkFilter(identity)
+	case ViewFocus:
+		return FocusFilter("")
 	default:
 		return nil
 	}
@@ -127,6 +130,21 @@ func MyWorkFilter(identity string) Filter {
 	}
 }
 
+// FocusFilter returns items that are in the ready view AND match the given gate type.
+// If gateType is empty, it returns all ready items (equivalent to ReadyFilter).
+func FocusFilter(gateType string) Filter {
+	ready := ReadyFilter()
+	return func(item *state.Item) bool {
+		if !ready(item) {
+			return false
+		}
+		if gateType == "" {
+			return true
+		}
+		return item.Gate == gateType
+	}
+}
+
 // Apply filters items using the provided filter function.
 func Apply(items []*state.Item, f Filter) []*state.Item {
 	var result []*state.Item
@@ -147,5 +165,6 @@ func AllNames() []string {
 		ViewOverdue,
 		ViewDelegated,
 		ViewMyWork,
+		ViewFocus,
 	}
 }
