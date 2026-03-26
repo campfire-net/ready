@@ -4,176 +4,150 @@ import (
 	"testing"
 )
 
+// createItem creates an item with auto-generated ID and returns it.
+func createItem(e *Env, t *testing.T, title, priority, itemType string) Item {
+	t.Helper()
+	var item Item
+	if err := e.RdJSON(&item, "create",
+		"--title", title,
+		"--priority", priority,
+		"--type", itemType,
+		"--for", "test@example.com",
+	); err != nil {
+		t.Fatalf("create %q: %v", title, err)
+	}
+	if item.ID == "" {
+		t.Fatalf("create returned empty ID for %q", title)
+	}
+	return item
+}
+
 // TestE2E_Create_ReturnsJSON verifies create --json returns id and title.
 func TestE2E_Create_ReturnsJSON(t *testing.T) {
 	e := NewEnv(t)
-	var item Item
-	if err := e.RdJSON(&item, "create",
-		"--id", "lc-001",
-		"--title", "Create JSON test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	); err != nil {
-		t.Fatalf("create --json: %v", err)
-	}
-	if item.ID != "lc-001" {
-		t.Errorf("id: got %q, want %q", item.ID, "lc-001")
+	item := createItem(e, t, "Create JSON test", "p1", "task")
+	if item.ID == "" {
+		t.Error("id should be non-empty")
 	}
 	if item.Title != "Create JSON test" {
 		t.Errorf("title: got %q, want %q", item.Title, "Create JSON test")
 	}
 }
 
+// TestE2E_Create_AutoGeneratesID verifies --id is not required.
+func TestE2E_Create_AutoGeneratesID(t *testing.T) {
+	e := NewEnv(t)
+	item1 := createItem(e, t, "Item one", "p1", "task")
+	item2 := createItem(e, t, "Item two", "p1", "task")
+	if item1.ID == "" || item2.ID == "" {
+		t.Fatal("both items should have generated IDs")
+	}
+	if item1.ID == item2.ID {
+		t.Errorf("two items got the same ID: %q", item1.ID)
+	}
+}
+
 // TestE2E_Create_AppearsInReady verifies a new item appears in rd ready with status=inbox.
 func TestE2E_Create_AppearsInReady(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-002",
-		"--title", "Ready test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
+	item := createItem(e, t, "Ready test", "p1", "task")
 	items := e.ReadyItems()
-	item, ok := findItem(items, "lc-002")
+	got, ok := findItem(items, item.ID)
 	if !ok {
-		t.Fatalf("item lc-002 not found in ready; got %d items", len(items))
+		t.Fatalf("item %s not found in ready", item.ID)
 	}
-	if item.Status != "inbox" {
-		t.Errorf("status: got %q, want %q", item.Status, "inbox")
+	if got.Status != "inbox" {
+		t.Errorf("status: got %q, want inbox", got.Status)
 	}
 }
 
 // TestE2E_Create_AppearsInList verifies a new item appears in rd list.
 func TestE2E_Create_AppearsInList(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-003",
-		"--title", "List test",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	items := e.ListItems()
-	if !containsItem(items, "lc-003") {
-		t.Fatalf("item lc-003 not found in list; got %d items", len(items))
+	item := createItem(e, t, "List test", "p2", "task")
+	if !containsItem(e.ListItems(), item.ID) {
+		t.Fatalf("item %s not found in list", item.ID)
 	}
 }
 
 // TestE2E_Create_ShowByID verifies rd show returns correct fields.
 func TestE2E_Create_ShowByID(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-004",
+	var item Item
+	if err := e.RdJSON(&item, "create",
 		"--title", "Show test",
 		"--priority", "p2",
 		"--type", "decision",
 		"--for", "baron@example.com",
 		"--context", "some context",
-	)
-	item := e.ShowItem("lc-004")
-	if item.ID != "lc-004" {
-		t.Errorf("id: got %q, want %q", item.ID, "lc-004")
+	); err != nil {
+		t.Fatalf("create: %v", err)
 	}
-	if item.Title != "Show test" {
-		t.Errorf("title: got %q", item.Title)
+	got := e.ShowItem(item.ID)
+	if got.Title != "Show test" {
+		t.Errorf("title: got %q", got.Title)
 	}
-	if item.Type != "decision" {
-		t.Errorf("type: got %q, want %q", item.Type, "decision")
+	if got.Type != "decision" {
+		t.Errorf("type: got %q, want decision", got.Type)
 	}
-	if item.For != "baron@example.com" {
-		t.Errorf("for: got %q, want %q", item.For, "baron@example.com")
+	if got.For != "baron@example.com" {
+		t.Errorf("for: got %q", got.For)
 	}
-	if item.Context != "some context" {
-		t.Errorf("context: got %q, want %q", item.Context, "some context")
+	if got.Context != "some context" {
+		t.Errorf("context: got %q", got.Context)
 	}
 }
 
 // TestE2E_Update_StatusActive verifies rd update --status active transitions status.
 func TestE2E_Update_StatusActive(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-005",
-		"--title", "Update status test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("update", "lc-005", "--status", "active")
-	item := e.ShowItem("lc-005")
-	if item.Status != "active" {
-		t.Errorf("status: got %q, want active", item.Status)
+	item := createItem(e, t, "Update status test", "p1", "task")
+	e.RdMustSucceed("update", item.ID, "--status", "active")
+	if got := e.ShowItem(item.ID); got.Status != "active" {
+		t.Errorf("status: got %q, want active", got.Status)
 	}
 }
 
 // TestE2E_Update_Priority verifies rd update --priority changes priority.
 func TestE2E_Update_Priority(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-006",
-		"--title", "Update priority test",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("update", "lc-006", "--priority", "p0")
-	item := e.ShowItem("lc-006")
-	if item.Priority != "p0" {
-		t.Errorf("priority: got %q, want p0", item.Priority)
+	item := createItem(e, t, "Update priority test", "p2", "task")
+	e.RdMustSucceed("update", item.ID, "--priority", "p0")
+	if got := e.ShowItem(item.ID); got.Priority != "p0" {
+		t.Errorf("priority: got %q, want p0", got.Priority)
 	}
 }
 
 // TestE2E_Update_Context verifies rd update --context changes context.
 func TestE2E_Update_Context(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-007",
-		"--title", "Update context test",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("update", "lc-007", "--context", "updated context")
-	item := e.ShowItem("lc-007")
-	if item.Context != "updated context" {
-		t.Errorf("context: got %q, want %q", item.Context, "updated context")
+	item := createItem(e, t, "Update context test", "p2", "task")
+	e.RdMustSucceed("update", item.ID, "--context", "updated context")
+	if got := e.ShowItem(item.ID); got.Context != "updated context" {
+		t.Errorf("context: got %q", got.Context)
 	}
 }
 
 // TestE2E_Update_StatusAlias verifies in_progress resolves to active.
 func TestE2E_Update_StatusAlias(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-008",
-		"--title", "Status alias test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("update", "lc-008", "--status", "in_progress")
-	item := e.ShowItem("lc-008")
-	if item.Status != "active" {
-		t.Errorf("status: got %q, want active (in_progress alias)", item.Status)
+	item := createItem(e, t, "Status alias test", "p1", "task")
+	e.RdMustSucceed("update", item.ID, "--status", "in_progress")
+	if got := e.ShowItem(item.ID); got.Status != "active" {
+		t.Errorf("status: got %q, want active (in_progress alias)", got.Status)
 	}
 }
 
 // TestE2E_Update_Claim verifies --claim sets status=active and by field.
 func TestE2E_Update_Claim(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-009",
-		"--title", "Claim test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("update", "lc-009", "--claim")
-	item := e.ShowItem("lc-009")
-	if item.Status != "active" {
-		t.Errorf("status: got %q, want active", item.Status)
+	item := createItem(e, t, "Claim test", "p1", "task")
+	e.RdMustSucceed("update", item.ID, "--claim")
+	got := e.ShowItem(item.ID)
+	if got.Status != "active" {
+		t.Errorf("status: got %q, want active", got.Status)
 	}
-	if item.By == "" {
+	if got.By == "" {
 		t.Error("by field is empty after --claim")
 	}
 }
@@ -181,14 +155,8 @@ func TestE2E_Update_Claim(t *testing.T) {
 // TestE2E_Close_RequiresReason verifies rd close without --reason fails.
 func TestE2E_Close_RequiresReason(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-010",
-		"--title", "Close no reason test",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	_, _, code := e.Rd("close", "lc-010")
+	item := createItem(e, t, "Close no reason test", "p2", "task")
+	_, _, code := e.Rd("close", item.ID)
 	if code == 0 {
 		t.Fatal("rd close without --reason should fail but exited 0")
 	}
@@ -197,89 +165,53 @@ func TestE2E_Close_RequiresReason(t *testing.T) {
 // TestE2E_Close_Done verifies rd close --reason sets status=done.
 func TestE2E_Close_Done(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-011",
-		"--title", "Close done test",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("close", "lc-011", "--reason", "done")
-	item := e.ShowItem("lc-011")
-	if item.Status != "done" {
-		t.Errorf("status: got %q, want done", item.Status)
+	item := createItem(e, t, "Close done test", "p2", "task")
+	e.RdMustSucceed("close", item.ID, "--reason", "done")
+	if got := e.ShowItem(item.ID); got.Status != "done" {
+		t.Errorf("status: got %q, want done", got.Status)
 	}
 }
 
 // TestE2E_Close_Cancelled verifies --resolution cancelled sets status=cancelled.
 func TestE2E_Close_Cancelled(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-012",
-		"--title", "Close cancelled test",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("close", "lc-012", "--resolution", "cancelled", "--reason", "nope")
-	item := e.ShowItem("lc-012")
-	if item.Status != "cancelled" {
-		t.Errorf("status: got %q, want cancelled", item.Status)
+	item := createItem(e, t, "Close cancelled test", "p2", "task")
+	e.RdMustSucceed("close", item.ID, "--resolution", "cancelled", "--reason", "nope")
+	if got := e.ShowItem(item.ID); got.Status != "cancelled" {
+		t.Errorf("status: got %q, want cancelled", got.Status)
 	}
 }
 
 // TestE2E_Close_DisappearsFromReady verifies closed item is gone from rd ready.
 func TestE2E_Close_DisappearsFromReady(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-013",
-		"--title", "Disappears from ready test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("close", "lc-013", "--reason", "done")
-	items := e.ReadyItems()
-	if containsItem(items, "lc-013") {
-		t.Fatal("closed item lc-013 still appears in rd ready")
+	item := createItem(e, t, "Disappears from ready", "p1", "task")
+	e.RdMustSucceed("close", item.ID, "--reason", "done")
+	if containsItem(e.ReadyItems(), item.ID) {
+		t.Fatal("closed item still appears in rd ready")
 	}
 }
 
 // TestE2E_Complete_ClosesAsDone verifies rd complete closes item as done.
 func TestE2E_Complete_ClosesAsDone(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-014",
-		"--title", "Complete test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("complete", "lc-014", "--reason", "done", "--branch", "work/test")
-	item := e.ShowItem("lc-014")
-	if item.Status != "done" {
-		t.Errorf("status: got %q, want done", item.Status)
+	item := createItem(e, t, "Complete test", "p1", "task")
+	e.RdMustSucceed("complete", item.ID, "--reason", "done", "--branch", "work/test")
+	if got := e.ShowItem(item.ID); got.Status != "done" {
+		t.Errorf("status: got %q, want done", got.Status)
 	}
 }
 
 // TestE2E_UpdateThenClose_AgentWorkflow exercises the #1 agent workflow pattern.
 func TestE2E_UpdateThenClose_AgentWorkflow(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "lc-015",
-		"--title", "Agent workflow test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("update", "lc-015", "--status", "active", "--claim")
-	item := e.ShowItem("lc-015")
-	if item.Status != "active" {
-		t.Fatalf("after claim: status=%q, want active", item.Status)
+	item := createItem(e, t, "Agent workflow test", "p1", "task")
+	e.RdMustSucceed("update", item.ID, "--status", "active", "--claim")
+	if got := e.ShowItem(item.ID); got.Status != "active" {
+		t.Fatalf("after claim: status=%q, want active", got.Status)
 	}
-	e.RdMustSucceed("close", "lc-015", "--reason", "done")
-	item = e.ShowItem("lc-015")
-	if item.Status != "done" {
-		t.Errorf("after close: status=%q, want done", item.Status)
+	e.RdMustSucceed("close", item.ID, "--reason", "done")
+	if got := e.ShowItem(item.ID); got.Status != "done" {
+		t.Errorf("after close: status=%q, want done", got.Status)
 	}
 }

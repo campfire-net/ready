@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +11,15 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/3dl-dev/ready/pkg/timeparse"
 )
+
+// generateID returns a random 8-char hex item ID.
+func generateID() (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating id: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
 
 // createPayload is the JSON payload for a work:create message.
 type createPayload struct {
@@ -71,8 +82,8 @@ var createCmd = &cobra.Command{
 	Short: "Create a new work item",
 	Long: `Create a new work item in the project campfire.
 
-The item ID must be unique and match ^[a-z0-9][a-z0-9-]{2,63}$.
-Example: ready-a1b
+If --id is omitted, an 8-char hex ID is generated automatically.
+If provided, it must match ^[a-z0-9][a-z0-9-]{2,63}$.
 
 If --eta is omitted, it is derived from priority:
   p0 = now, p1 = +4h, p2 = +24h, p3 = +72h`,
@@ -95,10 +106,16 @@ If --eta is omitted, it is derived from priority:
 		eta, _ := cmd.Flags().GetString("eta")
 		due, _ := cmd.Flags().GetString("due")
 
-		// Validation.
+		// Generate ID if not provided.
 		if id == "" {
-			return fmt.Errorf("--id is required")
+			generated, err := generateID()
+			if err != nil {
+				return err
+			}
+			id = generated
 		}
+
+		// Validation.
 		if title == "" {
 			return fmt.Errorf("--title is required")
 		}
@@ -190,7 +207,7 @@ If --eta is omitted, it is derived from priority:
 }
 
 func init() {
-	createCmd.Flags().String("id", "", "item ID (required, e.g. ready-a1b)")
+	createCmd.Flags().String("id", "", "item ID (default: auto-generated)")
 	createCmd.Flags().String("title", "", "short title (required)")
 	createCmd.Flags().String("context", "", "full context / description")
 	createCmd.Flags().String("type", "", "type: task, decision, review, reminder, deadline, prep, message, directive (required)")

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -263,31 +262,6 @@ func containsItem(items []Item, id string) bool {
 	return ok
 }
 
-// uniqueID generates a test-scoped item ID from a base string.
-func uniqueID(t *testing.T, base string) string {
-	t.Helper()
-	// Sanitize test name to valid id chars: lowercase alphanumeric + hyphen
-	name := strings.ToLower(t.Name())
-	var b strings.Builder
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('-')
-		}
-	}
-	s := b.String()
-	if len(s) > 20 {
-		s = s[len(s)-20:]
-	}
-	// Trim leading hyphens
-	s = strings.TrimLeft(s, "-")
-	if s == "" {
-		s = "t"
-	}
-	return base + "-" + s
-}
-
 // --- Harness self-tests ---
 
 func TestHarness_EnvCreates(t *testing.T) {
@@ -303,8 +277,12 @@ func TestHarness_EnvCreates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading .campfire/root: %v", err)
 	}
-	if strings.TrimSpace(string(data)) != e.CampfireID {
-		t.Fatalf(".campfire/root content mismatch: got %q, want %q", string(data), e.CampfireID)
+	got := string(data)
+	for len(got) > 0 && (got[len(got)-1] == '\n' || got[len(got)-1] == '\r') {
+		got = got[:len(got)-1]
+	}
+	if got != e.CampfireID {
+		t.Fatalf(".campfire/root content mismatch: got %q, want %q", got, e.CampfireID)
 	}
 }
 
@@ -321,16 +299,19 @@ func TestHarness_RdVersion(t *testing.T) {
 
 func TestHarness_CreateAndList(t *testing.T) {
 	e := NewEnv(t)
-	id := "htest-001"
-	e.RdMustSucceed("create",
-		"--id", id,
+	var item Item
+	if err := e.RdJSON(&item, "create",
 		"--title", "Harness self-test item",
 		"--priority", "p1",
 		"--type", "task",
 		"--for", "test@example.com",
-	)
-	items := e.ListItems()
-	if !containsItem(items, id) {
-		t.Fatalf("created item %q not found in list; got %d items", id, len(items))
+	); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if item.ID == "" {
+		t.Fatal("create returned empty ID")
+	}
+	if !containsItem(e.ListItems(), item.ID) {
+		t.Fatalf("created item %q not found in list", item.ID)
 	}
 }

@@ -7,232 +7,147 @@ import (
 // TestE2E_Ready_ShowsInboxItems verifies a new P1 item appears in rd ready.
 func TestE2E_Ready_ShowsInboxItems(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "at-001",
-		"--title", "Ready shows inbox",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	items := e.ReadyItems()
-	if !containsItem(items, "at-001") {
-		t.Fatalf("item at-001 not found in ready; got %d items", len(items))
+	item := createItem(e, t, "Ready shows inbox", "p1", "task")
+	if !containsItem(e.ReadyItems(), item.ID) {
+		t.Fatalf("item %s not found in ready", item.ID)
 	}
 }
 
 // TestE2E_Ready_ExcludesTerminal verifies closed items don't appear in rd ready.
 func TestE2E_Ready_ExcludesTerminal(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "at-002",
-		"--title", "Terminal exclusion test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("close", "at-002", "--reason", "done")
-	items := e.ReadyItems()
-	if containsItem(items, "at-002") {
-		t.Fatal("closed item at-002 should not appear in rd ready")
+	item := createItem(e, t, "Terminal exclusion test", "p1", "task")
+	e.RdMustSucceed("close", item.ID, "--reason", "done")
+	if containsItem(e.ReadyItems(), item.ID) {
+		t.Fatal("closed item should not appear in rd ready")
 	}
 }
 
 // TestE2E_Ready_ExcludesBlocked verifies blocked items don't appear in rd ready.
 func TestE2E_Ready_ExcludesBlocked(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "at-003a",
-		"--title", "Blocker",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("create",
-		"--id", "at-003b",
-		"--title", "Blocked item",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	// at-003b is blocked by at-003a
-	e.RdMustSucceed("dep", "add", "at-003b", "at-003a")
+	blocker := createItem(e, t, "Blocker", "p1", "task")
+	blocked := createItem(e, t, "Blocked item", "p1", "task")
+	e.RdMustSucceed("dep", "add", blocked.ID, blocker.ID)
 
-	items := e.ReadyItems()
-	if !containsItem(items, "at-003a") {
-		t.Error("blocker at-003a should be in ready")
+	ready := e.ReadyItems()
+	if !containsItem(ready, blocker.ID) {
+		t.Error("blocker should be in ready")
 	}
-	if containsItem(items, "at-003b") {
-		t.Error("blocked item at-003b should not be in ready")
+	if containsItem(ready, blocked.ID) {
+		t.Error("blocked item should not be in ready")
 	}
 }
 
 // TestE2E_List_DefaultExcludesTerminal verifies rd list excludes done/cancelled by default.
 func TestE2E_List_DefaultExcludesTerminal(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "at-004a",
-		"--title", "Open item",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("create",
-		"--id", "at-004b",
-		"--title", "Closed item",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("close", "at-004b", "--reason", "done")
+	open := createItem(e, t, "Open item", "p2", "task")
+	closed := createItem(e, t, "Closed item", "p2", "task")
+	e.RdMustSucceed("close", closed.ID, "--reason", "done")
 
 	var items []Item
 	if err := e.RdJSON(&items, "list"); err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if !containsItem(items, "at-004a") {
-		t.Error("open item at-004a should be in list")
+	if !containsItem(items, open.ID) {
+		t.Error("open item should be in list")
 	}
-	if containsItem(items, "at-004b") {
-		t.Error("closed item at-004b should not be in default list")
+	if containsItem(items, closed.ID) {
+		t.Error("closed item should not be in default list")
 	}
 }
 
 // TestE2E_List_AllIncludesTerminal verifies rd list --all includes terminal items.
 func TestE2E_List_AllIncludesTerminal(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "at-005a",
-		"--title", "Open item",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("create",
-		"--id", "at-005b",
-		"--title", "Closed item",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("close", "at-005b", "--reason", "done")
+	open := createItem(e, t, "Open item", "p2", "task")
+	closed := createItem(e, t, "Closed item", "p2", "task")
+	e.RdMustSucceed("close", closed.ID, "--reason", "done")
 
-	items := e.ListItems() // uses --all
-	if !containsItem(items, "at-005a") {
-		t.Error("open item at-005a should be in --all list")
+	items := e.ListItems()
+	if !containsItem(items, open.ID) {
+		t.Error("open item should be in --all list")
 	}
-	if !containsItem(items, "at-005b") {
-		t.Error("closed item at-005b should be in --all list")
+	if !containsItem(items, closed.ID) {
+		t.Error("closed item should be in --all list")
 	}
 }
 
 // TestE2E_List_MultiStatusOR verifies --status is repeatable with OR semantics.
 func TestE2E_List_MultiStatusOR(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "at-006a",
-		"--title", "Inbox item",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("create",
-		"--id", "at-006b",
-		"--title", "Active item",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("create",
-		"--id", "at-006c",
-		"--title", "Done item",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("update", "at-006b", "--status", "active")
-	e.RdMustSucceed("close", "at-006c", "--reason", "done")
+	inbox := createItem(e, t, "Inbox item", "p2", "task")
+	active := createItem(e, t, "Active item", "p2", "task")
+	done := createItem(e, t, "Done item", "p2", "task")
+	e.RdMustSucceed("update", active.ID, "--status", "active")
+	e.RdMustSucceed("close", done.ID, "--reason", "done")
 
 	var items []Item
 	if err := e.RdJSON(&items, "list", "--status", "inbox", "--status", "active"); err != nil {
 		t.Fatalf("list --status inbox --status active: %v", err)
 	}
-	if !containsItem(items, "at-006a") {
-		t.Error("inbox item at-006a should match --status inbox")
+	if !containsItem(items, inbox.ID) {
+		t.Error("inbox item should match --status inbox")
 	}
-	if !containsItem(items, "at-006b") {
-		t.Error("active item at-006b should match --status active")
+	if !containsItem(items, active.ID) {
+		t.Error("active item should match --status active")
 	}
-	if containsItem(items, "at-006c") {
-		t.Error("done item at-006c should not match --status inbox --status active")
+	if containsItem(items, done.ID) {
+		t.Error("done item should not match --status inbox --status active")
 	}
 }
 
 // TestE2E_List_StatusAlias verifies in_progress alias resolves in list filter.
 func TestE2E_List_StatusAlias(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "at-007",
-		"--title", "Status alias list test",
-		"--priority", "p1",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("update", "at-007", "--status", "active")
+	item := createItem(e, t, "Status alias list test", "p1", "task")
+	e.RdMustSucceed("update", item.ID, "--status", "active")
 
 	var items []Item
 	if err := e.RdJSON(&items, "list", "--status", "in_progress"); err != nil {
 		t.Fatalf("list --status in_progress: %v", err)
 	}
-	if !containsItem(items, "at-007") {
-		t.Error("active item at-007 should match --status in_progress alias")
+	if !containsItem(items, item.ID) {
+		t.Error("active item should match --status in_progress alias")
 	}
 }
 
 // TestE2E_List_ByPriority verifies --priority filter works.
 func TestE2E_List_ByPriority(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "at-008a",
-		"--title", "P0 item",
-		"--priority", "p0",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
-	e.RdMustSucceed("create",
-		"--id", "at-008b",
-		"--title", "P2 item",
-		"--priority", "p2",
-		"--type", "task",
-		"--for", "test@example.com",
-	)
+	p0 := createItem(e, t, "P0 item", "p0", "task")
+	p2 := createItem(e, t, "P2 item", "p2", "task")
 
 	var items []Item
 	if err := e.RdJSON(&items, "list", "--priority", "p0"); err != nil {
 		t.Fatalf("list --priority p0: %v", err)
 	}
-	if !containsItem(items, "at-008a") {
-		t.Error("p0 item at-008a should match --priority p0")
+	if !containsItem(items, p0.ID) {
+		t.Error("p0 item should match --priority p0")
 	}
-	if containsItem(items, "at-008b") {
-		t.Error("p2 item at-008b should not match --priority p0")
+	if containsItem(items, p2.ID) {
+		t.Error("p2 item should not match --priority p0")
 	}
 }
 
 // TestE2E_List_JSONFieldContract verifies key JSON field types and aliases.
 func TestE2E_List_JSONFieldContract(t *testing.T) {
 	e := NewEnv(t)
-	e.RdMustSucceed("create",
-		"--id", "at-009",
+	var created Item
+	if err := e.RdJSON(&created, "create",
 		"--title", "Field contract test",
 		"--priority", "p1",
 		"--type", "task",
 		"--for", "test@example.com",
 		"--context", "some context text",
-	)
-	items := e.ListItems()
-	item, ok := findItem(items, "at-009")
+	); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	item, ok := findItem(e.ListItems(), created.ID)
 	if !ok {
-		t.Fatal("item at-009 not found in list")
+		t.Fatal("item not found in list")
 	}
 	if item.ID == "" {
 		t.Error("id should be non-empty string")
@@ -241,10 +156,9 @@ func TestE2E_List_JSONFieldContract(t *testing.T) {
 		t.Error("created_at should be non-zero int64")
 	}
 	if item.Context != "some context text" {
-		t.Errorf("context: got %q, want %q", item.Context, "some context text")
+		t.Errorf("context: got %q", item.Context)
 	}
-	// description is an alias for context
 	if item.Description != "some context text" {
-		t.Errorf("description (alias for context): got %q, want %q", item.Description, "some context text")
+		t.Errorf("description (alias for context): got %q", item.Description)
 	}
 }
