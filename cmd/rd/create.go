@@ -26,6 +26,46 @@ type createPayload struct {
 	Due      string `json:"due,omitempty"`
 }
 
+// BuildCreatePayload constructs the JSON payload and tag set for a work:create
+// message. All validation must happen before calling this function.
+// The etaStr and dueStr must already be normalized to RFC3339 UTC if non-empty.
+func BuildCreatePayload(id, title, context, itemType, level, project, forParty, by, priority, parentID, etaStr, dueStr string) ([]byte, []string, error) {
+	p := createPayload{
+		ID:       id,
+		Title:    title,
+		Context:  context,
+		Type:     itemType,
+		Level:    level,
+		Project:  project,
+		For:      forParty,
+		By:       by,
+		Priority: priority,
+		ParentID: parentID,
+		ETA:      etaStr,
+		Due:      dueStr,
+	}
+	payloadBytes, err := json.Marshal(p)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding payload: %w", err)
+	}
+
+	tags := []string{"work:create"}
+	tags = append(tags, "work:type:"+itemType)
+	tags = append(tags, "work:for:"+forParty)
+	tags = append(tags, "work:priority:"+priority)
+	if level != "" {
+		tags = append(tags, "work:level:"+level)
+	}
+	if by != "" {
+		tags = append(tags, "work:by:"+by)
+	}
+	if project != "" {
+		tags = append(tags, "work:project:"+project)
+	}
+
+	return payloadBytes, tags, nil
+}
+
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new work item",
@@ -113,39 +153,10 @@ If --eta is omitted, it is derived from priority:
 		}
 		defer s.Close()
 
-		// Build payload.
-		p := createPayload{
-			ID:       id,
-			Title:    title,
-			Context:  context,
-			Type:     itemType,
-			Level:    level,
-			Project:  project,
-			For:      forParty,
-			By:       by,
-			Priority: priority,
-			ParentID: parentID,
-			ETA:      eta,
-			Due:      due,
-		}
-		payloadBytes, err := json.Marshal(p)
+		// Build payload and tags via extracted function.
+		payloadBytes, tags, err := BuildCreatePayload(id, title, context, itemType, level, project, forParty, by, priority, parentID, eta, due)
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
-		}
-
-		// Build tags.
-		tags := []string{"work:create"}
-		tags = append(tags, "work:type:"+itemType)
-		tags = append(tags, "work:for:"+forParty)
-		tags = append(tags, "work:priority:"+priority)
-		if level != "" {
-			tags = append(tags, "work:level:"+level)
-		}
-		if by != "" {
-			tags = append(tags, "work:by:"+by)
-		}
-		if project != "" {
-			tags = append(tags, "work:project:"+project)
+			return err
 		}
 
 		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, nil)

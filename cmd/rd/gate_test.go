@@ -5,90 +5,157 @@ import (
 	"testing"
 )
 
-// TestGatePayload verifies that gatePayload marshals correctly for a work:gate message.
-// Convention §4.8.
-func TestGatePayload(t *testing.T) {
-	p := gatePayload{
-		Target:      "msg-create-abc123",
-		GateType:    "design",
-		Description: "Confirm approach before implementing",
-	}
+// TestBuildGatePayload_GateTypeInTag verifies that BuildGatePayload embeds the
+// gate type in the tag per convention §4.8: work:gate-type:<type>. This tag is
+// how the attention engine and humans identify what kind of escalation is pending.
+func TestBuildGatePayload_GateTypeInTag(t *testing.T) {
+	gateTypes := []string{"budget", "design", "scope", "review", "human", "stall", "periodic"}
 
-	payloadBytes, err := json.Marshal(p)
-	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
-	}
+	for _, gt := range gateTypes {
+		t.Run("gate_type="+gt, func(t *testing.T) {
+			payloadBytes, tags, antecedents, err := BuildGatePayload("msg-create-abc", gt, "test description")
+			if err != nil {
+				t.Fatalf("BuildGatePayload(%q) returned error: %v", gt, err)
+			}
 
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
+			// Tags: exactly 2 — work:gate + work:gate-type:<type>.
+			if len(tags) != 2 {
+				t.Errorf("expected 2 tags, got %d: %v", len(tags), tags)
+			}
+			if tags[0] != "work:gate" {
+				t.Errorf("tags[0]=%q, want 'work:gate'", tags[0])
+			}
+			wantGateTypeTag := "work:gate-type:" + gt
+			if tags[1] != wantGateTypeTag {
+				t.Errorf("tags[1]=%q, want %q", tags[1], wantGateTypeTag)
+			}
 
-	if decoded["target"] != "msg-create-abc123" {
-		t.Errorf("expected target=msg-create-abc123, got %v", decoded["target"])
-	}
-	if decoded["gate_type"] != "design" {
-		t.Errorf("expected gate_type=design, got %v", decoded["gate_type"])
-	}
-	if decoded["description"] != "Confirm approach before implementing" {
-		t.Errorf("expected description, got %v", decoded["description"])
+			// Payload gate_type field must match.
+			var decoded map[string]interface{}
+			if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
+				t.Fatalf("json.Unmarshal: %v", err)
+			}
+			if decoded["gate_type"] != gt {
+				t.Errorf("gate_type=%v, want %q", decoded["gate_type"], gt)
+			}
+
+			// Antecedent is the create message ID.
+			if len(antecedents) != 1 || antecedents[0] != "msg-create-abc" {
+				t.Errorf("antecedents=%v, want ['msg-create-abc']", antecedents)
+			}
+		})
 	}
 }
 
-// TestGatePayloadNoDescription verifies that description is omitted when empty.
-func TestGatePayloadNoDescription(t *testing.T) {
-	p := gatePayload{
-		Target:   "msg-create-abc123",
-		GateType: "review",
-	}
+// TestBuildGatePayload_TargetIsCreateMsg verifies that the gate payload target
+// is the work:create message ID per convention §4.8. State derivation uses this
+// to find which item is gated.
+func TestBuildGatePayload_TargetIsCreateMsg(t *testing.T) {
+	createMsgID := "msg-create-xyz-1234-5678-9abc-def012345678"
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, _, _, err := BuildGatePayload(createMsgID, "design", "Confirm approach")
 	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
+		t.Fatalf("BuildGatePayload returned error: %v", err)
 	}
 
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	if decoded["target"] != createMsgID {
+		t.Errorf("target=%v, want %q (must be work:create msg ID, not item ID)", decoded["target"], createMsgID)
+	}
+}
+
+// TestBuildGatePayload_DescriptionOmittedWhenEmpty verifies that description is
+// omitted from the JSON payload when empty (omitempty) per convention §4.8.
+func TestBuildGatePayload_DescriptionOmittedWhenEmpty(t *testing.T) {
+	payloadBytes, _, _, err := BuildGatePayload("msg-create-abc", "review", "")
+	if err != nil {
+		t.Fatalf("BuildGatePayload returned error: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
 	}
 
 	if _, ok := decoded["description"]; ok {
-		t.Error("expected description to be omitted when empty")
+		t.Error("description should be omitted when empty (omitempty), but was present in JSON")
 	}
 }
 
-// TestGateTags verifies that work:gate produces the correct tags.
-// Convention §4.8: work:gate tag + work:gate-type:<type> tag.
-func TestGateTags(t *testing.T) {
-	gateType := "design"
-	tags := []string{"work:gate", "work:gate-type:" + gateType}
+// TestBuildGateResolvePayload_ResolutionInTag verifies that BuildGateResolvePayload
+// puts the resolution value into the work:resolution:<resolution> tag per
+// convention §4.9. State derivation uses this tag to transition item status.
+func TestBuildGateResolvePayload_ResolutionInTag(t *testing.T) {
+	cases := []struct {
+		resolution  string
+		wantTag     string
+	}{
+		{"approved", "work:resolution:approved"},
+		{"rejected", "work:resolution:rejected"},
+	}
 
-	if len(tags) != 2 {
-		t.Errorf("expected 2 tags, got %d", len(tags))
-	}
-	if tags[0] != "work:gate" {
-		t.Errorf("expected tags[0]=work:gate, got %q", tags[0])
-	}
-	if tags[1] != "work:gate-type:design" {
-		t.Errorf("expected tags[1]=work:gate-type:design, got %q", tags[1])
+	for _, tc := range cases {
+		t.Run("resolution="+tc.resolution, func(t *testing.T) {
+			payloadBytes, tags, antecedents, err := BuildGateResolvePayload("msg-gate-abc", tc.resolution, "test reason")
+			if err != nil {
+				t.Fatalf("BuildGateResolvePayload(%q) returned error: %v", tc.resolution, err)
+			}
+
+			// Tags: exactly 2 — work:gate-resolve + work:resolution:<resolution>.
+			if len(tags) != 2 {
+				t.Errorf("expected 2 tags, got %d: %v", len(tags), tags)
+			}
+			if tags[0] != "work:gate-resolve" {
+				t.Errorf("tags[0]=%q, want 'work:gate-resolve'", tags[0])
+			}
+			if tags[1] != tc.wantTag {
+				t.Errorf("tags[1]=%q, want %q", tags[1], tc.wantTag)
+			}
+
+			// Payload fields.
+			var decoded map[string]interface{}
+			if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
+				t.Fatalf("json.Unmarshal: %v", err)
+			}
+			if decoded["resolution"] != tc.resolution {
+				t.Errorf("resolution=%v, want %q", decoded["resolution"], tc.resolution)
+			}
+			if decoded["target"] != "msg-gate-abc" {
+				t.Errorf("target=%v, want 'msg-gate-abc'", decoded["target"])
+			}
+
+			// Antecedent is the gate message being resolved.
+			if len(antecedents) != 1 || antecedents[0] != "msg-gate-abc" {
+				t.Errorf("antecedents=%v, want ['msg-gate-abc']", antecedents)
+			}
+		})
 	}
 }
 
-// TestGateAntecedents verifies that antecedent is the work:create message ID.
-// Convention §4.8: antecedents = exactly_one(target = create message).
-func TestGateAntecedents(t *testing.T) {
-	createMsgID := "msg-create-abc123"
-	antecedents := []string{createMsgID}
-
-	if len(antecedents) != 1 {
-		t.Errorf("expected exactly one antecedent, got %d", len(antecedents))
+// TestBuildGateResolvePayload_ReasonOmittedWhenEmpty verifies that reason is
+// omitted when empty per convention §4.9 (omitempty).
+func TestBuildGateResolvePayload_ReasonOmittedWhenEmpty(t *testing.T) {
+	payloadBytes, _, _, err := BuildGateResolvePayload("msg-gate-abc", "approved", "")
+	if err != nil {
+		t.Fatalf("BuildGateResolvePayload returned error: %v", err)
 	}
-	if antecedents[0] != createMsgID {
-		t.Errorf("expected antecedent %s, got %s", createMsgID, antecedents[0])
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	if _, ok := decoded["reason"]; ok {
+		t.Error("reason should be omitted when empty (omitempty), but was present in JSON")
 	}
 }
 
-// TestValidGateTypes verifies the gate type validation set.
+// TestValidGateTypes verifies the gate type validation set covers all convention-
+// defined types and rejects unknown values.
 func TestValidGateTypes(t *testing.T) {
 	valid := []string{"budget", "design", "scope", "review", "human", "stall", "periodic"}
 	for _, gt := range valid {
@@ -102,127 +169,5 @@ func TestValidGateTypes(t *testing.T) {
 		if validGateTypes[gt] {
 			t.Errorf("expected %q to be invalid gate type", gt)
 		}
-	}
-}
-
-// TestGateResolvePayload_Approved verifies that gateResolvePayload marshals
-// correctly for an approved resolution.
-func TestGateResolvePayload_Approved(t *testing.T) {
-	p := gateResolvePayload{
-		Target:     "msg-gate-abc123",
-		Resolution: "approved",
-		Reason:     "Looks good, proceed",
-	}
-
-	payloadBytes, err := json.Marshal(p)
-	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
-	}
-
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-
-	if decoded["target"] != "msg-gate-abc123" {
-		t.Errorf("expected target=msg-gate-abc123, got %v", decoded["target"])
-	}
-	if decoded["resolution"] != "approved" {
-		t.Errorf("expected resolution=approved, got %v", decoded["resolution"])
-	}
-	if decoded["reason"] != "Looks good, proceed" {
-		t.Errorf("expected reason, got %v", decoded["reason"])
-	}
-}
-
-// TestGateResolvePayload_Rejected verifies that gateResolvePayload marshals
-// correctly for a rejected resolution.
-func TestGateResolvePayload_Rejected(t *testing.T) {
-	p := gateResolvePayload{
-		Target:     "msg-gate-abc123",
-		Resolution: "rejected",
-		Reason:     "Scope too broad",
-	}
-
-	payloadBytes, err := json.Marshal(p)
-	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
-	}
-
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-
-	if decoded["resolution"] != "rejected" {
-		t.Errorf("expected resolution=rejected, got %v", decoded["resolution"])
-	}
-}
-
-// TestApproveResolveNoReason verifies that reason is omitted when empty.
-func TestApproveResolveNoReason(t *testing.T) {
-	p := gateResolvePayload{
-		Target:     "msg-gate-abc123",
-		Resolution: "approved",
-	}
-
-	payloadBytes, err := json.Marshal(p)
-	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
-	}
-
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-
-	if _, ok := decoded["reason"]; ok {
-		t.Error("expected reason to be omitted when empty")
-	}
-}
-
-// TestApproveTags verifies correct tags for work:gate-resolve approved.
-// Convention §4.9.
-func TestApproveTags(t *testing.T) {
-	tags := []string{"work:gate-resolve", "work:resolution:approved"}
-
-	if len(tags) != 2 {
-		t.Errorf("expected 2 tags, got %d", len(tags))
-	}
-	if tags[0] != "work:gate-resolve" {
-		t.Errorf("expected tags[0]=work:gate-resolve, got %q", tags[0])
-	}
-	if tags[1] != "work:resolution:approved" {
-		t.Errorf("expected tags[1]=work:resolution:approved, got %q", tags[1])
-	}
-}
-
-// TestRejectTags verifies correct tags for work:gate-resolve rejected.
-// Convention §4.9.
-func TestRejectTags(t *testing.T) {
-	tags := []string{"work:gate-resolve", "work:resolution:rejected"}
-
-	if len(tags) != 2 {
-		t.Errorf("expected 2 tags, got %d", len(tags))
-	}
-	if tags[0] != "work:gate-resolve" {
-		t.Errorf("expected tags[0]=work:gate-resolve, got %q", tags[0])
-	}
-	if tags[1] != "work:resolution:rejected" {
-		t.Errorf("expected tags[1]=work:resolution:rejected, got %q", tags[1])
-	}
-}
-
-// TestGateResolveAntecedents verifies that the antecedent is the gate message ID.
-// Convention §4.9: antecedents = the gate message (--fulfills implies --reply-to).
-func TestGateResolveAntecedents(t *testing.T) {
-	gateMsgID := "msg-gate-abc123"
-	antecedents := []string{gateMsgID}
-
-	if len(antecedents) != 1 {
-		t.Errorf("expected exactly one antecedent, got %d", len(antecedents))
-	}
-	if antecedents[0] != gateMsgID {
-		t.Errorf("expected antecedent %s, got %s", gateMsgID, antecedents[0])
 	}
 }

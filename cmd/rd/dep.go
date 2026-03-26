@@ -26,6 +26,42 @@ type depUnblockPayload struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// BuildBlockPayload constructs the JSON payload, tags, and antecedents for a
+// work:block message per convention §4.6. Both item message IDs are required as
+// antecedents so the campfire protocol can establish causal ordering.
+func BuildBlockPayload(blockerID, blockedID, blockerMsgID, blockedMsgID string) ([]byte, []string, []string, error) {
+	p := blockPayload{
+		BlockerID:  blockerID,
+		BlockedID:  blockedID,
+		BlockerMsg: blockerMsgID,
+		BlockedMsg: blockedMsgID,
+	}
+	payloadBytes, err := json.Marshal(p)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("encoding payload: %w", err)
+	}
+	tags := []string{"work:block"}
+	antecedents := []string{blockerMsgID, blockedMsgID}
+	return payloadBytes, tags, antecedents, nil
+}
+
+// BuildUnblockPayload constructs the JSON payload, tags, and antecedents for a
+// work:unblock message per convention §4.7. The target is the work:block message ID
+// (not an item ID). The antecedent is the block message being reversed.
+func BuildUnblockPayload(blockMsgID, reason string) ([]byte, []string, []string, error) {
+	p := depUnblockPayload{
+		Target: blockMsgID,
+		Reason: reason,
+	}
+	payloadBytes, err := json.Marshal(p)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("encoding payload: %w", err)
+	}
+	tags := []string{"work:unblock"}
+	antecedents := []string{blockMsgID}
+	return payloadBytes, tags, antecedents, nil
+}
+
 // depCmd is the parent command for dep subcommands.
 var depCmd = &cobra.Command{
 	Use:   "dep",
@@ -62,23 +98,11 @@ var depAddCmd = &cobra.Command{
 			return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
 		}
 
-		// Build payload per §4.6.
-		p := blockPayload{
-			BlockerID:  blocker.ID,
-			BlockedID:  blocked.ID,
-			BlockerMsg: blocker.MsgID,
-			BlockedMsg: blocked.MsgID,
-		}
-		payloadBytes, err := json.Marshal(p)
+		// Build payload, tags, and antecedents via extracted function per §4.6.
+		payloadBytes, tags, antecedents, err := BuildBlockPayload(blocker.ID, blocked.ID, blocker.MsgID, blocked.MsgID)
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
 		}
-
-		// Tags: exactly one operation tag.
-		tags := []string{"work:block"}
-
-		// Antecedents: both work:create message IDs (§4.6).
-		antecedents := []string{blocker.MsgID, blocked.MsgID}
 
 		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
 		if err != nil {
@@ -134,18 +158,11 @@ var depRemoveCmd = &cobra.Command{
 			return err
 		}
 
-		// Build work:unblock payload per §4.7: target = block message ID.
-		p := depUnblockPayload{
-			Target: blockMsgID,
-			Reason: reason,
-		}
-		payloadBytes, err := json.Marshal(p)
+		// Build work:unblock payload via extracted function per §4.7.
+		payloadBytes, tags, antecedents, err := BuildUnblockPayload(blockMsgID, reason)
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
 		}
-
-		tags := []string{"work:unblock"}
-		antecedents := []string{blockMsgID}
 
 		// Send to the campfire that contains the block message.
 		m, err := s.GetMembership(campfireID)

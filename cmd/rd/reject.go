@@ -49,22 +49,11 @@ Example:
 			return fmt.Errorf("item %s is not waiting (status=%s)", item.ID, item.Status)
 		}
 
-		// Build payload — target is the work:gate message ID.
-		p := gateResolvePayload{
-			Target:     item.GateMsgID,
-			Resolution: "rejected",
-			Reason:     reason,
-		}
-		payloadBytes, err := json.Marshal(p)
+		// Build payload, tags, and antecedents via extracted function per §4.9.
+		payloadBytes, tags, antecedents, err := BuildGateResolvePayload(item.GateMsgID, "rejected", reason)
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
 		}
-
-		// Tags: operation tag + resolution tag per convention §4.9.
-		tags := []string{"work:gate-resolve", "work:resolution:rejected"}
-
-		// Antecedents: the gate message (--fulfills implies --reply-to per convention).
-		antecedents := []string{item.GateMsgID}
 
 		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
 		if err != nil {
