@@ -993,3 +993,131 @@ func TestIntegration_CompleteWithoutBranch(t *testing.T) {
 		t.Error("done item must not appear in my-work view")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 17: Status alias end-to-end
+// Evidence: 72 uses of rd update --status in_progress
+// ---------------------------------------------------------------------------
+func TestIntegration_StatusAliasEndToEnd(t *testing.T) {
+	ts := now()
+	agentKey := "agent-key-alias-test"
+
+	msgs := []store.MessageRecord{
+		makeMsgFrom("msg-create-alias", "human-pubkey", []string{"work:create"}, map[string]interface{}{
+			"id": "ready-alias-001", "title": "Alias test item", "type": "task",
+			"for": "baron@3dl.dev", "priority": "p1",
+		}, nil, ts),
+		makeMsgFrom("msg-status-alias", agentKey, []string{"work:status", "work:status:active"}, map[string]interface{}{
+			"target": "msg-create-alias", "to": "active",
+		}, []string{"msg-create-alias"}, ts+1000),
+	}
+
+	items := state.Derive(testCampfire, msgs)
+	item := items["ready-alias-001"]
+	if item == nil {
+		t.Fatal("item not found")
+	}
+	if item.Status != state.StatusActive {
+		t.Errorf("expected status=active (canonical), got %q", item.Status)
+	}
+	if item.Status == "in_progress" {
+		t.Error("derived state must not contain alias 'in_progress'")
+	}
+	if item.By != "" {
+		t.Errorf("expected by empty (status alone doesn't claim), got %q", item.By)
+	}
+	if !views.WorkFilter()(item) {
+		t.Error("item should appear in work view (status=active)")
+	}
+	if views.MyWorkFilter(agentKey)(item) {
+		t.Error("item should NOT appear in my-work view for agent (no claim)")
+	}
+	if !views.ReadyFilter()(item) {
+		t.Error("item should appear in ready view")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 18: All aliases produce canonical state
+// ---------------------------------------------------------------------------
+func TestIntegration_AllAliasesProduceCanonicalState(t *testing.T) {
+	ts := now()
+
+	// active (from in_progress alias)
+	activeMsgs := []store.MessageRecord{
+		makeMsg("msg-create-a1", []string{"work:create"}, map[string]interface{}{
+			"id": "ready-alias-a1", "title": "in_progress alias", "type": "task",
+			"for": "baron@3dl.dev", "priority": "p1",
+		}, nil, ts),
+		makeMsg("msg-status-a1", []string{"work:status", "work:status:active"}, map[string]interface{}{
+			"target": "msg-create-a1", "to": "active",
+		}, []string{"msg-create-a1"}, ts+1000),
+	}
+	activeItems := state.Derive(testCampfire, activeMsgs)
+	activeItem := activeItems["ready-alias-a1"]
+	if activeItem == nil {
+		t.Fatal("ready-alias-a1 not found")
+	}
+	if activeItem.Status != state.StatusActive {
+		t.Errorf("in_progress alias: expected active, got %q", activeItem.Status)
+	}
+	if !views.WorkFilter()(activeItem) {
+		t.Error("in_progress alias: expected WorkFilter=true")
+	}
+	if state.IsTerminal(activeItem) {
+		t.Error("in_progress alias: expected IsTerminal=false")
+	}
+
+	// inbox (from open alias)
+	inboxMsgs := []store.MessageRecord{
+		makeMsg("msg-create-b1", []string{"work:create"}, map[string]interface{}{
+			"id": "ready-alias-b1", "title": "open alias", "type": "task",
+			"for": "baron@3dl.dev", "priority": "p1",
+		}, nil, ts),
+		makeMsg("msg-status-b1", []string{"work:status", "work:status:inbox"}, map[string]interface{}{
+			"target": "msg-create-b1", "to": "inbox",
+		}, []string{"msg-create-b1"}, ts+1000),
+	}
+	inboxItems := state.Derive(testCampfire, inboxMsgs)
+	inboxItem := inboxItems["ready-alias-b1"]
+	if inboxItem == nil {
+		t.Fatal("ready-alias-b1 not found")
+	}
+	if inboxItem.Status != state.StatusInbox {
+		t.Errorf("open alias: expected inbox, got %q", inboxItem.Status)
+	}
+	if views.WorkFilter()(inboxItem) {
+		t.Error("open alias: expected WorkFilter=false")
+	}
+	if state.IsTerminal(inboxItem) {
+		t.Error("open alias: expected IsTerminal=false")
+	}
+
+	// done (from closed/completed alias, via work:close)
+	doneMsgs := []store.MessageRecord{
+		makeMsg("msg-create-c1", []string{"work:create"}, map[string]interface{}{
+			"id": "ready-alias-c1", "title": "closed alias", "type": "task",
+			"for": "baron@3dl.dev", "priority": "p1",
+		}, nil, ts),
+		makeMsg("msg-close-c1", []string{"work:close", "work:resolution:done"}, map[string]interface{}{
+			"target": "msg-create-c1", "resolution": "done", "reason": "completed via alias",
+		}, []string{"msg-create-c1"}, ts+1000),
+	}
+	doneItems := state.Derive(testCampfire, doneMsgs)
+	doneItem := doneItems["ready-alias-c1"]
+	if doneItem == nil {
+		t.Fatal("ready-alias-c1 not found")
+	}
+	if doneItem.Status != state.StatusDone {
+		t.Errorf("closed alias: expected done, got %q", doneItem.Status)
+	}
+	if !state.IsTerminal(doneItem) {
+		t.Error("closed alias: expected IsTerminal=true")
+	}
+	if views.WorkFilter()(doneItem) {
+		t.Error("closed alias: expected WorkFilter=false")
+	}
+	if views.ReadyFilter()(doneItem) {
+		t.Error("closed alias: expected ReadyFilter=false")
+	}
+}
