@@ -146,9 +146,6 @@ If --eta is omitted, it is derived from priority:
 		if itemType == "" {
 			return fmt.Errorf("--type is required")
 		}
-		if forParty == "" {
-			return fmt.Errorf("--for is required")
-		}
 		if priority == "" {
 			return fmt.Errorf("--priority is required")
 		}
@@ -198,6 +195,13 @@ If --eta is omitted, it is derived from priority:
 			return err
 		}
 		defer s.Close()
+
+		// Default --for to the current session identity when not explicitly set.
+		if !cmd.Flags().Changed("for") {
+			forParty = agentID.PublicKeyHex()
+		} else if forParty == "" {
+			return fmt.Errorf("--for: value cannot be empty")
+		}
 
 		// Load existing IDs for collision detection.
 		campfireID, projectDir, hasCampfire := projectRoot()
@@ -260,7 +264,7 @@ func init() {
 	createCmd.Flags().String("title", "", "short title (required)")
 	createCmd.Flags().String("context", "", "full context / description")
 	createCmd.Flags().String("type", "", "type: task, decision, review, reminder, deadline, prep, message, directive (required)")
-	createCmd.Flags().String("for", "", "who needs this outcome (required)")
+	createCmd.Flags().String("for", "", "who needs this outcome (default: current identity)")
 	createCmd.Flags().String("priority", "", "priority: p0, p1, p2, p3 (required)")
 	createCmd.Flags().String("level", "", "level: epic, task, subtask")
 	createCmd.Flags().String("by", "", "who will do the work")

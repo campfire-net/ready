@@ -29,11 +29,16 @@ Use --view to select a different named view:
 		viewName, _ := cmd.Flags().GetString("view")
 		forFilter, _ := cmd.Flags().GetString("for")
 
-		s, err := openStore()
+		agentID, s, err := requireAgentAndStore()
 		if err != nil {
 			return err
 		}
 		defer s.Close()
+
+		// Default --for to the current session identity when not explicitly set.
+		if !cmd.Flags().Changed("for") {
+			forFilter = agentID.PublicKeyHex()
+		}
 
 		items, err := resolve.AllItems(s)
 		if err != nil {
@@ -41,19 +46,27 @@ Use --view to select a different named view:
 		}
 
 		// Apply view filter.
-		var filter views.Filter
 		if viewName == "" {
 			viewName = views.ViewReady
 		}
-		if forFilter != "" {
-			filter = views.Named(viewName, forFilter)
-		} else {
-			filter = views.Named(viewName, "")
-		}
+		filter := views.Named(viewName, forFilter)
 		if filter == nil {
 			return fmt.Errorf("unknown view %q: choose from %v", viewName, views.AllNames())
 		}
 		items = views.Apply(items, filter)
+
+		// For views that don't filter by identity internally, apply --for as a
+		// secondary filter on item.For when set.
+		switch viewName {
+		case views.ViewDelegated, views.ViewMyWork:
+			// Already filtered by identity in the view function.
+		default:
+			if forFilter != "" {
+				items = views.Apply(items, func(item *state.Item) bool {
+					return item.For == forFilter
+				})
+			}
+		}
 
 		// Sort by priority then ETA.
 		sort.Slice(items, func(i, j int) bool {
@@ -81,7 +94,7 @@ Use --view to select a different named view:
 
 func init() {
 	readyCmd.Flags().String("view", "ready", "named view: ready, work, pending, overdue, delegated, my-work")
-	readyCmd.Flags().String("for", "", "filter by 'for' party (required for delegated and my-work views)")
+	readyCmd.Flags().String("for", "", "filter by 'for' party (default: current identity; pass \"\" to show all)")
 	rootCmd.AddCommand(readyCmd)
 }
 

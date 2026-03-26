@@ -166,6 +166,31 @@ func (e *Env) Rd(args ...string) (stdout, stderr string, exitCode int) {
 	return outBuf.String(), errBuf.String(), exitCode
 }
 
+// RdInDir runs rd in a specified directory (instead of e.ProjectDir).
+func (e *Env) RdInDir(dir string, args ...string) (stdout, stderr string, exitCode int) {
+	e.t.Helper()
+	cmd := exec.Command(rdBinary, args...)
+	cmd.Dir = dir
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+		"CF_HOME=" + e.CFHome,
+	}
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	err := cmd.Run()
+	exitCode = 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+	return outBuf.String(), errBuf.String(), exitCode
+}
+
 // RdJSON runs rd with --json appended and unmarshals stdout into v.
 func (e *Env) RdJSON(v interface{}, args ...string) error {
 	e.t.Helper()
@@ -253,6 +278,23 @@ func (e *Env) ShowItem(id string) Item {
 		e.t.Fatalf("ShowItem(%s): %v", id, err)
 	}
 	return item
+}
+
+// IdentityPubKeyHex returns the hex-encoded public key of the test environment's identity.
+// This matches the value that rd uses as the default --for party.
+func (e *Env) IdentityPubKeyHex() string {
+	e.t.Helper()
+	data, err := os.ReadFile(filepath.Join(e.CFHome, "identity.json"))
+	if err != nil {
+		e.t.Fatalf("reading identity.json: %v", err)
+	}
+	var id struct {
+		PublicKey []byte `json:"public_key"` // JSON: base64-encoded bytes
+	}
+	if err := json.Unmarshal(data, &id); err != nil {
+		e.t.Fatalf("parsing identity.json: %v", err)
+	}
+	return fmt.Sprintf("%x", id.PublicKey)
 }
 
 // findItem returns the first item with the given ID from a slice, or zero value.

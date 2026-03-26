@@ -6,6 +6,7 @@ import (
 )
 
 // createItem creates an item with auto-generated ID and returns it.
+// --for is omitted so it defaults to the current session identity.
 func createItem(e *Env, t *testing.T, title, priority, itemType string) Item {
 	t.Helper()
 	var item Item
@@ -13,7 +14,6 @@ func createItem(e *Env, t *testing.T, title, priority, itemType string) Item {
 		"--title", title,
 		"--priority", priority,
 		"--type", itemType,
-		"--for", "test@example.com",
 	); err != nil {
 		t.Fatalf("create %q: %v", title, err)
 	}
@@ -32,6 +32,26 @@ func TestE2E_Create_ReturnsJSON(t *testing.T) {
 	}
 	if item.Title != "Create JSON test" {
 		t.Errorf("title: got %q, want %q", item.Title, "Create JSON test")
+	}
+}
+
+// TestE2E_Create_DefaultsForToIdentity verifies that omitting --for sets the
+// for field to the caller's identity public key hex.
+func TestE2E_Create_DefaultsForToIdentity(t *testing.T) {
+	e := NewEnv(t)
+	wantPubKey := e.IdentityPubKeyHex()
+
+	var item Item
+	if err := e.RdJSON(&item, "create",
+		"--title", "Default for test",
+		"--priority", "p2",
+		"--type", "task",
+	); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got := e.ShowItem(item.ID)
+	if got.For != wantPubKey {
+		t.Errorf("for: got %q, want identity pubkey %q", got.For, wantPubKey)
 	}
 }
 
