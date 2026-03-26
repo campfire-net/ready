@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
-	"github.com/campfire-net/campfire/pkg/beacon"
 	"github.com/spf13/cobra"
 	"github.com/3dl-dev/ready/pkg/state"
 	"github.com/3dl-dev/ready/pkg/timeparse"
@@ -18,23 +17,13 @@ import (
 
 var nonAlphanumHyphen = regexp.MustCompile(`[^a-z0-9]+`)
 
-// projectPrefix reads the project campfire's beacon description and returns
-// a sanitized prefix (e.g. "ready", "myproject"). Returns "" if unavailable.
-func projectPrefix(campfireID string) string {
-	beacons, err := beacon.Scan(beacon.DefaultBeaconDir())
-	if err != nil {
-		return ""
-	}
-	for _, b := range beacons {
-		if b.CampfireIDHex() == campfireID && b.Description != "" {
-			// Take first whitespace-delimited token, lowercase, strip non-alphanumeric.
-			token := strings.Fields(b.Description)[0]
-			token = strings.ToLower(token)
-			token = nonAlphanumHyphen.ReplaceAllString(token, "")
-			if len(token) >= 2 {
-				return token
-			}
-		}
+// projectPrefix returns the sanitized folder name of the project directory
+// as an ID prefix (e.g. "/home/baron/projects/ready" → "ready").
+func projectPrefix(projectDir string) string {
+	name := filepath.Base(projectDir)
+	name = nonAlphanumHyphen.ReplaceAllString(name, "")
+	if len(name) >= 2 {
+		return name
 	}
 	return ""
 }
@@ -211,7 +200,7 @@ If --eta is omitted, it is derived from priority:
 		defer s.Close()
 
 		// Load existing IDs for collision detection.
-		campfireID, _, hasCampfire := projectRoot()
+		campfireID, projectDir, hasCampfire := projectRoot()
 		existingIDs := map[string]struct{}{}
 		if hasCampfire {
 			if items, err := state.DeriveFromStore(s, campfireID); err == nil {
@@ -224,7 +213,7 @@ If --eta is omitted, it is derived from priority:
 		if id == "" {
 			prefix := ""
 			if hasCampfire {
-				prefix = projectPrefix(campfireID)
+				prefix = projectPrefix(projectDir)
 			}
 			generated, err := generateID(prefix, existingIDs)
 			if err != nil {
