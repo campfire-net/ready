@@ -58,6 +58,11 @@ Examples:
   rd update ready-a1b --waiting-on "design review" --waiting-type person`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Helpful redirect for --blocks (agents may try bd-style dep wiring via update).
+		if blocks, _ := cmd.Flags().GetString("blocks"); blocks != "" {
+			return fmt.Errorf("--blocks is not a flag on rd update. Use: rd dep add <this-item> %s", blocks)
+		}
+
 		itemID := args[0]
 		title, _ := cmd.Flags().GetString("title")
 		context, _ := cmd.Flags().GetString("context")
@@ -245,5 +250,7 @@ func init() {
 	updateCmd.Flags().String("waiting-on", "", "what we are waiting on (auto-sets status=waiting if no --status given)")
 	updateCmd.Flags().String("waiting-type", "", "waiting type: person, vendor, client, date, event, external, agent, gate")
 	updateCmd.Flags().String("note", "", "note or reason (used as reason for status transitions)")
+	updateCmd.Flags().String("blocks", "", "")
+	_ = updateCmd.Flags().MarkHidden("blocks")
 	rootCmd.AddCommand(updateCmd)
 }

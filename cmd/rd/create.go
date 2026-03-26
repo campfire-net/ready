@@ -77,6 +77,11 @@ Example: ready-a1b
 If --eta is omitted, it is derived from priority:
   p0 = now, p1 = +4h, p2 = +24h, p3 = +72h`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Helpful redirect for --description (agents may use bd's flag name).
+		if desc, _ := cmd.Flags().GetString("description"); desc != "" {
+			return fmt.Errorf("--description is not a flag on rd create. The field is called 'context' in Ready. Use --context-file <path> or set context after creation with rd update")
+		}
+
 		id, _ := cmd.Flags().GetString("id")
 		title, _ := cmd.Flags().GetString("title")
 		context, _ := cmd.Flags().GetString("context")
@@ -197,5 +202,7 @@ func init() {
 	createCmd.Flags().String("parent-id", "", "parent item ID")
 	createCmd.Flags().String("eta", "", "ETA in RFC3339 format (default: derived from priority)")
 	createCmd.Flags().String("due", "", "hard deadline in RFC3339 format")
+	createCmd.Flags().String("description", "", "")
+	_ = createCmd.Flags().MarkHidden("description")
 	rootCmd.AddCommand(createCmd)
 }

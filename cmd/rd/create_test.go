@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/spf13/cobra"
 )
 
 // TestBuildCreatePayload_RequiredFields verifies that BuildCreatePayload produces
@@ -284,5 +287,36 @@ func TestCreateCloseSequence_CloseTargetsCreateMsg(t *testing.T) {
 	// Close antecedent must be the create message ID.
 	if len(closeAntecedents) != 1 || closeAntecedents[0] != simulatedMsgID {
 		t.Errorf("close antecedents=%v, want [%q]", closeAntecedents, simulatedMsgID)
+	}
+}
+
+// TestCreate_DescriptionFlag_HelpfulError verifies that --description on rd create
+// returns a helpful error directing agents to use --context or rd update, not a
+// generic "unknown flag". Agents familiar with bd use --description; Ready uses 'context'.
+func TestCreate_DescriptionFlag_HelpfulError(t *testing.T) {
+	// Build a minimal cobra command that mirrors the --description check in createCmd.RunE.
+	// We use a standalone command to avoid needing a live store.
+	cmd := &cobra.Command{
+		Use:  "create",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if desc, _ := cmd.Flags().GetString("description"); desc != "" {
+				return fmt.Errorf("--description is not a flag on rd create. The field is called 'context' in Ready. Use --context-file <path> or set context after creation with rd update")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("description", "", "")
+	_ = cmd.Flags().MarkHidden("description")
+
+	cmd.SetArgs([]string{"--description", "my task description"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when --description is used on rd create, got nil")
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Errorf("expected error to mention 'context', got: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "rd update") {
+		t.Errorf("expected error to mention 'rd update', got: %q", err.Error())
 	}
 }

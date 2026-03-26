@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // TestUpdatePayload verifies that updatePayload marshals correctly for
@@ -288,5 +291,34 @@ func TestStatusAlias_InProgres_Typo(t *testing.T) {
 	}
 	if isValidStatus(resolved) {
 		t.Errorf("in_progres should not be a valid status — typos must fail validation")
+	}
+}
+
+// TestUpdate_BlocksFlag_HelpfulError verifies that --blocks on rd update returns
+// a helpful error directing agents to rd dep add, not a generic "unknown flag".
+func TestUpdate_BlocksFlag_HelpfulError(t *testing.T) {
+	cmd := &cobra.Command{
+		Use:  "update <item-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if blocks, _ := cmd.Flags().GetString("blocks"); blocks != "" {
+				return fmt.Errorf("--blocks is not a flag on rd update. Use: rd dep add <this-item> %s", blocks)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("blocks", "", "")
+	_ = cmd.Flags().MarkHidden("blocks")
+
+	cmd.SetArgs([]string{"ready-a1b", "--blocks", "ready-b2c"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when --blocks is used on rd update, got nil")
+	}
+	if !strings.Contains(err.Error(), "rd dep add") {
+		t.Errorf("expected error to mention 'rd dep add', got: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "ready-b2c") {
+		t.Errorf("expected error to include the target ID 'ready-b2c', got: %q", err.Error())
 	}
 }
