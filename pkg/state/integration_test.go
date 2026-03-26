@@ -878,3 +878,118 @@ func TestIntegration_DelegatedViewFiltering(t *testing.T) {
 		t.Error("ready-d03 should NOT appear in baron's delegated view (wrong for)")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 15: rd complete payload flows through Derive to done state
+// Evidence: 2,894 uses of rd complete in session logs
+//
+// rd complete sends a work:close message with completePayload — an extended
+// payload that adds branch and session fields on top of the base closePayload.
+// Derive() uses closePayload (target/resolution/reason only), so the extra
+// fields must be silently ignored.
+//
+// Sequence:
+//   work:create → work:claim → work:close (completePayload with branch+session)
+//
+// After close: status=done, IsTerminal=true, NOT in ready/work/my-work views.
+// ---------------------------------------------------------------------------
+func TestIntegration_CompletePayloadDerives(t *testing.T) {
+	ts := now()
+	agentKey := "agent-impl-complete"
+
+	msgs := []store.MessageRecord{
+		makeMsgFrom("msg-cpc-create", "human-pubkey", []string{"work:create"}, map[string]interface{}{
+			"id": "ready-cpc01", "title": "Implement feature X", "type": "task",
+			"for": "baron@3dl.dev", "priority": "p1",
+		}, nil, ts),
+		makeMsgFrom("msg-cpc-claim", agentKey, []string{"work:claim"}, map[string]interface{}{
+			"target": "msg-cpc-create",
+		}, []string{"msg-cpc-create"}, ts+1000),
+		// completePayload: includes branch and session in addition to base closePayload fields.
+		// Derive() decodes via closePayload (target/resolution/reason) — extra fields must be ignored.
+		makeMsgFrom("msg-cpc-close", agentKey, []string{"work:close", "work:resolution:done"}, map[string]interface{}{
+			"target":     "msg-cpc-create",
+			"resolution": "done",
+			"reason":     "Implemented feature",
+			"branch":     "work/ready-xyz",
+			"session":    "sess-123",
+		}, []string{"msg-cpc-create"}, ts+2000),
+	}
+
+	items := state.Derive(testCampfire, msgs)
+	item := items["ready-cpc01"]
+	if item == nil {
+		t.Fatal("item not found")
+	}
+
+	if item.Status != state.StatusDone {
+		t.Errorf("expected status=done, got %q", item.Status)
+	}
+	if !state.IsTerminal(item) {
+		t.Error("expected IsTerminal=true after work:close(done)")
+	}
+
+	// Terminal items must NOT appear in active views.
+	if views.WorkFilter()(item) {
+		t.Error("done item must not appear in work view")
+	}
+	if views.ReadyFilter()(item) {
+		t.Error("done item must not appear in ready view")
+	}
+	if views.MyWorkFilter(agentKey)(item) {
+		t.Error("done item must not appear in my-work view")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 16: rd complete without branch/session — minimal path
+// Evidence: minimal rd complete <id> --reason "done" invocation
+//
+// The branch and session flags are optional in completeCmd. A minimal close
+// sends only target+resolution+reason (same as base closePayload). Derive()
+// must handle this identically to the full payload.
+// ---------------------------------------------------------------------------
+func TestIntegration_CompleteWithoutBranch(t *testing.T) {
+	ts := now()
+	agentKey := "agent-impl-nobranch"
+
+	msgs := []store.MessageRecord{
+		makeMsgFrom("msg-cwb-create", "human-pubkey", []string{"work:create"}, map[string]interface{}{
+			"id": "ready-cwb01", "title": "Quick fix", "type": "task",
+			"for": "baron@3dl.dev", "priority": "p2",
+		}, nil, ts),
+		makeMsgFrom("msg-cwb-claim", agentKey, []string{"work:claim"}, map[string]interface{}{
+			"target": "msg-cwb-create",
+		}, []string{"msg-cwb-create"}, ts+1000),
+		// Minimal payload: no branch, no session — matches `rd complete <id> --reason "done"`.
+		makeMsgFrom("msg-cwb-close", agentKey, []string{"work:close", "work:resolution:done"}, map[string]interface{}{
+			"target":     "msg-cwb-create",
+			"resolution": "done",
+			"reason":     "done",
+		}, []string{"msg-cwb-create"}, ts+2000),
+	}
+
+	items := state.Derive(testCampfire, msgs)
+	item := items["ready-cwb01"]
+	if item == nil {
+		t.Fatal("item not found")
+	}
+
+	if item.Status != state.StatusDone {
+		t.Errorf("expected status=done, got %q", item.Status)
+	}
+	if !state.IsTerminal(item) {
+		t.Error("expected IsTerminal=true after work:close(done)")
+	}
+
+	// Terminal items must NOT appear in active views.
+	if views.WorkFilter()(item) {
+		t.Error("done item must not appear in work view")
+	}
+	if views.ReadyFilter()(item) {
+		t.Error("done item must not appear in ready view")
+	}
+	if views.MyWorkFilter(agentKey)(item) {
+		t.Error("done item must not appear in my-work view")
+	}
+}
