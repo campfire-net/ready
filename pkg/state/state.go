@@ -41,9 +41,10 @@ type Item struct {
 	// CampfireID is the campfire this item lives in.
 	CampfireID string `json:"campfire_id"`
 
-	Title   string `json:"title"`
-	Context string `json:"context,omitempty"`
-	Type    string `json:"type"`
+	Title       string `json:"title"`
+	Context     string `json:"context,omitempty"`
+	Description string `json:"description,omitempty"` // alias for context, for bd compatibility
+	Type        string `json:"type"`
 	Level   string `json:"level,omitempty"`
 	Project string `json:"project,omitempty"`
 	For     string `json:"for"`
@@ -251,12 +252,13 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 				eta = etaFromPriority(p.Priority, now)
 			}
 			item := &Item{
-				ID:         p.ID,
-				MsgID:      m.ID,
-				CampfireID: campfireID,
-				Title:      p.Title,
-				Context:    p.Context,
-				Type:       p.Type,
+				ID:          p.ID,
+				MsgID:       m.ID,
+				CampfireID:  campfireID,
+				Title:       p.Title,
+				Context:     p.Context,
+				Description: p.Context, // alias for bd compatibility
+				Type:        p.Type,
 				Level:      p.Level,
 				Project:    p.Project,
 				For:        p.For,
@@ -373,6 +375,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			}
 			if p.Context != "" {
 				item.Context = clearOrSet(p.Context)
+				item.Description = item.Context // keep alias in sync
 			}
 			if p.Priority != "" {
 				item.Priority = clearOrSet(p.Priority)
