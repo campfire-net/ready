@@ -1,0 +1,9 @@
+# Binary
+rd
+
+# Campfire local state
+.campfire/
+
+# Claude worktrees and telemetry
+.claude/worktrees/
+.telemetry/

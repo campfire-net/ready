@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_bare: ${{ steps.version.outputs.version_bare }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          VERSION_BARE="${VERSION#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version_bare=${VERSION_BARE}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Build binaries
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          LDFLAGS="-s -w -X main.Version=${VERSION}"
+          OUTDIR="dist"
+          mkdir -p "${OUTDIR}"
+
+          declare -a TARGETS=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+            "windows/amd64"
+          )
+
+          for TARGET in "${TARGETS[@]}"; do
+            OS="${TARGET%/*}"
+            ARCH="${TARGET#*/}"
+            LABEL="${OS}_${ARCH}"
+
+            BIN="rd"
+            if [ "${OS}" = "windows" ]; then
+              BIN="rd.exe"
+            fi
+
+            GOOS="${OS}" GOARCH="${ARCH}" go build \
+              -ldflags "${LDFLAGS}" \
+              -o "${OUTDIR}/rd_${LABEL}/${BIN}" \
+              "./cmd/rd"
+
+            if [ "${OS}" = "windows" ]; then
+              (cd "${OUTDIR}" && zip -r "rd_${LABEL}.zip" "rd_${LABEL}/")
+            else
+              tar -czf "${OUTDIR}/rd_${LABEL}.tar.gz" \
+                -C "${OUTDIR}" \
+                "rd_${LABEL}/"
+            fi
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Sign artifacts with cosign
+        run: |
+          cd dist
+          for FILE in *.tar.gz *.zip checksums.txt; do
+            [ -f "${FILE}" ] || continue
+            cosign sign-blob \
+              --yes \
+              --output-signature "${FILE}.sig" \
+              --output-certificate "${FILE}.pem" \
+              "${FILE}"
+          done
+
+      - name: Generate release notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "${PREV_TAG}" ]; then
+            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"%s" --no-merges)
+          else
+            COMMITS=$(git log --pretty=format:"%s" --no-merges)
+          fi
+
+          FEATURES=""
+          FIXES=""
+          OTHER=""
+
+          while IFS= read -r line; do
+            [ -z "${line}" ] && continue
+            case "${line}" in
+              feat*)    FEATURES="${FEATURES}- ${line}"$'\n' ;;
+              fix*)     FIXES="${FIXES}- ${line}"$'\n' ;;
+              test*|docs*|chore*|beads*) ;; # skip noise
+              *)        OTHER="${OTHER}- ${line}"$'\n' ;;
+            esac
+          done <<< "${COMMITS}"
+
+          {
+            echo "## Install"
+            echo ""
+            echo '```bash'
+            echo "curl -fsSL https://ready.getcampfire.dev/install.sh | sh"
+            echo '```'
+            echo ""
+            if [ -n "${FEATURES}" ]; then
+              echo "### Features"
+              echo ""
+              echo "${FEATURES}"
+            fi
+            if [ -n "${FIXES}" ]; then
+              echo "### Fixes"
+              echo ""
+              echo "${FIXES}"
+            fi
+            if [ -n "${OTHER}" ]; then
+              echo "### Other"
+              echo ""
+              echo "${OTHER}"
+            fi
+          } > /tmp/release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: /tmp/release_notes.md
+          generate_release_notes: false
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+            dist/*.sig
+            dist/*.pem
+
+  update-site:
+    name: Update site version
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Update site version metadata
+        run: |
+          VERSION="${{ needs.release.outputs.version_bare }}"
+          sed -i "s/\"softwareVersion\": \"[^\"]*\"/\"softwareVersion\": \"${VERSION}\"/" site/index.html
+
+      - name: Commit and push site updates
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add site/
+          git diff --staged --quiet && echo "No site changes" && exit 0
+          git commit -m "site: update version for ${VERSION}"
+          git push

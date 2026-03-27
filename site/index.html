@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ready &mdash; Work management as a campfire convention</title>
+  <meta name="description" content="The rd CLI surfaces what needs attention. For humans, for agents, for anyone in the delegation chain. Built on the campfire protocol.">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Ready — Work management on campfire">
+  <meta property="og:description" content="One CLI for humans and agents. rd ready shows what needs attention. No separate backend — your campfire is the database.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ready.getcampfire.dev">
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Ready",
+    "alternateName": "rd",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS",
+    "softwareVersion": "0.1.0",
+    "url": "https://ready.getcampfire.dev",
+    "downloadUrl": "https://github.com/campfire-net/ready/releases",
+    "codeRepository": "https://github.com/campfire-net/ready",
+    "author": {
+      "@type": "Organization",
+      "name": "Third Division Labs",
+      "url": "https://3dl.dev"
+    }
+  }
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="design-system.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="ds-nav">
+    <div class="ds-container nav-inner">
+      <a href="/" class="nav-logo"><span>rd</span> ready</a>
+      <ul class="nav-links">
+        <li><a href="#install">Install</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="https://github.com/campfire-net/ready">GitHub</a></li>
+        <li><a href="https://getcampfire.dev">Campfire</a></li>
+      </ul>
+      <a href="#install" class="ds-nav-cta">Get started</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="ds-container">
+      <p class="hero-problem">Work management for the delegation chain</p>
+      <h1>One command surface for <span>humans and agents</span></h1>
+      <p class="hero-sub">
+        <code>rd</code> is a work management CLI built on the campfire protocol.
+        No separate backend. No SaaS. Your campfire is the database, the audit trail, and the coordination layer.
+      </p>
+      <div class="hero-actions">
+        <a href="#install" class="ds-btn-primary">Install rd</a>
+        <a href="https://github.com/campfire-net/ready" class="ds-btn-ghost">View source</a>
+      </div>
+      <div class="hero-install">
+        <div class="ds-code-block"><span class="cmd">curl -fsSL https://ready.getcampfire.dev/install.sh | sh</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Demo -->
+  <section>
+    <div class="ds-container">
+      <p class="section-label">How it works</p>
+      <h2 class="section-title">Your campfire already knows</h2>
+      <p class="section-desc">
+        Initialize a work campfire, create items, and query what needs attention.
+        The same commands work whether you're a human at a terminal or an agent in a session.
+      </p>
+      <div class="demo-block">
+        <div class="ds-code-block"><span class="comment"># Initialize a work campfire for your project</span>
+<span class="cmd">rd init --name myproject</span>
+<span class="output">initialized myproject
+  campfire: a7f3e2...
+  declarations: 12 operations published</span>
+
+<span class="comment"># Create work items</span>
+<span class="cmd">rd create --title "User auth returns 403 on valid tokens" --type task --priority p0</span>
+<span class="output">created myproject-a1b</span>
+
+<span class="comment"># What needs attention right now?</span>
+<span class="cmd">rd ready</span>
+<span class="output">  myproject-a1b   p0   inbox   2m   User auth returns 403 on valid tokens</span>
+
+<span class="comment"># Claim it and get to work</span>
+<span class="cmd">rd claim myproject-a1b</span>
+<span class="output">claimed myproject-a1b</span>
+
+<span class="comment"># Done</span>
+<span class="cmd">rd close myproject-a1b --reason "Token validation was checking issuer, not audience"</span>
+<span class="output">closed myproject-a1b</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="ds-container">
+      <p class="section-label">Convention, not application</p>
+      <h2 class="section-title">What makes Ready different</h2>
+      <p class="section-desc">
+        Ready isn't a project management app. It's a convention &mdash; a structured way to
+        use campfire messages for work management. The protocol is the product.
+      </p>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <span class="feature-icon" aria-hidden="true">&mdash;</span>
+          <h3>WHO is first-class</h3>
+          <p>Every item has explicit <code>for</code> and <code>by</code> fields. Who needs this outcome? Who's doing the work? Delegation is an explicit act, not an assumption.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" aria-hidden="true">&mdash;</span>
+          <h3>Attention engine</h3>
+          <p>Named views filter by who you are. <code>rd ready</code> shows what's for you or delegated by you with results pending. An agent sees what's assigned to it.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" aria-hidden="true">&mdash;</span>
+          <h3>No backend required</h3>
+          <p>Your campfire is the database. Items are convention-conforming messages. State is derived from the message log. No server, no SaaS, no sync.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" aria-hidden="true">&mdash;</span>
+          <h3>Same CLI for everyone</h3>
+          <p>Humans and agents use the same commands. <code>rd create</code>, <code>rd claim</code>, <code>rd close</code>. No separate API, no special agent SDK.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" aria-hidden="true">&mdash;</span>
+          <h3>Convention-declared operations</h3>
+          <p>The campfire publishes what operations it supports as structured declarations. Agents discover capabilities, they don't guess them.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" aria-hidden="true">&mdash;</span>
+          <h3>Compaction-safe history</h3>
+          <p>Structural events (create, close, block) are never compacted. Operational events compact after items close. The audit trail survives, noise doesn't.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Who is this for -->
+  <section>
+    <div class="ds-container">
+      <p class="section-label">Two species of user</p>
+      <h2 class="section-title">Built for the delegation chain</h2>
+      <p class="section-desc">
+        Ready serves the full chain &mdash; from the person who decides what matters
+        to the agent that executes the work.
+      </p>
+      <div class="who-grid">
+        <div class="who-card ds-card">
+          <div class="who-icon">&gt;_</div>
+          <h3>Operators</h3>
+          <p>See what needs attention. Delegate to agents or humans. Gate decisions that need judgment. <code>rd ready</code> is your control surface.</p>
+        </div>
+        <div class="who-card ds-card">
+          <div class="who-icon">&lt;/&gt;</div>
+          <h3>Agents</h3>
+          <p>Discover work via convention declarations. Claim items, report progress, close with reason. No custom integration &mdash; just <code>rd</code>.</p>
+        </div>
+        <div class="who-card ds-card">
+          <div class="who-icon">#</div>
+          <h3>Teams</h3>
+          <p>Shared campfire, shared queue. Named views filter by role. Cross-project references link work across repos. No platform lock-in.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section id="install">
+    <div class="ds-container">
+      <p class="section-label">Get started</p>
+      <h2 class="section-title">Install rd</h2>
+      <p class="section-desc">
+        Self-contained binary. The <a href="https://getcampfire.dev">campfire</a> protocol is built in &mdash; no <code>cf</code> required.
+      </p>
+      <div class="install-grid">
+        <div class="install-option">
+          <h3>Shell (Linux / macOS)</h3>
+          <div class="ds-code-block">curl -fsSL https://ready.getcampfire.dev/install.sh | sh</div>
+        </div>
+        <div class="install-option">
+          <h3>Homebrew</h3>
+          <div class="ds-code-block">brew install campfire-net/tap/ready</div>
+        </div>
+        <div class="install-option">
+          <h3>MCP server (for agents)</h3>
+          <div class="ds-code-block">npx @campfire-net/campfire-mcp</div>
+        </div>
+        <div class="install-option">
+          <h3>Go install</h3>
+          <div class="ds-code-block">go install github.com/campfire-net/ready/cmd/rd@latest</div>
+        </div>
+        <div class="install-option">
+          <h3>From source</h3>
+          <div class="ds-code-block">git clone https://github.com/campfire-net/ready
+cd ready && go build -o rd ./cmd/rd</div>
+        </div>
+        <div class="install-option">
+          <h3>GitHub Releases</h3>
+          <div class="ds-code-block"><a href="https://github.com/campfire-net/ready/releases" style="color: var(--ds-accent-secondary-light);">Download prebuilt binaries</a></div>
+        </div>
+      </div>
+
+      <div style="margin-top: var(--ds-space-xl);">
+        <div class="ds-callout">
+          <span class="ds-callout-label">Quick start</span>
+          <code>rd init --name myproject</code> creates a campfire with work convention declarations.
+          Then <code>rd create --title "First task"</code> and <code>rd ready</code> to see it.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="ds-footer">
+    <div class="ds-container ds-footer-inner">
+      <span class="ds-footer-brand"><span>rd</span> ready &middot; a campfire convention</span>
+      <div class="ds-footer-links">
+        <a href="https://github.com/campfire-net/ready">GitHub</a>
+        <a href="https://getcampfire.dev">Campfire</a>
+        <a href="https://3dl.dev">Third Division Labs</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
