@@ -4,6 +4,13 @@ rd
 # Campfire local state
 .campfire/
 
-# Claude worktrees and telemetry
-.claude/worktrees/
+# Claude Code — agent specs, project instructions, worktrees
+.claude/
+CLAUDE.md
+
+# Telemetry
 .telemetry/
+
+# Internal docs
+docs/migration-brief.md
+docs/resonant/
