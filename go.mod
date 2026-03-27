@@ -3,7 +3,7 @@ module github.com/campfire-net/ready
 go 1.24.0
 
 require (
-	github.com/campfire-net/campfire v0.0.0
+	github.com/campfire-net/campfire v0.6.0
 	github.com/spf13/cobra v1.8.1
 )
 
@@ -24,5 +24,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.46.1 // indirect
 )
-
-replace github.com/campfire-net/campfire => /home/baron/projects/campfire

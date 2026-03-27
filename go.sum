@@ -1,3 +1,5 @@
+github.com/campfire-net/campfire v0.6.0 h1:kJJ6WIKUCTgO2egFXTbximkEE3Jd9+RzKTnmXxcV47U=
+github.com/campfire-net/campfire v0.6.0/go.mod h1:butmh3Ixp1yAY3lrph7z+FEYOYiz7sqEqTSxTv8P/Vg=
 github.com/cpuguy83/go-md2man/v2 v2.0.4/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
