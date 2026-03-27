@@ -176,6 +176,17 @@ This project uses `rd` for work management.
         and uses it like any other CLI tool. No MCP server configuration, no special integration.</p>
       </div>
 
+      <div style="margin-top: var(--ds-space-xl);">
+        <h3>Or drop in the skill file</h3>
+        <p style="color: var(--ds-text-secondary); margin-bottom: var(--ds-space-md); line-height: 1.6;">
+          Download <a href="SKILL.md">SKILL.md</a> into your project's <code>.claude/skills/rd/</code> directory.
+          Claude Code will discover it automatically and gain full <code>rd</code> command knowledge &mdash;
+          creating items, claiming work, closing with reasons, querying views.
+        </p>
+        <div class="ds-code-block"><span class="cmd">mkdir -p .claude/skills/rd</span>
+<span class="cmd">curl -fsSL https://ready.getcampfire.dev/SKILL.md -o .claude/skills/rd/SKILL.md</span></div>
+      </div>
+
       <div class="two-col" style="margin-top: var(--ds-space-xl);">
         <div>
           <h3>Agents use the same commands</h3>
