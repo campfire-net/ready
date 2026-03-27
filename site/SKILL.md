@@ -13,7 +13,7 @@ Running rd $ARGUMENTS.
 | `rd ready` | Show items needing attention now |
 | `rd list [--status ...] [--all] [--json]` | List items with filters |
 | `rd show <id>` | Item details and audit trail |
-| `rd create --title "..." --type task --priority p1` | Create a work item |
+| `rd create "..." --type task --priority p1` | Create a work item |
 | `rd claim <id>` | Accept work — become the performer |
 | `rd close <id> --reason "..."` | Close with reason |
 | `rd delegate <id> --to <identity>` | Assign to a person or agent |
@@ -39,7 +39,7 @@ curl -fsSL https://ready.getcampfire.dev/install.sh | sh
 
 ## Item lifecycle
 
-1. **Create**: `rd create --title "..." --type task --priority p1`
+1. **Create**: `rd create "..." --type task --priority p1`
 2. **Claim**: `rd claim <id>` — sets you as performer, status → active
 3. **Work**: do the work
 4. **Close**: `rd close <id> --reason "why"` — done, cancelled, or failed
@@ -68,5 +68,5 @@ All commands support `--json` for structured output:
 
 ```bash
 rd list --json | jq '.[] | select(.status == "active")'
-rd create --title "..." --type task --priority p1 --json
+rd create "..." --type task --priority p1 --json
 ```

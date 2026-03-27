@@ -90,6 +90,9 @@ func TestE2E_Init_DefaultsNameFromDirectory(t *testing.T) {
 func TestE2E_Init_ReportsNoHome(t *testing.T) {
 	e := NewEnv(t)
 
+	// Remove auto-discovered home alias so this env has no home campfire.
+	os.Remove(filepath.Join(e.CFHome, "aliases.json"))
+
 	projectDir := t.TempDir()
 	stdout, stderr, code := e.RdInDir(projectDir, "init", "--name", "standalone", "--json")
 	if code != 0 {
@@ -136,6 +139,9 @@ func TestE2E_Init_ThenCreateItem(t *testing.T) {
 // succeeds gracefully when no home exists.
 func TestE2E_Register_NoFlags_NoHome(t *testing.T) {
 	e := NewEnv(t)
+
+	// Remove auto-discovered home alias so this env has no home campfire.
+	os.Remove(filepath.Join(e.CFHome, "aliases.json"))
 
 	projectDir := t.TempDir()
 	_, stderr, code := e.RdInDir(projectDir, "init", "--name", "standalone")

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -111,19 +112,21 @@ func BuildCreatePayload(id, title, context, itemType, level, project, forParty, 
 }
 
 var createCmd = &cobra.Command{
-	Use:   "create",
+	Use:   "create [title]",
 	Short: "Create a new work item",
 	Long: `Create a new work item in the project campfire.
 
-Required flags: --title, --type, --priority
+Title can be a positional argument or --title flag.
+Required: title, --type, --priority
 
 If --eta is omitted, it is derived from priority:
   p0 = now, p1 = +4h, p2 = +24h, p3 = +72h
 
 Example:
+  rd create "Fix auth bug" --type task --priority p0
   rd create --title "Fix auth bug" --type task --priority p0
-  rd create --title "Review API design" --type decision --priority p1 --for baron@3dl.dev
-  rd create --title "Ship v2" --type task --priority p1 --context "See spec in docs/v2.md" --json
+  rd create "Review API design" --type decision --priority p1 --for baron@3dl.dev
+  rd create "Ship v2" --type task --priority p1 --context "See spec in docs/v2.md" --json
 
 Note: use --context for descriptions, not --description.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -145,9 +148,17 @@ Note: use --context for descriptions, not --description.`,
 		eta, _ := cmd.Flags().GetString("eta")
 		due, _ := cmd.Flags().GetString("due")
 
+		// Title: positional arg or --title flag, not both.
+		if len(args) > 0 && title != "" {
+			return fmt.Errorf("title provided as both positional argument and --title flag; use one or the other")
+		}
+		if len(args) > 0 {
+			title = strings.Join(args, " ")
+		}
+
 		// Validation.
 		if title == "" {
-			return fmt.Errorf("--title is required")
+			return fmt.Errorf("title is required (positional argument or --title flag)")
 		}
 		if itemType == "" {
 			return fmt.Errorf("--type is required")

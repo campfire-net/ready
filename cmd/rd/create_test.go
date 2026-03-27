@@ -290,6 +290,63 @@ func TestCreateCloseSequence_CloseTargetsCreateMsg(t *testing.T) {
 	}
 }
 
+// TestCreate_PositionalTitle verifies that title can be passed as a positional arg.
+func TestCreate_PositionalTitle(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		want    string
+		wantErr string
+	}{
+		{"positional", []string{"Fix auth bug"}, "Fix auth bug", ""},
+		{"flag", []string{"--title", "Fix auth bug"}, "Fix auth bug", ""},
+		{"positional multi-word", []string{"Fix", "auth", "bug"}, "Fix auth bug", ""},
+		{"both errors", []string{"Positional", "--title", "Flag"}, "", "both positional argument and --title"},
+		{"neither errors", []string{}, "", "title is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &cobra.Command{
+				Use: "create [title]",
+				RunE: func(c *cobra.Command, args []string) error {
+					title, _ := c.Flags().GetString("title")
+					if len(args) > 0 && title != "" {
+						return fmt.Errorf("title provided as both positional argument and --title flag; use one or the other")
+					}
+					if len(args) > 0 {
+						title = strings.Join(args, " ")
+					}
+					if title == "" {
+						return fmt.Errorf("title is required")
+					}
+					fmt.Fprint(c.OutOrStdout(), title)
+					return nil
+				},
+			}
+			c.Flags().String("title", "", "")
+			var buf strings.Builder
+			c.SetOut(&buf)
+			c.SetArgs(tt.args)
+			err := c.Execute()
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("error=%q, want containing %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if buf.String() != tt.want {
+				t.Errorf("output=%q, want %q", buf.String(), tt.want)
+			}
+		})
+	}
+}
+
 // TestCreate_DescriptionFlag_HelpfulError verifies that --description on rd create
 // returns a helpful error directing agents to use --context or rd update, not a
 // generic "unknown flag". Agents familiar with bd use --description; Ready uses 'context'.

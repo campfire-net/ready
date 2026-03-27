@@ -26,7 +26,7 @@ var rootCmd = &cobra.Command{
 LIFECYCLE
   The work item lifecycle is: create → claim → close.
 
-  rd create --title "Fix auth bug" --type task --priority p0
+  rd create "Fix auth bug" --type task --priority p0
   rd claim <id>
   rd close <id> --reason "Was checking issuer, not audience"
 

@@ -31,7 +31,7 @@ Self-contained binary — the [campfire](https://getcampfire.dev) protocol is bu
 rd init --name myproject
 
 # Create work items
-rd create --title "User auth returns 403 on valid tokens" --type task --priority p0
+rd create "User auth returns 403 on valid tokens" --type task --priority p0
 
 # What needs attention?
 rd ready
@@ -56,7 +56,7 @@ Ready is a **convention**, not an application. It defines structured operations 
 | Command | What it does |
 |---------|-------------|
 | `rd init --name <project>` | Create a work campfire with convention declarations |
-| `rd create --title "..." --type task` | Create a work item |
+| `rd create "..." --type task` | Create a work item |
 | `rd ready` | What needs attention now |
 | `rd list` | All open items |
 | `rd list --all` | All items including done/cancelled |
