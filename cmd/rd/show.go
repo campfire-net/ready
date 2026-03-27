@@ -13,7 +13,12 @@ import (
 var showCmd = &cobra.Command{
 	Use:   "show <item-id>",
 	Short: "Show a work item",
-	Args:  cobra.ExactArgs(1),
+	Long: `Show full details of a work item — status, context, dependencies, audit trail.
+
+Example:
+  rd show ready-a1b
+  rd show ready-a1b --json`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		itemID := args[0]
 

@@ -1,5 +1,5 @@
-# Binary
-rd
+# Binary (top-level only, not cmd/rd/)
+/rd
 
 # Campfire local state
 .campfire/

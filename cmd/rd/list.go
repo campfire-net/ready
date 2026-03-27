@@ -14,16 +14,23 @@ var listCmd = &cobra.Command{
 	Short: "List work items",
 	Long: `List work items across all campfires.
 
-Filters:
-  --status    filter by status (repeatable, OR semantics — e.g. --status inbox --status active)
+Filters (all optional, combinable):
+  --status    filter by status (repeatable, OR semantics)
   --for       filter by 'for' party
   --by        filter by 'by' party
   --project   filter by project
   --priority  filter by priority (p0, p1, p2, p3)
   --type      filter by type
+  --all       include terminal items (done, cancelled, failed)
 
 By default, terminal items (done, cancelled, failed) are excluded.
-Use --all to include them.`,
+
+Example:
+  rd list                                    all open items
+  rd list --all                              include done/cancelled
+  rd list --status inbox --status active     OR filter
+  rd list --by atlas/worker-3 --json         machine-readable
+  rd list --priority p0 --priority p1        urgent items only`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		statusFilters, _ := cmd.Flags().GetStringArray("status")
 		forFilter, _ := cmd.Flags().GetString("for")

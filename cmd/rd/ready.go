@@ -23,8 +23,19 @@ Items appear in the ready view when:
   - not blocked
   - ETA is within the next 4 hours
 
-Use --view to select a different named view:
-  ready, work, pending, overdue, delegated, my-work`,
+Named views:
+  ready      what needs attention now (default)
+  work       items actively being worked on
+  pending    waiting, scheduled, or blocked
+  overdue    past-due items
+  delegated  work I delegated, in progress
+  my-work    work assigned to me
+
+Example:
+  rd ready
+  rd ready --view overdue
+  rd ready --view my-work --json
+  rd ready --for ""                show all items, not just mine`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		viewName, _ := cmd.Flags().GetString("view")
 		forFilter, _ := cmd.Flags().GetString("for")

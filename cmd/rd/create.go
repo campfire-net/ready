@@ -115,11 +115,17 @@ var createCmd = &cobra.Command{
 	Short: "Create a new work item",
 	Long: `Create a new work item in the project campfire.
 
-If --id is omitted, an 8-char hex ID is generated automatically.
-If provided, it must match ^[a-z0-9][a-z0-9-]{2,63}$.
+Required flags: --title, --type, --priority
 
 If --eta is omitted, it is derived from priority:
-  p0 = now, p1 = +4h, p2 = +24h, p3 = +72h`,
+  p0 = now, p1 = +4h, p2 = +24h, p3 = +72h
+
+Example:
+  rd create --title "Fix auth bug" --type task --priority p0
+  rd create --title "Review API design" --type decision --priority p1 --for baron@3dl.dev
+  rd create --title "Ship v2" --type task --priority p1 --context "See spec in docs/v2.md" --json
+
+Note: use --context for descriptions, not --description.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Helpful redirect for --description (agents may use bd's flag name).
 		if desc, _ := cmd.Flags().GetString("description"); desc != "" {

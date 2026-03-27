@@ -23,16 +23,30 @@ var rootCmd = &cobra.Command{
 	Short: "Ready — work management on campfire",
 	Long: `Ready — work management as a campfire convention.
 
-  rd create    create a work item
-  rd ready     show items needing attention now
-  rd list      list all items
-  rd show      show a single item
-  rd close     close an item
-  rd claim     claim a work item (accept delegation, transition to active)
-  rd update    update fields on a work item
-  rd delegate  delegate a work item to another party
+LIFECYCLE
+  The work item lifecycle is: create → claim → close.
 
-  Work items live in your campfire. The campfire is the backend.`,
+  rd create --title "Fix auth bug" --type task --priority p0
+  rd claim <id>
+  rd close <id> --reason "Was checking issuer, not audience"
+
+QUERY
+  rd ready                        what needs attention now
+  rd list                         all open items
+  rd list --status active --json  filtered, machine-readable
+  rd show <id>                    full item details
+
+DELEGATION
+  rd delegate <id> --to <identity>
+  rd ready --view delegated       see what you've delegated
+  rd ready --view my-work         see what's assigned to you
+
+SETUP
+  rd init --name myproject        create a work campfire (one-time)
+  rd register --org <name>        add to an org for multi-project (optional)
+
+Work items live in your project's campfire. No database, no server.
+https://ready.getcampfire.dev`,
 	Version: Version,
 }
 
