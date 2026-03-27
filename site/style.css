@@ -231,6 +231,104 @@ section {
   line-height: 1.6;
 }
 
+/* ── Two-column layout ── */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ds-space-xl);
+  align-items: start;
+}
+
+.two-col h3 {
+  margin-bottom: var(--ds-space-xs);
+}
+
+.two-col p {
+  font-size: var(--ds-text-sm);
+  color: var(--ds-text-secondary);
+  line-height: 1.6;
+}
+
+/* ── Command reference table ── */
+.cmd-table {
+  overflow-x: auto;
+}
+
+.cmd-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ds-text-sm);
+}
+
+.cmd-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ds-border);
+  vertical-align: top;
+}
+
+.cmd-table td:first-child {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.cmd-table td:last-child {
+  color: var(--ds-text-secondary);
+}
+
+.cmd-table tr:hover td {
+  background: var(--ds-surface);
+}
+
+/* ── Setup tiers ── */
+.setup-tier {
+  margin-bottom: var(--ds-space-xl);
+  padding-bottom: var(--ds-space-xl);
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.setup-tier:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.setup-tier h3 {
+  font-size: var(--ds-text-xl);
+  margin-bottom: var(--ds-space-xs);
+}
+
+.setup-tier > p {
+  font-size: var(--ds-text-base);
+  color: var(--ds-text-secondary);
+  margin-bottom: var(--ds-space-md);
+  line-height: 1.6;
+}
+
+/* ── Ecosystem links ── */
+.ecosystem-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--ds-space-md);
+  margin-top: var(--ds-space-md);
+}
+
+.ecosystem-card {
+  text-decoration: none;
+  display: block;
+}
+
+.ecosystem-card h4 {
+  font-family: var(--ds-font-mono);
+  color: var(--accent);
+  margin-bottom: var(--ds-space-xs);
+}
+
+.ecosystem-card p {
+  font-size: var(--ds-text-sm);
+  color: var(--ds-text-secondary);
+  line-height: 1.5;
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .nav-links { display: none; }
@@ -242,7 +340,7 @@ section {
   section { padding: var(--ds-space-2xl) 0; }
   .section-title { font-size: var(--ds-text-xl); }
 
-  .feature-grid { grid-template-columns: 1fr; }
+  .two-col { grid-template-columns: 1fr; }
   .install-grid { grid-template-columns: 1fr; }
-  .who-grid { grid-template-columns: 1fr; }
+  .ecosystem-links { grid-template-columns: 1fr; }
 }

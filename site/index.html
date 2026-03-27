@@ -48,12 +48,13 @@
     <div class="ds-container nav-inner">
       <a href="/" class="nav-logo"><span>rd</span> ready</a>
       <ul class="nav-links">
-        <li><a href="#install">Install</a></li>
-        <li><a href="#features">Features</a></li>
+        <li><a href="#usage">Usage</a></li>
+        <li><a href="#claude">Claude Code</a></li>
+        <li><a href="#setup">Setup</a></li>
+        <li><a href="#federation">Federation</a></li>
         <li><a href="https://github.com/campfire-net/ready">GitHub</a></li>
-        <li><a href="https://getcampfire.dev">Campfire</a></li>
       </ul>
-      <a href="#install" class="ds-nav-cta">Get started</a>
+      <a href="#install" class="ds-nav-cta">Install</a>
     </div>
   </nav>
 
@@ -61,10 +62,11 @@
   <section class="hero">
     <div class="ds-container">
       <p class="hero-problem">Work management for the delegation chain</p>
-      <h1>One command surface for <span>humans and agents</span></h1>
+      <h1>Create, claim, close. <span>That's the whole tool.</span></h1>
       <p class="hero-sub">
-        <code>rd</code> is a work management CLI built on the campfire protocol.
-        No separate backend. No SaaS. Your campfire is the database, the audit trail, and the coordination layer.
+        <code>rd</code> tracks work items in a <a href="https://getcampfire.dev">campfire</a> &mdash;
+        the same protocol your agents already coordinate on.
+        No database, no SaaS, no sync. The campfire is the backend.
       </p>
       <div class="hero-actions">
         <a href="#install" class="ds-btn-primary">Install rd</a>
@@ -76,109 +78,287 @@
     </div>
   </section>
 
-  <!-- Demo -->
-  <section>
+  <!-- Section 1: How it works -->
+  <section id="usage">
     <div class="ds-container">
-      <p class="section-label">How it works</p>
-      <h2 class="section-title">Your campfire already knows</h2>
+      <p class="section-label">The lifecycle</p>
+      <h2 class="section-title">Create &rarr; Claim &rarr; Close</h2>
       <p class="section-desc">
-        Initialize a work campfire, create items, and query what needs attention.
-        The same commands work whether you're a human at a terminal or an agent in a session.
+        Every work item follows the same three-step lifecycle.
+        Humans and agents use the same commands.
       </p>
-      <div class="demo-block">
-        <div class="ds-code-block"><span class="comment"># Initialize a work campfire for your project</span>
-<span class="cmd">rd init --name myproject</span>
-<span class="output">initialized myproject
-  campfire: a7f3e2...
-  declarations: 12 operations published</span>
 
-<span class="comment"># Create work items</span>
-<span class="cmd">rd create --title "User auth returns 403 on valid tokens" --type task --priority p0</span>
+      <div class="demo-block">
+        <div class="ds-code-block"><span class="comment"># Create a work item</span>
+<span class="cmd">rd create --title "Auth returns 403 on valid tokens" --type task --priority p0</span>
 <span class="output">created myproject-a1b</span>
 
 <span class="comment"># What needs attention right now?</span>
 <span class="cmd">rd ready</span>
-<span class="output">  myproject-a1b   p0   inbox   2m   User auth returns 403 on valid tokens</span>
+<span class="output">  myproject-a1b   p0   inbox   2m   Auth returns 403 on valid tokens</span>
 
-<span class="comment"># Claim it and get to work</span>
+<span class="comment"># Claim it — you're now the performer</span>
 <span class="cmd">rd claim myproject-a1b</span>
 <span class="output">claimed myproject-a1b</span>
 
-<span class="comment"># Done</span>
-<span class="cmd">rd close myproject-a1b --reason "Token validation was checking issuer, not audience"</span>
+<span class="comment"># Close with a reason — the audit trail records why</span>
+<span class="cmd">rd close myproject-a1b --reason "Was checking issuer, not audience"</span>
 <span class="output">closed myproject-a1b</span></div>
       </div>
-    </div>
-  </section>
 
-  <!-- Features -->
-  <section id="features">
-    <div class="ds-container">
-      <p class="section-label">Convention, not application</p>
-      <h2 class="section-title">What makes Ready different</h2>
-      <p class="section-desc">
-        Ready isn't a project management app. It's a convention &mdash; a structured way to
-        use campfire messages for work management. The protocol is the product.
-      </p>
-      <div class="feature-grid">
-        <div class="feature-card">
-          <span class="feature-icon" aria-hidden="true">&mdash;</span>
-          <h3>WHO is first-class</h3>
-          <p>Every item has explicit <code>for</code> and <code>by</code> fields. Who needs this outcome? Who's doing the work? Delegation is an explicit act, not an assumption.</p>
+      <div class="two-col" style="margin-top: var(--ds-space-xl);">
+        <div>
+          <h3>Delegation is explicit</h3>
+          <p>Every item has <code>for</code> (who needs the outcome) and <code>by</code> (who's doing it). Delegation is an act, not an assumption.</p>
+          <div class="ds-code-block" style="margin-top: var(--ds-space-sm);"><span class="cmd">rd delegate myproject-a1b --to atlas/worker-3</span>
+<span class="output">delegated myproject-a1b to atlas/worker-3</span>
+
+<span class="comment"># See what you've delegated</span>
+<span class="cmd">rd ready --view delegated</span></div>
         </div>
-        <div class="feature-card">
-          <span class="feature-icon" aria-hidden="true">&mdash;</span>
-          <h3>Attention engine</h3>
-          <p>Named views filter by who you are. <code>rd ready</code> shows what's for you or delegated by you with results pending. An agent sees what's assigned to it.</p>
+        <div>
+          <h3>The attention engine</h3>
+          <p>Named views filter by who you are. <code>rd ready</code> shows what's actionable. Priority drives ETA &mdash; P0 is now, P3 is 72 hours.</p>
+          <div class="ds-code-block" style="margin-top: var(--ds-space-sm);"><span class="comment"># Views: ready, work, pending, overdue, delegated, my-work</span>
+<span class="cmd">rd ready --view overdue</span>
+<span class="cmd">rd list --status active --priority p0,p1</span>
+<span class="cmd">rd list --by atlas/worker-3 --all --json</span></div>
         </div>
-        <div class="feature-card">
-          <span class="feature-icon" aria-hidden="true">&mdash;</span>
-          <h3>No backend required</h3>
-          <p>Your campfire is the database. Items are convention-conforming messages. State is derived from the message log. No server, no SaaS, no sync.</p>
-        </div>
-        <div class="feature-card">
-          <span class="feature-icon" aria-hidden="true">&mdash;</span>
-          <h3>Same CLI for everyone</h3>
-          <p>Humans and agents use the same commands. <code>rd create</code>, <code>rd claim</code>, <code>rd close</code>. No separate API, no special agent SDK.</p>
-        </div>
-        <div class="feature-card">
-          <span class="feature-icon" aria-hidden="true">&mdash;</span>
-          <h3>Convention-declared operations</h3>
-          <p>The campfire publishes what operations it supports as structured declarations. Agents discover capabilities, they don't guess them.</p>
-        </div>
-        <div class="feature-card">
-          <span class="feature-icon" aria-hidden="true">&mdash;</span>
-          <h3>Compaction-safe history</h3>
-          <p>Structural events (create, close, block) are never compacted. Operational events compact after items close. The audit trail survives, noise doesn't.</p>
+      </div>
+
+      <div style="margin-top: var(--ds-space-xl);">
+        <h3>Full command reference</h3>
+        <div class="cmd-table">
+          <table>
+            <tbody>
+              <tr><td><code>rd init --name &lt;project&gt;</code></td><td>Create a work campfire with convention declarations</td></tr>
+              <tr><td><code>rd create --title "..." --type task --priority p1</code></td><td>Create a work item</td></tr>
+              <tr><td><code>rd ready</code></td><td>What needs attention now</td></tr>
+              <tr><td><code>rd list [--status ...] [--by ...] [--all]</code></td><td>List items with filters</td></tr>
+              <tr><td><code>rd show &lt;id&gt;</code></td><td>Item details + audit trail</td></tr>
+              <tr><td><code>rd claim &lt;id&gt;</code></td><td>Accept work, become the performer</td></tr>
+              <tr><td><code>rd delegate &lt;id&gt; --to &lt;identity&gt;</code></td><td>Assign to a person, agent, or automaton</td></tr>
+              <tr><td><code>rd close &lt;id&gt; --reason "..."</code></td><td>Close with reason (done, cancelled, or failed)</td></tr>
+              <tr><td><code>rd update &lt;id&gt; --status &lt;status&gt;</code></td><td>Change status, priority, ETA, or context</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Who is this for -->
-  <section>
+  <!-- Section 2: Claude Code -->
+  <section id="claude">
     <div class="ds-container">
-      <p class="section-label">Two species of user</p>
-      <h2 class="section-title">Built for the delegation chain</h2>
+      <p class="section-label">Agent integration</p>
+      <h2 class="section-title">Tell Claude to use it</h2>
       <p class="section-desc">
-        Ready serves the full chain &mdash; from the person who decides what matters
-        to the agent that executes the work.
+        Add <code>rd</code> to your project's <code>CLAUDE.md</code> and Claude Code will
+        use it to track work, check what's ready, and close items when done.
       </p>
-      <div class="who-grid">
-        <div class="who-card ds-card">
-          <div class="who-icon">&gt;_</div>
-          <h3>Operators</h3>
-          <p>See what needs attention. Delegate to agents or humans. Gate decisions that need judgment. <code>rd ready</code> is your control surface.</p>
+
+      <div class="demo-block">
+        <div class="ds-code-block"><span class="comment"># In your project's CLAUDE.md:</span>
+
+<span class="output">## Work tracking
+
+This project uses `rd` for work management.
+
+- Check what needs attention: `rd ready`
+- When starting work: `rd claim &lt;id&gt;`
+- When done: `rd close &lt;id&gt; --reason "..."`
+- To create new items: `rd create --title "..." --type task --priority p1`
+- All commands support `--json` for structured output</span></div>
+      </div>
+
+      <div style="margin-top: var(--ds-space-xl);">
+        <p>That's it. Claude Code reads <code>CLAUDE.md</code> at session start, discovers <code>rd</code> on PATH,
+        and uses it like any other CLI tool. No MCP server configuration, no special integration.</p>
+      </div>
+
+      <div class="two-col" style="margin-top: var(--ds-space-xl);">
+        <div>
+          <h3>Agents use the same commands</h3>
+          <p>There's no separate agent API. <code>rd create</code>, <code>rd claim</code>, <code>rd close</code>
+          work the same for a human at a terminal and a Claude session reading CLAUDE.md.</p>
         </div>
-        <div class="who-card ds-card">
-          <div class="who-icon">&lt;/&gt;</div>
-          <h3>Agents</h3>
-          <p>Discover work via convention declarations. Claim items, report progress, close with reason. No custom integration &mdash; just <code>rd</code>.</p>
+        <div>
+          <h3>MCP for deeper integration</h3>
+          <p>For agents that speak MCP, campfire itself is the integration point.
+          <code>rd</code> operations are <a href="https://getcampfire.dev">campfire convention</a> messages &mdash;
+          any MCP-connected agent can read and write them.</p>
+          <div class="ds-code-block" style="margin-top: var(--ds-space-sm);"><span class="cmd">npx @campfire-net/campfire-mcp</span></div>
         </div>
-        <div class="who-card ds-card">
-          <div class="who-icon">#</div>
-          <h3>Teams</h3>
-          <p>Shared campfire, shared queue. Named views filter by role. Cross-project references link work across repos. No platform lock-in.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 3: Setup modes -->
+  <section id="setup">
+    <div class="ds-container">
+      <p class="section-label">From solo to portfolio</p>
+      <h2 class="section-title">Single project, multi-project, or org-wide</h2>
+      <p class="section-desc">
+        Start with one project. Add more when you need them. Registration is optional &mdash;
+        every project works standalone.
+      </p>
+
+      <!-- Single project -->
+      <div class="setup-tier">
+        <h3>Single project</h3>
+        <p>One command. Your project gets a campfire that stores all work items locally.</p>
+        <div class="ds-code-block"><span class="cmd">cd ~/projects/myapp</span>
+<span class="cmd">rd init --name myapp</span>
+<span class="output">initialized myapp
+  campfire: a7f3e2...
+  declarations: 12 operations published</span>
+
+<span class="comment"># Start working</span>
+<span class="cmd">rd create --title "Set up CI pipeline" --type task --priority p1</span>
+<span class="cmd">rd ready</span></div>
+        <div class="ds-callout" style="margin-top: var(--ds-space-sm);">
+          <span class="ds-callout-label">What happens</span>
+          <code>rd init</code> creates a campfire at <code>.campfire/root</code> and publishes
+          12 convention operation declarations. These declarations make the campfire self-describing &mdash;
+          any agent can discover what operations are available by reading the campfire.
+        </div>
+      </div>
+
+      <!-- Multi-project -->
+      <div class="setup-tier">
+        <h3>Multi-project</h3>
+        <p>Register projects under an org home. They discover each other. Work stays in each project's campfire.</p>
+        <div class="ds-code-block"><span class="comment"># First project — creates the org home</span>
+<span class="cmd">cd ~/projects/api</span>
+<span class="cmd">rd init --name api</span>
+<span class="cmd">rd register --org acme</span>
+<span class="output">created home campfire: b8c4d1...
+registered cf://acme.ready/api</span>
+
+<span class="comment"># Second project — joins the existing org home</span>
+<span class="cmd">cd ~/projects/frontend</span>
+<span class="cmd">rd init --name frontend</span>
+<span class="cmd">rd register</span>
+<span class="output">found home campfire: b8c4d1... (acme)
+registered cf://acme.ready/frontend</span>
+
+<span class="comment"># See work across projects</span>
+<span class="cmd">rd ready</span>
+<span class="output">  api-3f2       p0   inbox   5m   Rate limiter dropping valid requests
+  frontend-a1b  p1   active  2h   Dashboard loading state missing</span></div>
+        <div class="ds-callout" style="margin-top: var(--ds-space-sm);">
+          <span class="ds-callout-label">What happens</span>
+          <code>rd register --org acme</code> creates a home campfire and a ready namespace under it.
+          Subsequent projects in the same org auto-discover the home via your <code>~/.campfire/config.json</code>.
+          Each project keeps its own campfire &mdash; the home just links them for discovery.
+        </div>
+      </div>
+
+      <!-- Org-wide -->
+      <div class="setup-tier">
+        <h3>Org-wide with delegation</h3>
+        <p>Operators delegate to agents and humans. The attention engine routes work to whoever's doing it.</p>
+        <div class="ds-code-block"><span class="comment"># Operator creates and delegates</span>
+<span class="cmd">rd create --title "Implement OAuth PKCE flow" --type task --priority p0 \
+  --for baron@acme.dev --by claude-session-xyz</span>
+<span class="output">created api-d4e</span>
+
+<span class="comment"># Agent's view — only sees work assigned to it</span>
+<span class="cmd">rd ready --view my-work</span>
+<span class="output">  api-d4e   p0   inbox   now   Implement OAuth PKCE flow</span>
+
+<span class="comment"># Agent claims, works, hits a decision point</span>
+<span class="cmd">rd claim api-d4e</span>
+<span class="cmd">rd gate api-d4e --type design --reason "PKCE vs device flow — need operator decision"</span>
+
+<span class="comment"># Operator sees the gate, resolves it</span>
+<span class="cmd">rd ready --view delegated</span>
+<span class="output">  api-d4e   p0   active  GATE:design   Implement OAuth PKCE flow</span>
+<span class="cmd">rd approve api-d4e --reason "PKCE, we need browser redirect"</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 4: Federation -->
+  <section id="federation">
+    <div class="ds-container">
+      <p class="section-label">Built on campfire</p>
+      <h2 class="section-title">Convention, not application</h2>
+      <p class="section-desc">
+        Ready isn't a project management app. It's a <a href="https://aietf.getcampfire.dev">convention</a> &mdash;
+        a structured vocabulary of operations that any campfire can speak.
+      </p>
+
+      <div class="two-col">
+        <div>
+          <h3>How it works underneath</h3>
+          <p>When you run <code>rd create</code>, Ready posts a <code>work:create</code> message to your project's campfire
+          with a structured payload. <code>rd claim</code> posts <code>work:claim</code> with a causal link to the create message.
+          State is derived from the message log &mdash; there's no separate database.</p>
+          <p style="margin-top: var(--ds-space-sm);">
+          Convention operations are declared in the campfire itself. When <code>rd init</code> runs,
+          it publishes 12 <code>convention:operation</code> declarations that describe every operation,
+          its arguments, and its constraints. Any agent reading the campfire knows what's possible.</p>
+        </div>
+        <div>
+          <h3>10 operations, complete vocabulary</h3>
+          <div class="ds-code-block" style="font-size: 12px;"><span class="output">work:create       — new item with full payload
+work:claim        — accept work, become performer
+work:status       — transition status
+work:delegate     — assign/reassign performer
+work:block        — wire a dependency
+work:unblock      — remove a dependency
+work:gate         — request human escalation
+work:gate-resolve — resolve a gate
+work:update       — modify fields
+work:close        — terminal close with reason</span></div>
+        </div>
+      </div>
+
+      <div class="two-col" style="margin-top: var(--ds-space-xl);">
+        <div>
+          <h3>Federation topology</h3>
+          <p>Projects are independent campfires. An org home links them for discovery. Names make them addressable.
+          Work stays local &mdash; the home is just a registry, not a database.</p>
+          <div class="ds-code-block" style="margin-top: var(--ds-space-sm); font-size: 12px;"><span class="output">Home Campfire (org root)
+  &boxvr; beacon:registration for each project
+  &boxvr;
+  &boxur; Project: api     (work:* messages)
+  &boxur; Project: frontend (work:* messages)
+  &boxur; Project: infra    (work:* messages)</span></div>
+        </div>
+        <div>
+          <h3>Compaction-safe history</h3>
+          <p>Campfires compact old messages to stay readable, but Ready marks structural events as
+          non-compactable. Creates, closes, blocks, and gates survive forever. Status changes and
+          claims compact after the item closes.</p>
+          <div class="ds-callout" style="margin-top: var(--ds-space-sm);">
+            <span class="ds-callout-label">The audit trail survives</span>
+            Every state change is a campfire message. The message log IS the audit trail.
+            Compaction archives operational noise, not structural decisions.
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: var(--ds-space-xl);">
+        <h3>Part of the campfire ecosystem</h3>
+        <p style="color: var(--ds-text-secondary); max-width: 640px; line-height: 1.6;">
+          Ready is one convention on a protocol designed for many. Campfire handles identity, encryption, transport,
+          and federation. Ready adds work management semantics on top.
+        </p>
+        <div class="ecosystem-links">
+          <a href="https://getcampfire.dev" class="ds-card ecosystem-card">
+            <h4>Campfire</h4>
+            <p>The protocol. Decentralized coordination for agents and humans.</p>
+          </a>
+          <a href="https://aietf.getcampfire.dev" class="ds-card ecosystem-card">
+            <h4>AIETF</h4>
+            <p>Convention standards. How agents agree on vocabulary and operations.</p>
+          </a>
+          <a href="https://github.com/campfire-net/ready" class="ds-card ecosystem-card">
+            <h4>Ready source</h4>
+            <p>The rd CLI. Convention spec, state engine, and named views.</p>
+          </a>
         </div>
       </div>
     </div>
@@ -202,10 +382,6 @@
           <div class="ds-code-block">brew install campfire-net/tap/ready</div>
         </div>
         <div class="install-option">
-          <h3>MCP server (for agents)</h3>
-          <div class="ds-code-block">npx @campfire-net/campfire-mcp</div>
-        </div>
-        <div class="install-option">
           <h3>Go install</h3>
           <div class="ds-code-block">go install github.com/campfire-net/ready/cmd/rd@latest</div>
         </div>
@@ -213,18 +389,6 @@
           <h3>From source</h3>
           <div class="ds-code-block">git clone https://github.com/campfire-net/ready
 cd ready && go build -o rd ./cmd/rd</div>
-        </div>
-        <div class="install-option">
-          <h3>GitHub Releases</h3>
-          <div class="ds-code-block"><a href="https://github.com/campfire-net/ready/releases" style="color: var(--ds-accent-secondary-light);">Download prebuilt binaries</a></div>
-        </div>
-      </div>
-
-      <div style="margin-top: var(--ds-space-xl);">
-        <div class="ds-callout">
-          <span class="ds-callout-label">Quick start</span>
-          <code>rd init --name myproject</code> creates a campfire with work convention declarations.
-          Then <code>rd create --title "First task"</code> and <code>rd ready</code> to see it.
         </div>
       </div>
     </div>
@@ -237,6 +401,7 @@ cd ready && go build -o rd ./cmd/rd</div>
       <div class="ds-footer-links">
         <a href="https://github.com/campfire-net/ready">GitHub</a>
         <a href="https://getcampfire.dev">Campfire</a>
+        <a href="https://aietf.getcampfire.dev">AIETF</a>
         <a href="https://3dl.dev">Third Division Labs</a>
       </div>
     </div>
