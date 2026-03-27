@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/3dl-dev/ready/pkg/state"
-	"github.com/3dl-dev/ready/pkg/storetest"
+	"github.com/campfire-net/ready/pkg/state"
+	"github.com/campfire-net/ready/pkg/storetest"
 )
 
 // TestStore_JSON_ListFieldPresence creates an item with ALL fields populated,

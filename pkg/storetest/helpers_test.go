@@ -3,7 +3,7 @@ package storetest_test
 import (
 	"testing"
 
-	"github.com/3dl-dev/ready/pkg/storetest"
+	"github.com/campfire-net/ready/pkg/storetest"
 )
 
 // TestHarness_CreateAndDerive creates an item, derives state, and verifies

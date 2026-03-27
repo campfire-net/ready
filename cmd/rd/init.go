@@ -15,7 +15,7 @@ import (
 	"github.com/campfire-net/campfire/pkg/transport/fs"
 	"github.com/spf13/cobra"
 
-	"github.com/3dl-dev/ready/pkg/declarations"
+	"github.com/campfire-net/ready/pkg/declarations"
 )
 
 var initCmd = &cobra.Command{

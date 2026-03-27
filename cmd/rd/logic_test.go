@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/campfire-net/ready/pkg/state"
 )
 
 // buildClaimMessage constructs the payload and tags for a work:claim operation,

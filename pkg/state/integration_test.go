@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/3dl-dev/ready/pkg/state"
-	"github.com/3dl-dev/ready/pkg/views"
+	"github.com/campfire-net/ready/pkg/state"
+	"github.com/campfire-net/ready/pkg/views"
 )
 
 // makeMsgFrom is like makeMsg but allows specifying sender.

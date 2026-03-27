@@ -5,8 +5,8 @@ import (
 	"sort"
 
 	"github.com/spf13/cobra"
-	"github.com/3dl-dev/ready/pkg/resolve"
-	"github.com/3dl-dev/ready/pkg/views"
+	"github.com/campfire-net/ready/pkg/resolve"
+	"github.com/campfire-net/ready/pkg/views"
 )
 
 var gatesCmd = &cobra.Command{

@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/3dl-dev/ready/pkg/resolve"
-	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/campfire-net/ready/pkg/resolve"
+	"github.com/campfire-net/ready/pkg/state"
 )
 
 // closePayload is the JSON payload for a work:close message.

@@ -9,7 +9,7 @@ import (
 
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
-	"github.com/3dl-dev/ready/pkg/playbook"
+	"github.com/campfire-net/ready/pkg/playbook"
 )
 
 // playbookCreatePayload is the JSON payload for a work:playbook-create message.

@@ -8,8 +8,8 @@ import (
 
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
-	"github.com/3dl-dev/ready/pkg/resolve"
-	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/campfire-net/ready/pkg/resolve"
+	"github.com/campfire-net/ready/pkg/state"
 )
 
 // blockPayload is the JSON payload for a work:block message.

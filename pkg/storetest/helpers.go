@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/3dl-dev/ready/pkg/state"
-	"github.com/3dl-dev/ready/pkg/views"
+	"github.com/campfire-net/ready/pkg/state"
+	"github.com/campfire-net/ready/pkg/views"
 )
 
 // DefaultCampfire is the campfire ID used by the Harness unless overridden.

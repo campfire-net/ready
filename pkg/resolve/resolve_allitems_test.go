@@ -3,7 +3,7 @@ package resolve_test
 import (
 	"testing"
 
-	"github.com/3dl-dev/ready/pkg/resolve"
+	"github.com/campfire-net/ready/pkg/resolve"
 )
 
 const (

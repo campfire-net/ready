@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/campfire-net/ready/pkg/state"
 )
 
 func makeListItem(id, status string) *state.Item {

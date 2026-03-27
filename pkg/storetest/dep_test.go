@@ -3,8 +3,8 @@ package storetest_test
 import (
 	"testing"
 
-	"github.com/3dl-dev/ready/pkg/state"
-	"github.com/3dl-dev/ready/pkg/storetest"
+	"github.com/campfire-net/ready/pkg/state"
+	"github.com/campfire-net/ready/pkg/storetest"
 )
 
 // TestStore_Dep_AddBlocksItem creates items A and B, blocks B on A, and

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/3dl-dev/ready/pkg/resolve"
+	"github.com/campfire-net/ready/pkg/resolve"
 )
 
 var showCmd = &cobra.Command{

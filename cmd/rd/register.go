@@ -15,7 +15,7 @@ import (
 	"github.com/campfire-net/campfire/pkg/transport/fs"
 	"github.com/spf13/cobra"
 
-	"github.com/3dl-dev/ready/pkg/rdconfig"
+	"github.com/campfire-net/ready/pkg/rdconfig"
 )
 
 var registerCmd = &cobra.Command{

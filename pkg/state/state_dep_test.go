@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/3dl-dev/ready/pkg/state"
+	"github.com/campfire-net/ready/pkg/state"
 )
 
 // TestDerive_UnblockRemovesEdge verifies that a work:unblock message targeting
