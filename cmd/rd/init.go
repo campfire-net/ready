@@ -102,11 +102,23 @@ Use 'rd register' later to add naming when you're ready.`,
 			}
 		}
 
-		// --- Post convention:operation declarations ---
+		// --- Post convention:operation declarations via transport ---
 
-		nDecls, err := declarations.PostAll(agentID, s, campfireID)
+		payloads, err := declarations.All()
 		if err != nil {
-			return fmt.Errorf("posting declarations (%d posted before failure): %w", nDecls, err)
+			return fmt.Errorf("loading declarations: %w", err)
+		}
+		membership, err := s.GetMembership(campfireID)
+		if err != nil || membership == nil {
+			return fmt.Errorf("cannot find membership for newly created campfire")
+		}
+		nDecls := 0
+		for _, payload := range payloads {
+			_, err := sendViaMembership(agentID, s, membership, campfireID, string(payload), []string{"convention:operation"}, nil)
+			if err != nil {
+				return fmt.Errorf("posting declaration %d: %w", nDecls, err)
+			}
+			nDecls++
 		}
 
 		// --- Check for home campfire ---
