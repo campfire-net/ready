@@ -132,19 +132,42 @@ func TestE2E_Init_ThenCreateItem(t *testing.T) {
 	}
 }
 
-// TestE2E_Register_AutoCreatesHome verifies rd register creates home + ready
-// when none exist, then registers the project.
-func TestE2E_Register_AutoCreatesHome(t *testing.T) {
+// TestE2E_Register_NoFlags_NoHome verifies rd register with no flags
+// succeeds gracefully when no home exists.
+func TestE2E_Register_NoFlags_NoHome(t *testing.T) {
 	e := NewEnv(t)
 
-	// Init a project first.
+	projectDir := t.TempDir()
+	_, stderr, code := e.RdInDir(projectDir, "init", "--name", "standalone")
+	if code != 0 {
+		t.Fatalf("rd init failed (exit %d): %s", code, stderr)
+	}
+
+	// Register with no flags — should succeed with guidance, not error.
+	stdout, _, code := e.RdInDir(projectDir, "register", "--json")
+	if code != 0 {
+		t.Fatalf("rd register (no flags) should succeed, got exit %d", code)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("JSON parse: %v\noutput: %s", err, stdout)
+	}
+	if result["registered"] != false {
+		t.Errorf("registered: got %v, want false (no home found)", result["registered"])
+	}
+}
+
+// TestE2E_Register_WithOrg_CreatesHome verifies --org creates home + ready.
+func TestE2E_Register_WithOrg_CreatesHome(t *testing.T) {
+	e := NewEnv(t)
+
 	projectDir := t.TempDir()
 	_, stderr, code := e.RdInDir(projectDir, "init", "--name", "myapp")
 	if code != 0 {
 		t.Fatalf("rd init failed (exit %d): %s", code, stderr)
 	}
 
-	// Register — should auto-create home + ready namespace.
 	stdout, stderr, code := e.RdInDir(projectDir, "register", "--org", "testorg", "--name", "myapp", "--json")
 	if code != 0 {
 		t.Fatalf("rd register failed (exit %d):\nstderr: %s\nstdout: %s", code, stderr, stdout)
@@ -161,12 +184,11 @@ func TestE2E_Register_AutoCreatesHome(t *testing.T) {
 	if result["created_ready"] != true {
 		t.Errorf("created_ready: got %v, want true", result["created_ready"])
 	}
-	if result["org"] != "testorg" {
-		t.Errorf("org: got %v, want testorg", result["org"])
+	if result["registered"] != true {
+		t.Errorf("registered: got %v, want true", result["registered"])
 	}
-	ns := result["namespace"].(string)
-	if ns != "cf://testorg.ready.myapp" {
-		t.Errorf("namespace: got %v, want cf://testorg.ready.myapp", ns)
+	if result["namespace"] != "cf://testorg.ready.myapp" {
+		t.Errorf("namespace: got %v, want cf://testorg.ready.myapp", result["namespace"])
 	}
 
 	// Verify all three campfire IDs are distinct.
@@ -179,12 +201,12 @@ func TestE2E_Register_AutoCreatesHome(t *testing.T) {
 	}
 }
 
-// TestE2E_Register_SecondProjectReusesHome verifies a second project
-// registration reuses the existing home and ready namespace.
-func TestE2E_Register_SecondProjectReusesHome(t *testing.T) {
+// TestE2E_Register_SecondProject_DiscoverExisting verifies a second project
+// discovers the existing home (via config) without --org.
+func TestE2E_Register_SecondProject_DiscoverExisting(t *testing.T) {
 	e := NewEnv(t)
 
-	// First project: init + register.
+	// First project: init + register with --org (creates home + ready).
 	proj1 := t.TempDir()
 	e.RdInDir(proj1, "init", "--name", "proj1")
 	stdout1, stderr, code := e.RdInDir(proj1, "register", "--org", "testorg", "--name", "proj1", "--json")
@@ -194,26 +216,26 @@ func TestE2E_Register_SecondProjectReusesHome(t *testing.T) {
 	var res1 map[string]interface{}
 	json.Unmarshal([]byte(stdout1), &res1)
 
-	// Second project: init + register (should reuse home + ready).
+	// Second project: init + register WITHOUT --org — should discover home.
 	proj2 := t.TempDir()
 	e.RdInDir(proj2, "init", "--name", "proj2")
-	stdout2, stderr, code := e.RdInDir(proj2, "register", "--org", "testorg", "--name", "proj2", "--json")
+	stdout2, stderr, code := e.RdInDir(proj2, "register", "--name", "proj2", "--json")
 	if code != 0 {
 		t.Fatalf("register proj2 failed (exit %d): %s", code, stderr)
 	}
 	var res2 map[string]interface{}
 	json.Unmarshal([]byte(stdout2), &res2)
 
+	if res2["registered"] != true {
+		t.Error("second register should discover home and register")
+	}
 	if res2["created_home"] != false {
 		t.Error("second register should reuse home, not create a new one")
 	}
 	if res2["created_ready"] != false {
-		t.Error("second register should reuse ready namespace, not create a new one")
+		t.Error("second register should reuse ready namespace")
 	}
 	if res1["home_campfire_id"] != res2["home_campfire_id"] {
 		t.Error("home campfire IDs should match across registrations")
-	}
-	if res1["ready_campfire_id"] != res2["ready_campfire_id"] {
-		t.Error("ready namespace IDs should match across registrations")
 	}
 }
