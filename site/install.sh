@@ -114,6 +114,10 @@ main() {
     die "Download failed. Check that version ${VERSION} has a release for ${LABEL}.\nVisit https://github.com/${REPO}/releases"
   fi
 
+  # Download checksums and signature
+  CHECKSUMS_SIG_URL="${BASE_URL}/checksums.txt.sig"
+  CHECKSUMS_PEM_URL="${BASE_URL}/checksums.txt.pem"
+
   printf "  checksums.txt\n"
   if ! curl -fsSL -o "${TMP_DIR}/checksums.txt" "$CHECKSUMS_URL"; then
     warn "Could not download checksums — skipping verification"
@@ -129,6 +133,26 @@ main() {
         die "Checksum mismatch!\n  expected: ${EXPECTED}\n  got:      ${ACTUAL}"
       fi
       success "  Checksum OK"
+    fi
+
+    # Verify cosign signature if cosign is available
+    if command -v cosign >/dev/null 2>&1; then
+      info "Verifying signature..."
+      if curl -fsSL -o "${TMP_DIR}/checksums.txt.sig" "$CHECKSUMS_SIG_URL" 2>/dev/null \
+         && curl -fsSL -o "${TMP_DIR}/checksums.txt.pem" "$CHECKSUMS_PEM_URL" 2>/dev/null; then
+        if cosign verify-blob \
+             --certificate "${TMP_DIR}/checksums.txt.pem" \
+             --signature "${TMP_DIR}/checksums.txt.sig" \
+             --certificate-identity-regexp "https://github.com/campfire-net/ready/" \
+             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+             "${TMP_DIR}/checksums.txt" 2>/dev/null; then
+          success "  Signature OK (cosign, GitHub Actions OIDC)"
+        else
+          warn "Signature verification failed — binary may not be from official CI"
+        fi
+      else
+        warn "Could not download signature files — skipping signature verification"
+      fi
     fi
   fi
 
