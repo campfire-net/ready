@@ -244,7 +244,14 @@ func resolveReady(org string, cfg *rdconfig.Config, aliases *naming.AliasStore, 
 // postBeaconRegistration sends a beacon-registration with naming:name:<segment>
 // to the parent campfire, registering the child campfire under the given name.
 func postBeaconRegistration(agentID *identity.Identity, s store.Store, parentID, childID, name, description string) error {
-	tr := fs.New(fs.DefaultBaseDir())
+	// Derive the transport base directory from the membership record so we find
+	// the campfire state wherever it was actually created (e.g. ~/.campfire/campfires/<id>/
+	// rather than the default /tmp/campfire/<id>/).
+	baseDir := fs.DefaultBaseDir()
+	if m, err := s.GetMembership(childID); err == nil && m != nil && m.TransportDir != "" {
+		baseDir = filepath.Dir(m.TransportDir)
+	}
+	tr := fs.New(baseDir)
 	cfState, err := tr.ReadState(childID)
 	if err != nil {
 		return fmt.Errorf("reading campfire state for %s: %w", childID[:12], err)
