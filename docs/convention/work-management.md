@@ -1053,3 +1053,156 @@ done
 ```
 
 This is not part of the convention — it's an implementation built entirely on convention primitives (`--follow`, `--json`, `work:delegate`).
+
+---
+
+## 13. Persistence Model
+
+### 13.1 Invariant
+
+The local JSONL mutation store is the source of truth for all rd queries. Campfire is the sync and distribution layer — it carries mutations between participants, but the local JSONL file is what `rd ready`, `rd list`, and `rd show` read. A mutation that exists only in campfire and not in local JSONL is invisible to queries until pulled.
+
+### 13.2 Tiered Storage Model
+
+Three storage tiers provide progressive durability:
+
+**Tier 1 — Project JSONL (`.ready/mutations.jsonl`)**
+
+Stored inside the project directory, adjacent to the project's campfire root. Every rd command that sends a convention message appends one `MutationRecord` here before attempting a campfire send. This file is portable and git-distributable — committing it shares the full mutation history with collaborators without requiring campfire connectivity.
+
+- Path: `<project-root>/.ready/mutations.jsonl`
+- Contents: one JSON record per line, append-only
+- Visibility: project-scoped; isolated from other projects on the same machine
+- Distribution: git commit + push propagates to all collaborators
+- Durability class: durable once written to disk; no campfire dependency
+
+**Tier 2 — Home Config JSONL (`~/.config/rd/`)**
+
+Stored in the user's home configuration directory, outside any project. Crosses project boundaries — queries here can aggregate across all projects on the machine. Used by `rd ready --all-projects` and portfolio queries.
+
+- Path: `~/.config/rd/<project-id>/mutations.jsonl` (per-project namespace)
+- Contents: same `MutationRecord` format as Tier 1
+- Visibility: machine-scoped; all projects visible to the user
+- Distribution: not automatically distributed; requires explicit sync or backup
+- Durability class: durable on the local machine; survives project directory deletion
+
+**Tier 3 — Campfire Sync Layer**
+
+The campfire is the network-accessible distribution layer. When rd successfully posts to campfire, the mutation becomes visible to all campfire members in real time. Members without local JSONL can pull from campfire to reconstruct their local state.
+
+- Location: campfire message store (filesystem or HTTP transport, per membership config)
+- Contents: campfire messages matching `work:*` tags
+- Visibility: all campfire members
+- Distribution: native campfire replication and transport
+- Durability class: depends on campfire configuration; evaluated at `rd init` (see §13.5)
+
+### 13.3 JSONL Mutation Format
+
+Each `MutationRecord` in `.ready/mutations.jsonl` has the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `msg_id` | string | Campfire message ID (Ed25519 public key of message) |
+| `campfire_id` | string | Project campfire this message was sent to; empty string in offline mode |
+| `timestamp` | int64 | Nanoseconds since Unix epoch (matches `store.MessageRecord.Timestamp`) |
+| `operation` | string | Work convention tag (e.g. `work:create`, `work:close`) |
+| `payload` | JSON object | Raw JSON payload of the convention message |
+| `tags` | string array | Full tag list from the sent message |
+| `sender` | string | Sender's Ed25519 public key (hex-encoded) |
+| `antecedents` | string array | Message IDs this message causally depends on (omitted if empty) |
+
+The `msg_id` field is stable — it is derived from the message content and sender key. When a mutation is later synced to campfire, the campfire message carries the same ID. This makes `msg_id` the canonical handle for deduplication across tiers.
+
+Example record:
+
+```json
+{
+  "msg_id": "a3f9c12b4e...",
+  "campfire_id": "71324aa0e3...",
+  "timestamp": 1743206400000000000,
+  "operation": "work:create",
+  "payload": {
+    "id": "ready-a1b",
+    "title": "Implement widget parser",
+    "type": "task",
+    "for": "baron@3dl.dev",
+    "priority": "p1",
+    "status": "inbox"
+  },
+  "tags": ["work:create", "work:type:task", "work:for:baron@3dl.dev", "work:priority:p1"],
+  "sender": "ed25519pubkeyhex...",
+  "antecedents": []
+}
+```
+
+### 13.4 Sync Semantics
+
+#### 13.4.1 Outbound (local → campfire)
+
+Every rd command that sends a convention message performs a two-phase write:
+
+1. **Phase 1 — local JSONL write** (always, fatal on failure): Appends the `MutationRecord` to `.ready/mutations.jsonl`. If this write fails (disk full, permissions), the command exits with an error. No campfire send is attempted.
+
+2. **Phase 2 — campfire send** (optional, non-fatal): Posts the message to the project campfire. On success, updates the sync cursor (`last_synced_at`, `last_synced_msg_id`) in `.ready/sync-state.json`. On failure, appends the record to `.ready/pending.jsonl` for later retry and logs a warning. The command exits successfully — the mutation is durable in JSONL.
+
+When any campfire send succeeds, rd attempts to flush `.ready/pending.jsonl` by replaying buffered mutations in order. Flush is partial-flush safe: if the transport fails mid-buffer, already-flushed records are removed and unflushed records remain in `pending.jsonl`.
+
+**Sync state file** (`.ready/sync-state.json`):
+
+| Field | Description |
+|-------|-------------|
+| `last_synced_at` | Nanosecond timestamp of the most recently synced mutation |
+| `last_synced_msg_id` | Message ID of the most recently synced mutation |
+| `pending_count` | Cached count of mutations in `pending.jsonl` |
+| `last_pull_at` | Nanosecond timestamp of the most recent inbound pull |
+
+#### 13.4.2 Inbound (campfire → local)
+
+`rd sync pull` replays campfire messages missed while offline:
+
+1. Reads campfire messages with `work:*` tags since `last_pull_at`.
+2. Builds a deduplication set from existing `mutations.jsonl` records (keyed by `msg_id`).
+3. Appends new records to `mutations.jsonl` in campfire arrival order (ascending timestamp).
+4. Updates `last_pull_at` in `sync-state.json`.
+
+**Campfire arrival order is canonical.** Inbound records are appended in the order they arrived at the campfire, not the order they were sent. State derivation (§6) replays all records in timestamp order — the last writer per field wins.
+
+**Gap detection**: If `last_pull_at` is set and the offline duration exceeds the campfire's configured `max-ttl`, rd warns that some messages may have been permanently lost. This is advisory — the pull proceeds regardless.
+
+#### 13.4.3 Conflict Resolution
+
+There is no CRDT. Conflict resolution is last-writer-wins per campfire arrival order.
+
+For any given field on a work item, the most recent `work:*` message that mutates that field is authoritative. "Most recent" is determined by the message timestamp in campfire arrival order. Two participants writing the same field concurrently will have one write win — whichever arrived at the campfire last.
+
+This is intentional. Work management operations are low-frequency and human-initiated. Eventual consistency with last-writer-wins is sufficient; the audit trail (the full message log) preserves all writes regardless of which wins.
+
+### 13.5 Durability Evaluation
+
+Before storing the sync configuration, `rd init` evaluates campfire durability via beacon tags. The minimum requirements for reliable sync are:
+
+- `durability:max-ttl:0` — campfire retains messages indefinitely (no TTL)
+- `durability:lifecycle:persistent` — campfire is not ephemeral
+- Provenance level: `basic` or higher (operator-verified or getcampfire.dev)
+
+If these are not met, rd prints a warning and prompts for confirmation. The requirements and provenance level are configurable via environment:
+
+```bash
+RD_CAMPFIRE_TAGS=durability:max-ttl:0,durability:lifecycle:persistent
+RD_PROVENANCE=operator-verified
+rd init --name myproject
+```
+
+Pass `--confirm` to skip the interactive prompt. The durability assessment is stored in `.ready/config.json` alongside the campfire ID.
+
+### 13.6 Offline Mode
+
+`rd init --offline` creates the `.ready/` directory without a campfire. All rd commands work in offline mode — mutations are written to JSONL, campfire send is skipped. The pending buffer is never populated in offline mode.
+
+To connect an offline project to a campfire later, run `rd init` in the same directory (without `--offline`). Existing JSONL mutations are not retroactively synced — use `rd sync push` to send them.
+
+### 13.7 Compaction and JSONL
+
+The compaction policy (§9) applies to the campfire message store. JSONL is not compacted — it is an append-only audit log. Compaction removes messages from the campfire's active message set and moves them to the archive campfire; the corresponding records remain in `.ready/mutations.jsonl`.
+
+This means JSONL grows monotonically over the project lifetime. For long-lived projects, the state derivation engine reads all records on each query. Performance is acceptable for the expected query volume (hundreds to low thousands of items) — if it becomes a bottleneck, a derived state cache (outside the convention) is the implementation's concern.
