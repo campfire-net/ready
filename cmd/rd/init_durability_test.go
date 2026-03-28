@@ -1,0 +1,367 @@
+package main
+
+// init_durability_test.go tests the durability evaluation logic in init.go.
+// Tests are unit-level: they call evaluateCampfireDurability and campfireTagsFromEnv
+// directly, without spinning up a real campfire. The --confirm flag is used to
+// avoid interactive stdin prompts in all "below minimum" test cases.
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/campfire-net/ready/pkg/rdconfig"
+)
+
+const fakeCampfireID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+// TestEvaluateDurability_DurableCampfireProceedsWithoutWarning verifies that
+// a campfire with max-ttl:0 + lifecycle:persistent + basic provenance meets
+// minimum requirements and returns no warnings.
+func TestEvaluateDurability_DurableCampfireProceedsWithoutWarning(t *testing.T) {
+	t.Setenv("RD_CAMPFIRE_TAGS", "durability:max-ttl:0,durability:lifecycle:persistent")
+	t.Setenv("RD_PROVENANCE", "basic")
+
+	syncCfg, warnings, err := evaluateCampfireDurability(fakeCampfireID, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if syncCfg == nil {
+		t.Fatal("syncCfg is nil, want non-nil")
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings for durable campfire, got: %v", warnings)
+	}
+	if syncCfg.Durability == nil {
+		t.Fatal("syncCfg.Durability is nil")
+	}
+	if !syncCfg.Durability.MeetsMinimum {
+		t.Error("MeetsMinimum = false, want true for durable campfire")
+	}
+	if syncCfg.Durability.Weight != "low" {
+		t.Errorf("Weight = %q, want 'low' for basic provenance", syncCfg.Durability.Weight)
+	}
+	if syncCfg.Durability.MaxTTL != "0" {
+		t.Errorf("MaxTTL = %q, want '0'", syncCfg.Durability.MaxTTL)
+	}
+	if syncCfg.Durability.LifecycleType != "persistent" {
+		t.Errorf("LifecycleType = %q, want 'persistent'", syncCfg.Durability.LifecycleType)
+	}
+}
+
+// TestEvaluateDurability_DurableCampfireHostedProvenance verifies that hosted
+// provenance gives "high" weight and meets minimum.
+func TestEvaluateDurability_DurableCampfireHostedProvenance(t *testing.T) {
+	t.Setenv("RD_CAMPFIRE_TAGS", "durability:max-ttl:0,durability:lifecycle:persistent")
+	t.Setenv("RD_PROVENANCE", "getcampfire.dev")
+
+	syncCfg, warnings, err := evaluateCampfireDurability(fakeCampfireID, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings for hosted durable campfire, got: %v", warnings)
+	}
+	if !syncCfg.Durability.MeetsMinimum {
+		t.Error("MeetsMinimum = false, want true")
+	}
+	if syncCfg.Durability.Weight != "high" {
+		t.Errorf("Weight = %q, want 'high' for getcampfire.dev provenance", syncCfg.Durability.Weight)
+	}
+}
+
+// TestEvaluateDurability_EphemeralCampfireShowsWarning verifies that an ephemeral
+// campfire (lifecycle:ephemeral) does not meet minimum requirements and produces
+// warnings. --confirm bypasses the interactive prompt.
+func TestEvaluateDurability_EphemeralCampfireShowsWarning(t *testing.T) {
+	t.Setenv("RD_CAMPFIRE_TAGS", "durability:max-ttl:4h,durability:lifecycle:ephemeral:30m")
+	t.Setenv("RD_PROVENANCE", "basic")
+
+	syncCfg, warnings, err := evaluateCampfireDurability(fakeCampfireID, true /* confirm */)
+	if err != nil {
+		t.Fatalf("unexpected error with --confirm: %v", err)
+	}
+	if syncCfg == nil {
+		t.Fatal("syncCfg is nil, want non-nil")
+	}
+	if syncCfg.Durability.MeetsMinimum {
+		t.Error("MeetsMinimum = true, want false for ephemeral campfire")
+	}
+	if len(warnings) == 0 {
+		t.Error("expected warnings for ephemeral campfire, got none")
+	}
+	// Must mention ephemeral in warnings.
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "ephemeral") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected warning mentioning 'ephemeral', got: %v", warnings)
+	}
+	if syncCfg.Durability.LifecycleType != "ephemeral" {
+		t.Errorf("LifecycleType = %q, want 'ephemeral'", syncCfg.Durability.LifecycleType)
+	}
+}
+
+// TestEvaluateDurability_NoDurabilityTagsShowsUnknownRetention verifies that
+// a campfire with no durability tags produces an "unknown retention" warning
+// and does not meet minimum requirements.
+func TestEvaluateDurability_NoDurabilityTagsShowsUnknownRetention(t *testing.T) {
+	t.Setenv("RD_CAMPFIRE_TAGS", "category:infrastructure,member_count:1")
+	t.Setenv("RD_PROVENANCE", "basic")
+
+	syncCfg, warnings, err := evaluateCampfireDurability(fakeCampfireID, true /* confirm */)
+	if err != nil {
+		t.Fatalf("unexpected error with --confirm: %v", err)
+	}
+	if syncCfg.Durability.MeetsMinimum {
+		t.Error("MeetsMinimum = true, want false when no durability tags")
+	}
+	if len(warnings) == 0 {
+		t.Error("expected warnings for no-durability-tags campfire, got none")
+	}
+	// Must mention "unknown" in warnings.
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(strings.ToLower(w), "unknown") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected warning mentioning 'unknown' retention, got: %v", warnings)
+	}
+	if syncCfg.Durability.MaxTTL != "" {
+		t.Errorf("MaxTTL = %q, want empty (no durability tags)", syncCfg.Durability.MaxTTL)
+	}
+	if syncCfg.Durability.LifecycleType != "" {
+		t.Errorf("LifecycleType = %q, want empty (no durability tags)", syncCfg.Durability.LifecycleType)
+	}
+}
+
+// TestEvaluateDurability_NoDurabilityTagsEmptyEnv verifies that absent RD_CAMPFIRE_TAGS
+// (nil tags) also produces "unknown retention" warning.
+func TestEvaluateDurability_NoDurabilityTagsEmptyEnv(t *testing.T) {
+	t.Setenv("RD_CAMPFIRE_TAGS", "")
+	t.Setenv("RD_PROVENANCE", "")
+
+	syncCfg, warnings, err := evaluateCampfireDurability(fakeCampfireID, true /* confirm */)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if syncCfg.Durability.MeetsMinimum {
+		t.Error("MeetsMinimum = true, want false for no tags + no provenance")
+	}
+	if len(warnings) == 0 {
+		t.Error("expected warnings for empty config, got none")
+	}
+}
+
+// TestEvaluateDurability_UnverifiedProvenanceShowsTrustWarning verifies that
+// unverified provenance produces a trust warning regardless of durability tags.
+func TestEvaluateDurability_UnverifiedProvenanceShowsTrustWarning(t *testing.T) {
+	// Even with perfect durability tags, unverified provenance should warn
+	// and not meet minimum (provenance:basic is the minimum).
+	t.Setenv("RD_CAMPFIRE_TAGS", "durability:max-ttl:0,durability:lifecycle:persistent")
+	t.Setenv("RD_PROVENANCE", "unverified")
+
+	syncCfg, warnings, err := evaluateCampfireDurability(fakeCampfireID, true /* confirm */)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if syncCfg.Durability.MeetsMinimum {
+		t.Error("MeetsMinimum = true, want false for unverified provenance")
+	}
+	if len(warnings) == 0 {
+		t.Error("expected trust warnings for unverified provenance, got none")
+	}
+	// Must mention "unverified" in warnings.
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(strings.ToLower(w), "unverified") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected warning mentioning 'unverified', got: %v", warnings)
+	}
+}
+
+// TestEvaluateDurability_AssessmentStoredInConfig verifies that the durability
+// assessment is correctly populated in the returned SyncConfig with the campfire ID.
+func TestEvaluateDurability_AssessmentStoredInConfig(t *testing.T) {
+	t.Setenv("RD_CAMPFIRE_TAGS", "durability:max-ttl:0,durability:lifecycle:persistent")
+	t.Setenv("RD_PROVENANCE", "operator-verified")
+
+	const cfID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	syncCfg, _, err := evaluateCampfireDurability(cfID, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// CampfireID must be stored.
+	if syncCfg.CampfireID != cfID {
+		t.Errorf("CampfireID = %q, want %q", syncCfg.CampfireID, cfID)
+	}
+
+	// Durability assessment must be stored.
+	if syncCfg.Durability == nil {
+		t.Fatal("Durability is nil, want non-nil")
+	}
+	if !syncCfg.Durability.MeetsMinimum {
+		t.Error("MeetsMinimum = false, want true")
+	}
+	if syncCfg.Durability.Weight != "medium" {
+		t.Errorf("Weight = %q, want 'medium' for operator-verified", syncCfg.Durability.Weight)
+	}
+	if syncCfg.Durability.ProvenanceLevel != "operator-verified" {
+		t.Errorf("ProvenanceLevel = %q, want 'operator-verified'", syncCfg.Durability.ProvenanceLevel)
+	}
+}
+
+// TestCampfireTagsFromEnv verifies tag parsing from RD_CAMPFIRE_TAGS.
+func TestCampfireTagsFromEnv(t *testing.T) {
+	cases := []struct {
+		env      string
+		wantTags []string
+	}{
+		{"", nil},
+		{"durability:max-ttl:0", []string{"durability:max-ttl:0"}},
+		{
+			"durability:max-ttl:0,durability:lifecycle:persistent",
+			[]string{"durability:max-ttl:0", "durability:lifecycle:persistent"},
+		},
+		{
+			"  durability:max-ttl:0 , durability:lifecycle:persistent  ",
+			[]string{"durability:max-ttl:0", "durability:lifecycle:persistent"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run("env="+tc.env, func(t *testing.T) {
+			t.Setenv("RD_CAMPFIRE_TAGS", tc.env)
+			tags := campfireTagsFromEnv()
+			if len(tags) != len(tc.wantTags) {
+				t.Errorf("got %d tags %v, want %d tags %v", len(tags), tags, len(tc.wantTags), tc.wantTags)
+				return
+			}
+			for i, tag := range tags {
+				if tag != tc.wantTags[i] {
+					t.Errorf("tags[%d] = %q, want %q", i, tag, tc.wantTags[i])
+				}
+			}
+		})
+	}
+}
+
+// TestSyncConfigRoundTrip verifies that SyncConfig serializes and deserializes
+// correctly via the rdconfig package.
+func TestSyncConfigRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+
+	original := &rdconfig.SyncConfig{
+		CampfireID: fakeCampfireID,
+		Durability: &rdconfig.DurabilityAssessment{
+			MeetsMinimum:    true,
+			Weight:          "high",
+			MaxTTL:          "0",
+			LifecycleType:   "persistent",
+			ProvenanceLevel: "getcampfire.dev",
+			Warnings:        nil,
+		},
+	}
+
+	if err := rdconfig.SaveSyncConfig(dir, original); err != nil {
+		t.Fatalf("SaveSyncConfig: %v", err)
+	}
+
+	loaded, err := rdconfig.LoadSyncConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadSyncConfig: %v", err)
+	}
+
+	if loaded.CampfireID != original.CampfireID {
+		t.Errorf("CampfireID = %q, want %q", loaded.CampfireID, original.CampfireID)
+	}
+	if loaded.Durability == nil {
+		t.Fatal("loaded.Durability is nil")
+	}
+	if loaded.Durability.MeetsMinimum != original.Durability.MeetsMinimum {
+		t.Errorf("MeetsMinimum = %v, want %v", loaded.Durability.MeetsMinimum, original.Durability.MeetsMinimum)
+	}
+	if loaded.Durability.Weight != original.Durability.Weight {
+		t.Errorf("Weight = %q, want %q", loaded.Durability.Weight, original.Durability.Weight)
+	}
+	if loaded.Durability.MaxTTL != original.Durability.MaxTTL {
+		t.Errorf("MaxTTL = %q, want %q", loaded.Durability.MaxTTL, original.Durability.MaxTTL)
+	}
+	if loaded.Durability.LifecycleType != original.Durability.LifecycleType {
+		t.Errorf("LifecycleType = %q, want %q", loaded.Durability.LifecycleType, original.Durability.LifecycleType)
+	}
+	if loaded.Durability.ProvenanceLevel != original.Durability.ProvenanceLevel {
+		t.Errorf("ProvenanceLevel = %q, want %q", loaded.Durability.ProvenanceLevel, original.Durability.ProvenanceLevel)
+	}
+}
+
+// TestSyncConfigPath verifies the path is .ready/config.json within the project dir.
+func TestSyncConfigPath(t *testing.T) {
+	path := rdconfig.SyncConfigPath("/home/user/myproject")
+	want := "/home/user/myproject/.ready/config.json"
+	if path != want {
+		t.Errorf("SyncConfigPath = %q, want %q", path, want)
+	}
+}
+
+// TestLoadSyncConfig_MissingFileReturnsEmpty verifies that LoadSyncConfig returns
+// a zero SyncConfig (not an error) when the file doesn't exist.
+func TestLoadSyncConfig_MissingFileReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := rdconfig.LoadSyncConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadSyncConfig on missing file: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil SyncConfig")
+	}
+	if cfg.CampfireID != "" {
+		t.Errorf("CampfireID = %q, want empty", cfg.CampfireID)
+	}
+	if cfg.Durability != nil {
+		t.Error("Durability should be nil for missing file")
+	}
+}
+
+// TestEvaluateDurability_ConfirmSkipsPrompt verifies that --confirm (confirm=true)
+// prevents the interactive prompt and returns the config with warnings set.
+func TestEvaluateDurability_ConfirmSkipsPrompt(t *testing.T) {
+	// Restore stdin at end.
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	// Set stdin to a closed pipe so any read would fail -- proving we never read stdin.
+	r, _, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	r.Close()
+	os.Stdin = r
+
+	t.Setenv("RD_CAMPFIRE_TAGS", "")
+	t.Setenv("RD_PROVENANCE", "")
+
+	// With confirm=true, should not read stdin and should return warnings.
+	syncCfg, warnings, err := evaluateCampfireDurability(fakeCampfireID, true)
+	if err != nil {
+		t.Fatalf("unexpected error with confirm=true: %v", err)
+	}
+	if syncCfg == nil {
+		t.Fatal("syncCfg is nil")
+	}
+	if len(warnings) == 0 {
+		t.Error("expected warnings for below-minimum campfire with --confirm")
+	}
+}
