@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 )
 
 const (
@@ -62,11 +61,11 @@ func (w *Writer) Append(r MutationRecord) error {
 	}
 	defer f.Close()
 
-	// Acquire advisory exclusive lock.
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	// Acquire advisory exclusive lock (platform-specific).
+	if err := LockFile(f); err != nil {
 		return fmt.Errorf("jsonl: flock %s: %w", w.path, err)
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	defer UnlockFile(f) //nolint:errcheck
 
 	// Write and fsync.
 	if _, err := f.Write(line); err != nil {

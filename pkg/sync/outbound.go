@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/campfire-net/ready/pkg/jsonl"
@@ -234,11 +233,11 @@ func truncatePending(path string) error {
 		return fmt.Errorf("sync: opening pending.jsonl for truncation: %w", err)
 	}
 	defer f.Close()
-	// Acquire exclusive lock during truncation.
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	// Acquire exclusive lock during truncation (platform-specific).
+	if err := jsonl.LockFile(f); err != nil {
 		return fmt.Errorf("sync: flock pending.jsonl: %w", err)
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	defer jsonl.UnlockFile(f) //nolint:errcheck
 	return f.Sync()
 }
 
