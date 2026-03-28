@@ -48,6 +48,10 @@ type State struct {
 	// PendingCount is the number of mutations currently buffered in pending.jsonl.
 	// This is a cached count — authoritative value comes from counting pending.jsonl lines.
 	PendingCount int `json:"pending_count"`
+
+	// LastPullAt is the Unix nanosecond timestamp of the most recent inbound pull.
+	// Zero means no pull has been performed yet.
+	LastPullAt int64 `json:"last_pull_at,omitempty"`
 }
 
 // LoadState reads the sync state from .ready/sync-state.json in projectDir.

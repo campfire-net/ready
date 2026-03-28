@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -26,7 +27,8 @@ rd sync works in three modes:
     Failed campfire sends buffer to .ready/pending.jsonl.
 
 SUBCOMMANDS
-  rd sync status    Show sync state: pending count, last sync time`,
+  rd sync status    Show sync state: pending count, last sync time
+  rd sync pull      Pull missed campfire messages into local JSONL`,
 }
 
 var syncStatusCmd = &cobra.Command{
@@ -106,7 +108,91 @@ Use --json for machine-readable output.`,
 	},
 }
 
+var syncPullCmd = &cobra.Command{
+	Use:   "pull",
+	Short: "Pull missed campfire messages into local JSONL",
+	Long: `Pull campfire messages missed since last sync into local JSONL.
+
+Replays messages with work:* tags from the project campfire, deduplicating
+against already-present records in .ready/mutations.jsonl. New records are
+appended in campfire arrival order (last-writer-wins for concurrent edits).
+
+Warns if offline duration exceeds the campfire max-ttl (possible message loss).
+
+Use --json for machine-readable output.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		projectDir, ok := readyProjectDir()
+		if !ok {
+			return fmt.Errorf("not a ready project directory (run 'rd init' first)")
+		}
+
+		campfireID, _, hasCampfire := projectRoot()
+		if !hasCampfire || campfireID == "" {
+			if jsonOutput {
+				out := map[string]interface{}{
+					"pulled":          0,
+					"skipped":         0,
+					"campfire_present": false,
+					"error":           "no campfire configured — run 'rd init' to connect",
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+			fmt.Println("sync pull: offline mode (no campfire configured)")
+			fmt.Println("  run 'rd init' to connect a campfire and enable sync")
+			return nil
+		}
+
+		s, err := openStore()
+		if err != nil {
+			return fmt.Errorf("opening store: %w", err)
+		}
+		defer s.Close()
+
+		jsonlFilePath := filepath.Join(projectDir, ".ready", "mutations.jsonl")
+
+		result, err := rdSync.Pull(s, campfireID, jsonlFilePath, projectDir, 0)
+		if err != nil {
+			return fmt.Errorf("sync pull: %w", err)
+		}
+
+		if jsonOutput {
+			out := map[string]interface{}{
+				"pulled":           result.Pulled,
+				"skipped":          result.Skipped,
+				"campfire_present": true,
+				"last_pull_at":     time.Unix(0, result.LastPullAt).UTC().Format(time.RFC3339Nano),
+			}
+			if result.GapWarning != "" {
+				out["gap_warning"] = result.GapWarning
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(out)
+		}
+
+		// Human-readable output.
+		if result.GapWarning != "" {
+			fmt.Fprintln(os.Stderr, result.GapWarning)
+		}
+
+		if result.Pulled == 0 && result.Skipped == 0 {
+			fmt.Println("sync pull: already up to date")
+			return nil
+		}
+
+		fmt.Printf("sync pull: %d message(s) pulled", result.Pulled)
+		if result.Skipped > 0 {
+			fmt.Printf(", %d duplicate(s) skipped", result.Skipped)
+		}
+		fmt.Println()
+		return nil
+	},
+}
+
 func init() {
 	syncCmd.AddCommand(syncStatusCmd)
+	syncCmd.AddCommand(syncPullCmd)
 	rootCmd.AddCommand(syncCmd)
 }
