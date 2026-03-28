@@ -174,7 +174,7 @@ jobs:
           VERSION="${{ needs.release.outputs.version_bare }}"
           cd npm/ready
           npm version $VERSION --no-git-tag-version --allow-same-version
-          npm publish --access public --provenance
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
