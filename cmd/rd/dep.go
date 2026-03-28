@@ -8,7 +8,6 @@ import (
 
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
-	"github.com/campfire-net/ready/pkg/resolve"
 	"github.com/campfire-net/ready/pkg/state"
 )
 
@@ -89,11 +88,11 @@ var depAddCmd = &cobra.Command{
 		defer s.Close()
 
 		// Resolve both items.
-		blocked, err := resolve.ByID(s, blockedArg)
+		blocked, err := byIDFromJSONLOrStore(s, blockedArg)
 		if err != nil {
 			return fmt.Errorf("resolving blocked item %q: %w", blockedArg, err)
 		}
-		blocker, err := resolve.ByID(s, blockerArg)
+		blocker, err := byIDFromJSONLOrStore(s, blockerArg)
 		if err != nil {
 			return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
 		}
@@ -143,11 +142,11 @@ var depRemoveCmd = &cobra.Command{
 		defer s.Close()
 
 		// Resolve both items to get their canonical IDs.
-		blocked, err := resolve.ByID(s, blockedArg)
+		blocked, err := byIDFromJSONLOrStore(s, blockedArg)
 		if err != nil {
 			return fmt.Errorf("resolving blocked item %q: %w", blockedArg, err)
 		}
-		blocker, err := resolve.ByID(s, blockerArg)
+		blocker, err := byIDFromJSONLOrStore(s, blockerArg)
 		if err != nil {
 			return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
 		}
@@ -210,7 +209,7 @@ var depTreeCmd = &cobra.Command{
 		defer s.Close()
 
 		// Resolve root item.
-		root, err := resolve.ByID(s, itemID)
+		root, err := byIDFromJSONLOrStore(s, itemID)
 		if err != nil {
 			return err
 		}

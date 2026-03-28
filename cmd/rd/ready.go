@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/campfire-net/ready/pkg/resolve"
 	"github.com/campfire-net/ready/pkg/state"
 	"github.com/campfire-net/ready/pkg/views"
 )
@@ -51,7 +50,7 @@ Example:
 			forFilter = agentID.PublicKeyHex()
 		}
 
-		items, err := resolve.AllItems(s)
+		items, err := allItemsFromJSONLOrStore(s)
 		if err != nil {
 			return fmt.Errorf("loading items: %w", err)
 		}

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/campfire-net/ready/pkg/resolve"
 	"github.com/campfire-net/ready/pkg/state"
 	"github.com/campfire-net/ready/pkg/timeparse"
 )
@@ -70,7 +69,7 @@ Example:
 		defer s.Close()
 
 		// Resolve the item.
-		item, err := resolve.ByID(s, itemID)
+		item, err := byIDFromJSONLOrStore(s, itemID)
 		if err != nil {
 			return err
 		}
@@ -83,7 +82,7 @@ Example:
 
 		// Cascade: close open descendants (recursive subtree).
 		if cascade {
-			allItems, err := resolve.AllItems(s)
+			allItems, err := allItemsFromJSONLOrStore(s)
 			if err != nil {
 				return fmt.Errorf("loading items for cascade: %w", err)
 			}
@@ -205,7 +204,7 @@ Example:
 		}
 		defer s.Close()
 
-		item, err := resolve.ByID(s, itemID)
+		item, err := byIDFromJSONLOrStore(s, itemID)
 		if err != nil {
 			return err
 		}
@@ -273,7 +272,7 @@ Example:
 		}
 		defer s.Close()
 
-		item, err := resolve.ByID(s, itemID)
+		item, err := byIDFromJSONLOrStore(s, itemID)
 		if err != nil {
 			return err
 		}
@@ -340,7 +339,7 @@ func runCloseAlias(resolution string) func(cmd *cobra.Command, args []string) er
 		}
 		defer s.Close()
 
-		item, err := resolve.ByID(s, itemID)
+		item, err := byIDFromJSONLOrStore(s, itemID)
 		if err != nil {
 			return err
 		}

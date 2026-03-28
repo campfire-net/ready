@@ -115,3 +115,53 @@ func AllItemsInCampfire(s store.Store, campfireID string) ([]*state.Item, error)
 	}
 	return all, nil
 }
+
+// ByIDFromJSONL resolves an item by its exact ID or a unique prefix from a
+// local mutations.jsonl file. campfireID is used to label items that do not
+// carry one in their record (pass empty string to infer from file).
+func ByIDFromJSONL(path, campfireID, itemID string) (*state.Item, error) {
+	items, err := state.DeriveFromJSONLWithCampfire(path, campfireID)
+	if err != nil {
+		return nil, fmt.Errorf("deriving state from JSONL: %w", err)
+	}
+
+	// Exact match first.
+	if item, ok := items[itemID]; ok {
+		return item, nil
+	}
+
+	// Prefix match.
+	var matches []*state.Item
+	for id, item := range items {
+		if strings.HasPrefix(id, itemID) {
+			matches = append(matches, item)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, ErrNotFound{ID: itemID}
+	case 1:
+		return matches[0], nil
+	default:
+		ids := make([]string, len(matches))
+		for i, m := range matches {
+			ids[i] = m.ID
+		}
+		return nil, ErrAmbiguous{Prefix: itemID, Matches: ids}
+	}
+}
+
+// AllItemsFromJSONL returns all items derived from a local mutations.jsonl file.
+// campfireID is used as a label for items that do not carry one in their record
+// (pass empty string to infer from file).
+func AllItemsFromJSONL(path, campfireID string) ([]*state.Item, error) {
+	items, err := state.DeriveFromJSONLWithCampfire(path, campfireID)
+	if err != nil {
+		return nil, fmt.Errorf("deriving state from JSONL: %w", err)
+	}
+	all := make([]*state.Item, 0, len(items))
+	for _, item := range items {
+		all = append(all, item)
+	}
+	return all, nil
+}

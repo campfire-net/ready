@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/campfire-net/ready/pkg/resolve"
 )
 
 var showCmd = &cobra.Command{
@@ -28,7 +27,7 @@ Example:
 		}
 		defer s.Close()
 
-		item, err := resolve.ByID(s, itemID)
+		item, err := byIDFromJSONLOrStore(s, itemID)
 		if err != nil {
 			cmd.SilenceUsage = true
 			return err

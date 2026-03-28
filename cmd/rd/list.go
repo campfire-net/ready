@@ -5,7 +5,6 @@ import (
 	"sort"
 
 	"github.com/spf13/cobra"
-	"github.com/campfire-net/ready/pkg/resolve"
 	"github.com/campfire-net/ready/pkg/state"
 )
 
@@ -46,7 +45,7 @@ Example:
 		}
 		defer s.Close()
 
-		items, err := resolve.AllItems(s)
+		items, err := allItemsFromJSONLOrStore(s)
 		if err != nil {
 			return fmt.Errorf("loading items: %w", err)
 		}

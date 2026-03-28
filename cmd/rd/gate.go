@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/campfire-net/ready/pkg/resolve"
 	"github.com/campfire-net/ready/pkg/state"
 )
 
@@ -85,7 +84,7 @@ Example:
 		defer s.Close()
 
 		// Resolve the item.
-		item, err := resolve.ByID(s, itemID)
+		item, err := byIDFromJSONLOrStore(s, itemID)
 		if err != nil {
 			return err
 		}

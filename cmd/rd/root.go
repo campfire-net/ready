@@ -8,6 +8,8 @@ import (
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
+	"github.com/campfire-net/ready/pkg/resolve"
+	"github.com/campfire-net/ready/pkg/state"
 )
 
 // Version is set at build time via -ldflags.
@@ -96,4 +98,33 @@ func requireAgentAndStore() (*identity.Identity, store.Store, error) {
 		return nil, nil, fmt.Errorf("opening store: %w", err)
 	}
 	return agentID, s, nil
+}
+
+// jsonlPath returns the path to .ready/mutations.jsonl for the current project.
+// Returns an empty string if no project root is found (not initialized).
+func jsonlPath() string {
+	_, projectDir, ok := projectRoot()
+	if !ok {
+		return ""
+	}
+	return filepath.Join(projectDir, ".ready", "mutations.jsonl")
+}
+
+// allItemsFromJSONLOrStore returns all items, preferring JSONL when a project
+// root exists, falling back to the campfire store when it does not.
+func allItemsFromJSONLOrStore(s store.Store) ([]*state.Item, error) {
+	if path := jsonlPath(); path != "" {
+		_, campfireID, _ := projectRoot()
+		return resolve.AllItemsFromJSONL(path, campfireID)
+	}
+	return resolve.AllItems(s)
+}
+
+// byIDFromJSONLOrStore resolves an item by ID, preferring JSONL when available.
+func byIDFromJSONLOrStore(s store.Store, itemID string) (*state.Item, error) {
+	if path := jsonlPath(); path != "" {
+		_, campfireID, _ := projectRoot()
+		return resolve.ByIDFromJSONL(path, campfireID, itemID)
+	}
+	return resolve.ByID(s, itemID)
 }
