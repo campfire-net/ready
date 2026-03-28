@@ -100,20 +100,63 @@ func requireAgentAndStore() (*identity.Identity, store.Store, error) {
 	return agentID, s, nil
 }
 
+// readyProjectDir walks up from cwd looking for a .ready/ directory.
+// Returns (projectDir, true) if found. This covers both campfire-backed
+// projects (which have .campfire/root AND .ready/) and JSONL-only projects
+// (which have only .ready/).
+func readyProjectDir() (string, bool) {
+	// First try via campfire root (campfire-backed projects).
+	if _, dir, ok := projectRoot(); ok {
+		if _, err := os.Stat(filepath.Join(dir, ".ready")); err == nil {
+			return dir, true
+		}
+		// Campfire exists but .ready/ not yet created — still return the dir so
+		// it can be created on first write.
+		return dir, true
+	}
+	// Walk up looking for a .ready/ directory (JSONL-only projects).
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".ready")); err == nil {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false
+}
+
 // jsonlPath returns the path to .ready/mutations.jsonl for the current project.
 // Returns an empty string if no project root is found (not initialized).
 func jsonlPath() string {
-	_, projectDir, ok := projectRoot()
+	dir, ok := readyProjectDir()
 	if !ok {
 		return ""
 	}
-	return filepath.Join(projectDir, ".ready", "mutations.jsonl")
+	return filepath.Join(dir, ".ready", "mutations.jsonl")
+}
+
+// pendingPath returns the path to .ready/pending.jsonl for the current project.
+// Returns an empty string if no project root is found.
+func pendingPath() string {
+	dir, ok := readyProjectDir()
+	if !ok {
+		return ""
+	}
+	return filepath.Join(dir, ".ready", "pending.jsonl")
 }
 
 // allItemsFromJSONLOrStore returns all items, preferring JSONL when a project
 // root exists, falling back to the campfire store when it does not.
 func allItemsFromJSONLOrStore(s store.Store) ([]*state.Item, error) {
 	if path := jsonlPath(); path != "" {
+		// campfireID may be empty for JSONL-only projects; DeriveFromJSONL handles that.
 		_, campfireID, _ := projectRoot()
 		return resolve.AllItemsFromJSONL(path, campfireID)
 	}
@@ -123,6 +166,7 @@ func allItemsFromJSONLOrStore(s store.Store) ([]*state.Item, error) {
 // byIDFromJSONLOrStore resolves an item by ID, preferring JSONL when available.
 func byIDFromJSONLOrStore(s store.Store, itemID string) (*state.Item, error) {
 	if path := jsonlPath(); path != "" {
+		// campfireID may be empty for JSONL-only projects.
 		_, campfireID, _ := projectRoot()
 		return resolve.ByIDFromJSONL(path, campfireID, itemID)
 	}

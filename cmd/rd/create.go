@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/campfire-net/ready/pkg/state"
 	"github.com/campfire-net/ready/pkg/timeparse"
 )
 
@@ -221,20 +220,22 @@ Note: use --context for descriptions, not --description.`,
 		}
 
 		// Load existing IDs for collision detection.
-		campfireID, projectDir, hasCampfire := projectRoot()
+		// Prefer JSONL (covers both campfire-backed and JSONL-only projects).
 		existingIDs := map[string]struct{}{}
-		if hasCampfire {
-			if items, err := state.DeriveFromStore(s, campfireID); err == nil {
-				for k := range items {
-					existingIDs[k] = struct{}{}
-				}
-			}
+		existingItems, _ := allItemsFromJSONLOrStore(s)
+		for _, it := range existingItems {
+			existingIDs[it.ID] = struct{}{}
 		}
 
+		// Determine ID prefix from project directory.
+		campfireID, projectDir, hasCampfire := projectRoot()
+		_ = campfireID // used by sendToProjectCampfire
 		if id == "" {
 			prefix := ""
 			if hasCampfire {
 				prefix = projectPrefix(projectDir)
+			} else if dir, ok := readyProjectDir(); ok {
+				prefix = projectPrefix(dir)
 			}
 			generated, err := generateID(prefix, existingIDs)
 			if err != nil {

@@ -24,16 +24,25 @@ import (
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize a ready work campfire for this project",
-	Long: `Create a new work campfire and link it to the current directory.
+	Short: "Initialize a ready work project",
+	Long: `Initialize a ready work project in the current directory.
 
-This command:
+By default, creates a campfire and links it to the current directory.
+Pass --offline to initialize in JSONL-only mode with no campfire required.
+
+CAMPFIRE MODE (default):
   1. Creates a campfire with reception_requirements: ["work:create"]
   2. Writes .campfire/root (linking this directory to the campfire)
   3. Posts all convention:operation declarations (making the campfire self-describing)
   4. Publishes a beacon for local discovery
   5. Evaluates campfire durability and stores sync config in .ready/config.json
   6. Checks for a home campfire and reports what it finds
+
+OFFLINE MODE (--offline):
+  1. Creates .ready/ directory for local JSONL storage
+  2. Writes .ready/project.json with project metadata
+  No campfire, no network, no identity required.
+  Use 'rd sync' later to connect to a campfire.
 
 The project campfire works standalone — no home campfire or naming required.
 Use 'rd register' later to add naming when you're ready.
@@ -52,18 +61,7 @@ DURABILITY
 		name, _ := cmd.Flags().GetString("name")
 		description, _ := cmd.Flags().GetString("description")
 		confirm, _ := cmd.Flags().GetBool("confirm")
-
-		// Check we're not already initialized.
-		if _, _, ok := projectRoot(); ok {
-			return fmt.Errorf(".campfire/root already exists — this project is already initialized")
-		}
-
-		// Load identity.
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
+		offline, _ := cmd.Flags().GetBool("offline")
 
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -74,6 +72,27 @@ DURABILITY
 		if name == "" {
 			name = filepath.Base(cwd)
 		}
+
+		// --- JSONL-only offline mode ---
+		if offline {
+			return initOffline(cwd, name, description)
+		}
+
+		// Check we're not already initialized.
+		if _, _, ok := projectRoot(); ok {
+			return fmt.Errorf(".campfire/root already exists — this project is already initialized")
+		}
+		// Also check for .ready/ dir (JSONL-only already initialized).
+		if _, err := os.Stat(filepath.Join(cwd, ".ready")); err == nil {
+			return fmt.Errorf(".ready/ already exists — this project is already initialized (offline mode). Use 'rd sync' to connect to a campfire")
+		}
+
+		// Load identity.
+		agentID, s, err := requireAgentAndStore()
+		if err != nil {
+			return err
+		}
+		defer s.Close()
 
 		// Default description.
 		if description == "" {
@@ -356,9 +375,65 @@ func createLocalCampfire(agentID *identity.Identity, s store.Store, joinProtocol
 	return campfireID, nil
 }
 
+// initOffline initializes a project in JSONL-only mode — no campfire required.
+// Creates .ready/ directory and writes .ready/project.json with project metadata.
+func initOffline(cwd, name, description string) error {
+	readyDir := filepath.Join(cwd, ".ready")
+
+	// Check not already initialized.
+	if _, err := os.Stat(readyDir); err == nil {
+		return fmt.Errorf(".ready/ already exists — this project is already initialized")
+	}
+	if _, _, ok := projectRoot(); ok {
+		return fmt.Errorf(".campfire/root already exists — this project is already initialized with a campfire")
+	}
+
+	if err := os.MkdirAll(readyDir, 0755); err != nil {
+		return fmt.Errorf("creating .ready dir: %w", err)
+	}
+
+	if description == "" {
+		description = name + " work project (offline)"
+	}
+
+	projectMeta := map[string]interface{}{
+		"name":        name,
+		"description": description,
+		"mode":        "offline",
+		"created_at":  time.Now().UTC().Format(time.RFC3339),
+	}
+	metaBytes, err := json.MarshalIndent(projectMeta, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding project.json: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(readyDir, "project.json"), append(metaBytes, '\n'), 0644); err != nil {
+		return fmt.Errorf("writing .ready/project.json: %w", err)
+	}
+
+	if jsonOutput {
+		out := map[string]interface{}{
+			"name":        name,
+			"description": description,
+			"mode":        "offline",
+			"ready_dir":   readyDir,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	}
+
+	fmt.Printf("initialized %s (offline mode)\n", name)
+	fmt.Printf("  storage: %s\n", readyDir)
+	fmt.Println()
+	fmt.Println("  all rd commands work without a campfire.")
+	fmt.Println("  to connect to a campfire later, run 'rd init' in this directory.")
+	return nil
+}
+
 func init() {
 	initCmd.Flags().String("name", "", "project name (default: current directory name)")
 	initCmd.Flags().String("description", "", "campfire description (default: '<name> work campfire')")
 	initCmd.Flags().Bool("confirm", false, "proceed without prompting even if campfire does not meet minimum durability requirements")
+	initCmd.Flags().Bool("offline", false, "initialize in JSONL-only mode (no campfire required)")
 	rootCmd.AddCommand(initCmd)
 }
