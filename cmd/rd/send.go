@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	campfirepkg "github.com/campfire-net/campfire/pkg/campfire"
+	cfencoding "github.com/campfire-net/campfire/pkg/encoding"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/message"
 	"github.com/campfire-net/campfire/pkg/store"
@@ -16,6 +18,7 @@ import (
 	"github.com/campfire-net/campfire/pkg/transport/fs"
 
 	"github.com/campfire-net/ready/pkg/jsonl"
+	rdSync "github.com/campfire-net/ready/pkg/sync"
 )
 
 // sendToProjectCampfire sends a convention message in two phases:
@@ -83,7 +86,66 @@ func sendToProjectCampfire(agentID *identity.Identity, s store.Store, payload st
 		return msg, campfireID, nil
 	}
 
+	// Campfire send succeeded — update sync cursor and attempt to flush any
+	// buffered pending mutations. Both are fire-and-forget: failures are logged
+	// as warnings but never returned to the caller.
+	if projectDir, ok := readyProjectDir(); ok {
+		if markErr := rdSync.MarkSynced(projectDir, msg.ID, time.Now().UnixNano()); markErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not update sync cursor: %v\n", markErr)
+		}
+		// Flush pending — attempt to drain .ready/pending.jsonl using the same
+		// campfire send path. Build a flusher that re-uses the already-open store.
+		flushFn := buildFlusher(agentID, s, m, campfireID, projectDir)
+		if n, flushErr := rdSync.FlushPending(projectDir, flushFn); flushErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: partial pending flush (%d sent): %v\n", n, flushErr)
+		}
+	}
+
 	return msg, campfireID, nil
+}
+
+// buildFlusher returns a Flusher that sends a single pending MutationRecord to campfire.
+// It reconstructs the message from the stored record fields and calls addHopAndSend.
+// The original message ID and timestamp from the pending record are preserved so that
+// the campfire message ID matches the ID already written to mutations.jsonl.
+func buildFlusher(agentID *identity.Identity, s store.Store, m *store.Membership, campfireID, projectDir string) rdSync.Flusher {
+	return func(rec jsonl.MutationRecord) error {
+		// Reconstruct the message preserving the original message ID and timestamp.
+		// We build the Message struct directly and re-sign using the same signing
+		// logic as message.NewMessage, but with rec.MsgID and rec.Timestamp instead
+		// of freshly generated values. This ensures the campfire message ID matches
+		// the ID already recorded in mutations.jsonl.
+		tags := rec.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		antecedents := rec.Antecedents
+		if antecedents == nil {
+			antecedents = []string{}
+		}
+		msg := &message.Message{
+			ID:          rec.MsgID,
+			Sender:      agentID.PublicKey,
+			Payload:     []byte(rec.Payload),
+			Tags:        tags,
+			Antecedents: antecedents,
+			Timestamp:   rec.Timestamp,
+			Provenance:  []message.ProvenanceHop{},
+		}
+		signInput := message.MessageSignInput{
+			ID:          msg.ID,
+			Payload:     msg.Payload,
+			Tags:        msg.Tags,
+			Antecedents: msg.Antecedents,
+			Timestamp:   msg.Timestamp,
+		}
+		signBytes, err := cfencoding.Marshal(signInput)
+		if err != nil {
+			return fmt.Errorf("encoding pending message sign input: %w", err)
+		}
+		msg.Signature = ed25519.Sign(agentID.PrivateKey, signBytes)
+		return addHopAndSend(agentID, s, m, campfireID, msg)
+	}
 }
 
 // addHopAndSend adds a provenance hop to msg and writes it via the filesystem transport.
