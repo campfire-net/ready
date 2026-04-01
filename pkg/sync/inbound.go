@@ -16,6 +16,7 @@ package sync
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/store"
@@ -188,10 +189,10 @@ func workTags() []string {
 	}
 }
 
-// hasWorkTag returns true if any tag in the list starts with "work:".
+// hasWorkTag returns true if any tag in the list starts with the work: prefix.
 func hasWorkTag(tags []string) bool {
 	for _, t := range tags {
-		if len(t) > 5 && t[:5] == "work:" {
+		if strings.HasPrefix(t, jsonl.WorkTagPrefix) && len(t) > len(jsonl.WorkTagPrefix) {
 			return true
 		}
 	}

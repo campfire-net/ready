@@ -8,10 +8,16 @@ package jsonl
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/store"
 )
+
+// WorkTagPrefix is the tag namespace for all work management convention operations.
+// Every convention operation tag is formed as WorkTagPrefix + operation name
+// (e.g. "work:create", "work:close", "work:gate-resolve").
+const WorkTagPrefix = "work:"
 
 // MutationRecord is a single operation appended to mutations.jsonl.
 // Fields mirror store.MessageRecord to allow direct conversion for migration.
@@ -72,11 +78,11 @@ func (r MutationRecord) TimestampTime() time.Time {
 	return time.Unix(0, r.Timestamp)
 }
 
-// extractOperation returns the first "work:" tag from the tags list.
+// extractOperation returns the first work: tag from the tags list.
 // Returns empty string if no work: tag is found.
 func extractOperation(tags []string) string {
 	for _, t := range tags {
-		if len(t) > 5 && t[:5] == "work:" {
+		if strings.HasPrefix(t, WorkTagPrefix) && len(t) > len(WorkTagPrefix) {
 			return t
 		}
 	}

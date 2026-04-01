@@ -134,7 +134,7 @@ func executeConventionOp(agentID *identity.Identity, s store.Store, exec *conven
 	if err != nil {
 		return nil, "", fmt.Errorf("encoding args: %w", err)
 	}
-	primaryTag := "work:" + decl.Operation
+	primaryTag := jsonl.WorkTagPrefix + decl.Operation
 
 	msg, err := message.NewMessage(agentID.PrivateKey, agentID.PublicKey, payloadJSON, []string{primaryTag}, nil)
 	if err != nil {
@@ -199,7 +199,7 @@ func executeConventionOpToCampfire(agentID *identity.Identity, s store.Store, ex
 	if err != nil {
 		return nil, "", fmt.Errorf("encoding args: %w", err)
 	}
-	primaryTag := "work:" + decl.Operation
+	primaryTag := jsonl.WorkTagPrefix + decl.Operation
 
 	msg, err := message.NewMessage(agentID.PrivateKey, agentID.PublicKey, payloadJSON, []string{primaryTag}, nil)
 	if err != nil {
@@ -372,10 +372,10 @@ func bufferToPending(msg *message.Message, campfireID, payload string, tags, ant
 	return nil
 }
 
-// extractOperationFromTags returns the first "work:" tag from the tags list.
+// extractOperationFromTags returns the first work: tag from the tags list.
 func extractOperationFromTags(tags []string) string {
 	for _, t := range tags {
-		if len(t) > 5 && t[:5] == "work:" {
+		if strings.HasPrefix(t, jsonl.WorkTagPrefix) && len(t) > len(jsonl.WorkTagPrefix) {
 			return t
 		}
 	}

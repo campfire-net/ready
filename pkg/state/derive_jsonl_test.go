@@ -11,18 +11,20 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/store"
+	"github.com/campfire-net/ready/pkg/jsonl"
 	"github.com/campfire-net/ready/pkg/state"
 )
 
 const jsonlTestCampfire = "deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
 
 // mutRec is a minimal local struct matching jsonl.MutationRecord JSON fields.
-// We duplicate the struct here to avoid an import cycle and keep the test
-// package self-contained.
+// We duplicate the struct here (rather than importing jsonl.MutationRecord) to
+// keep the test package self-contained. jsonl is imported only for WorkTagPrefix.
 type mutRec struct {
 	MsgID       string          `json:"msg_id"`
 	CampfireID  string          `json:"campfire_id"`
@@ -63,7 +65,7 @@ func payload(v interface{}) json.RawMessage {
 func mutFromMsg(m store.MessageRecord) mutRec {
 	op := ""
 	for _, t := range m.Tags {
-		if len(t) > 5 && t[:5] == "work:" {
+		if strings.HasPrefix(t, jsonl.WorkTagPrefix) && len(t) > len(jsonl.WorkTagPrefix) {
 			op = t
 			break
 		}
