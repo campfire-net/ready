@@ -237,7 +237,7 @@ func truncatePending(path string) error {
 	if err := jsonl.LockFile(f); err != nil {
 		return fmt.Errorf("sync: flock pending.jsonl: %w", err)
 	}
-	defer jsonl.UnlockFile(f) //nolint:errcheck
+	defer jsonl.UnlockFile(f) //nolint:errcheck // advisory unlock in defer; error cannot be acted on at this point
 	return f.Sync()
 }
 
@@ -253,7 +253,7 @@ func rewritePending(path string, recs []jsonl.MutationRecord) error {
 	defer func() {
 		tmp.Close()
 		// Clean up temp file on error (rename will have moved it on success).
-		os.Remove(tmpPath) //nolint:errcheck
+		os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup; file may already be gone after successful rename
 	}()
 
 	w := bufio.NewWriter(tmp)

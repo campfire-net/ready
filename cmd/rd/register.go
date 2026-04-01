@@ -171,8 +171,12 @@ func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config,
 		if orgName == "" {
 			orgName = "default"
 		}
-		_ = aliases.Set("home", homeFlag)
-		_ = aliases.Set(orgName, homeFlag)
+		if err := aliases.Set("home", homeFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not cache home alias: %v\n", err)
+		}
+		if err := aliases.Set(orgName, homeFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not cache org alias %q: %v\n", orgName, err)
+		}
 		return homeFlag, orgName, false, nil
 	}
 
@@ -183,8 +187,12 @@ func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config,
 		if err != nil {
 			return "", "", false, fmt.Errorf("creating home campfire: %w", err)
 		}
-		_ = aliases.Set("home", homeID)
-		_ = aliases.Set(org, homeID)
+		if err := aliases.Set("home", homeID); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not cache home alias: %v\n", err)
+		}
+		if err := aliases.Set(org, homeID); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not cache org alias %q: %v\n", org, err)
+		}
 		return homeID, org, true, nil
 	}
 
@@ -207,7 +215,9 @@ func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config,
 		if orgName == "" {
 			orgName = "default"
 		}
-		_ = aliases.Set("home", cfg.HomeCampfireID)
+		if err := aliases.Set("home", cfg.HomeCampfireID); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not cache home alias: %v\n", err)
+		}
 		return cfg.HomeCampfireID, orgName, false, nil
 	}
 
@@ -221,7 +231,9 @@ func resolveReady(org string, cfg *rdconfig.Config, aliases *naming.AliasStore, 
 
 	// Check config first.
 	if cfg.ReadyCampfireID != "" {
-		_ = aliases.Set(readyAlias, cfg.ReadyCampfireID)
+		if err := aliases.Set(readyAlias, cfg.ReadyCampfireID); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not cache ready alias: %v\n", err)
+		}
 		return cfg.ReadyCampfireID, false, nil
 	}
 
@@ -242,7 +254,9 @@ func resolveReady(org string, cfg *rdconfig.Config, aliases *naming.AliasStore, 
 		fmt.Fprintf(os.Stderr, "warning: could not register ready under home: %v\n", err)
 	}
 
-	_ = aliases.Set(readyAlias, readyID)
+	if err := aliases.Set(readyAlias, readyID); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not cache ready alias: %v\n", err)
+	}
 	return readyID, true, nil
 }
 

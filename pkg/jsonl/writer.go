@@ -65,7 +65,7 @@ func (w *Writer) Append(r MutationRecord) error {
 	if err := LockFile(f); err != nil {
 		return fmt.Errorf("jsonl: flock %s: %w", w.path, err)
 	}
-	defer UnlockFile(f) //nolint:errcheck
+	defer UnlockFile(f) //nolint:errcheck // advisory unlock in defer; error cannot be acted on at this point
 
 	// Write and fsync.
 	if _, err := f.Write(line); err != nil {
