@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/campfire-net/campfire/pkg/convention"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
+	"github.com/campfire-net/ready/pkg/declarations"
 	"github.com/campfire-net/ready/pkg/resolve"
 	"github.com/campfire-net/ready/pkg/state"
 )
@@ -100,6 +102,32 @@ func requireAgentAndStore() (*identity.Identity, store.Store, error) {
 		return nil, nil, fmt.Errorf("opening store: %w", err)
 	}
 	return agentID, s, nil
+}
+
+// requireExecutor returns a convention.Executor backed by the protocol client.
+// The client is initialized (and cached) via requireClient().
+func requireExecutor() (*convention.Executor, *protocol.Client, error) {
+	client, err := requireClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	exec := convention.NewExecutor(client, client.PublicKeyHex())
+	return exec, client, nil
+}
+
+// loadDeclaration loads a convention declaration by operation name from the
+// embedded declarations package and parses it for use with convention.Executor.
+// The name corresponds to the operation name (e.g. "create", "claim", "gate-resolve").
+func loadDeclaration(name string) (*convention.Declaration, error) {
+	data, err := declarations.Load(name)
+	if err != nil {
+		return nil, err
+	}
+	decl, _, err := convention.Parse([]string{"convention:operation"}, data, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("parsing declaration %q: %w", name, err)
+	}
+	return decl, nil
 }
 
 // requireClient returns a *protocol.Client backed by the campfire home directory.

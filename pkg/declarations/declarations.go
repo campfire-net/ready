@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"strings"
 )
 
 //go:embed ops/*.json
@@ -26,4 +27,17 @@ func All() ([][]byte, error) {
 		payloads = append(payloads, data)
 	}
 	return payloads, nil
+}
+
+// Load returns the raw JSON for a single named declaration.
+// The name corresponds to the filename without the .json extension (e.g. "create", "claim").
+// Hyphens in operation names map to underscores in filenames (e.g. "gate-resolve" → "gate_resolve.json").
+func Load(name string) ([]byte, error) {
+	// Normalize: hyphens in operation names map to underscores in filenames.
+	filename := strings.ReplaceAll(name, "-", "_") + ".json"
+	data, err := opsFS.ReadFile("ops/" + filename)
+	if err != nil {
+		return nil, fmt.Errorf("loading declaration %q: %w", name, err)
+	}
+	return data, nil
 }

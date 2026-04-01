@@ -11,26 +11,6 @@ import (
 	"github.com/campfire-net/ready/pkg/timeparse"
 )
 
-// updatePayload is the JSON payload for a work:update message.
-type updatePayload struct {
-	Target   string `json:"target"`
-	Title    string `json:"title,omitempty"`
-	Context  string `json:"context,omitempty"`
-	Priority string `json:"priority,omitempty"`
-	ETA      string `json:"eta,omitempty"`
-	Due      string `json:"due,omitempty"`
-	Level    string `json:"level,omitempty"`
-}
-
-// updateStatusPayload is the JSON payload for a work:status message sent by rd update.
-type updateStatusPayload struct {
-	Target      string `json:"target"`
-	To          string `json:"to"`
-	Reason      string `json:"reason,omitempty"`
-	WaitingOn   string `json:"waiting_on,omitempty"`
-	WaitingType string `json:"waiting_type,omitempty"`
-}
-
 var updateCmd = &cobra.Command{
 	Use:   "update <item-id>",
 	Short: "Update fields on a work item",
@@ -84,49 +64,11 @@ Examples:
 			return fmt.Errorf("no fields to update: specify at least one of --title, --context, --priority, --eta, --due, --level, --status, --waiting-on, --claim")
 		}
 
-		// Validate priority if set.
-		if priority != "" {
-			validPriorities := map[string]bool{"p0": true, "p1": true, "p2": true, "p3": true}
-			if !validPriorities[priority] {
-				return fmt.Errorf("invalid --priority %q: must be one of p0, p1, p2, p3", priority)
-			}
-		}
-
 		// Resolve status aliases (bd-compat).
 		if statusTo != "" {
 			if canonical := resolveStatus(statusTo); canonical != statusTo {
 				fmt.Fprintf(os.Stderr, "warning: status %q is a bd alias — using %q instead\n", statusTo, canonical)
 				statusTo = canonical
-			}
-		}
-
-		// Validate status if set.
-		if statusTo != "" {
-			validStatuses := map[string]bool{
-				"inbox": true, "active": true, "scheduled": true, "waiting": true,
-				"done": true, "cancelled": true, "failed": true,
-			}
-			if !validStatuses[statusTo] {
-				return fmt.Errorf("invalid --status %q: must be one of inbox, active, scheduled, waiting, done, cancelled, failed", statusTo)
-			}
-		}
-
-		// Validate waiting_type if set.
-		if waitingType != "" {
-			validWaitingTypes := map[string]bool{
-				"person": true, "vendor": true, "client": true, "date": true,
-				"event": true, "external": true, "agent": true, "gate": true,
-			}
-			if !validWaitingTypes[waitingType] {
-				return fmt.Errorf("invalid --waiting-type %q: must be one of person, vendor, client, date, event, external, agent, gate", waitingType)
-			}
-		}
-
-		// Validate level if set.
-		if level != "" {
-			validLevels := map[string]bool{"epic": true, "task": true, "subtask": true}
-			if !validLevels[level] {
-				return fmt.Errorf("invalid --level %q: must be one of epic, task, subtask", level)
 			}
 		}
 
@@ -163,29 +105,44 @@ Examples:
 			return fmt.Errorf("item %s is already %s", item.ID, item.Status)
 		}
 
+		exec, _, err := requireExecutor()
+		if err != nil {
+			return err
+		}
+
 		var lastMsgID string
 		var lastCampfireID string
 
 		// Send work:update if field updates are requested.
 		if hasFieldUpdate {
-			p := updatePayload{
-				Target:   item.MsgID,
-				Title:    title,
-				Context:  context,
-				Priority: priority,
-				ETA:      eta,
-				Due:      due,
-				Level:    level,
-			}
-			payloadBytes, err := json.Marshal(p)
+			decl, err := loadDeclaration("update")
 			if err != nil {
-				return fmt.Errorf("encoding payload: %w", err)
+				return err
 			}
 
-			tags := []string{"work:update"}
-			antecedents := []string{item.MsgID}
+			argsMap := map[string]any{
+				"target": item.MsgID,
+			}
+			if title != "" {
+				argsMap["title"] = title
+			}
+			if context != "" {
+				argsMap["context"] = context
+			}
+			if priority != "" {
+				argsMap["priority"] = priority
+			}
+			if eta != "" {
+				argsMap["eta"] = eta
+			}
+			if due != "" {
+				argsMap["due"] = due
+			}
+			if level != "" {
+				argsMap["level"] = level
+			}
 
-			msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+			msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 			if err != nil {
 				return err
 			}
@@ -195,22 +152,26 @@ Examples:
 
 		// Send work:status if a status transition is requested.
 		if hasStatusUpdate {
-			sp := updateStatusPayload{
-				Target:      item.MsgID,
-				To:          statusTo,
-				Reason:      note,
-				WaitingOn:   waitingOn,
-				WaitingType: waitingType,
-			}
-			payloadBytes, err := json.Marshal(sp)
+			decl, err := loadDeclaration("status")
 			if err != nil {
-				return fmt.Errorf("encoding status payload: %w", err)
+				return err
 			}
 
-			tags := []string{"work:status", "work:status:" + statusTo}
-			antecedents := []string{item.MsgID}
+			argsMap := map[string]any{
+				"target": item.MsgID,
+				"to":     statusTo,
+			}
+			if note != "" {
+				argsMap["reason"] = note
+			}
+			if waitingOn != "" {
+				argsMap["waiting_on"] = waitingOn
+			}
+			if waitingType != "" {
+				argsMap["waiting_type"] = waitingType
+			}
 
-			msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+			msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 			if err != nil {
 				return err
 			}
@@ -220,18 +181,16 @@ Examples:
 
 		// Send work:claim if --claim is set.
 		if claim {
-			cp := claimPayload{
-				Target: item.MsgID,
-			}
-			payloadBytes, err := json.Marshal(cp)
+			decl, err := loadDeclaration("claim")
 			if err != nil {
-				return fmt.Errorf("encoding claim payload: %w", err)
+				return err
 			}
 
-			tags := []string{"work:claim"}
-			antecedents := []string{item.MsgID}
+			argsMap := map[string]any{
+				"target": item.MsgID,
+			}
 
-			msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+			msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 			if err != nil {
 				return err
 			}

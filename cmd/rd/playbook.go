@@ -84,23 +84,25 @@ Example:
 			return fmt.Errorf("encoding items: %w", err)
 		}
 
-		p := playbookCreatePayload{
-			ID:          tmpl.ID,
-			Title:       tmpl.Title,
-			Description: tmpl.Description,
-			Items:       json.RawMessage(itemsRaw),
-		}
-		payloadBytes, err := json.Marshal(p)
+		exec, _, err := requireExecutor()
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
+		}
+		decl, err := loadDeclaration("playbook-create")
+		if err != nil {
+			return err
 		}
 
-		tags := []string{
-			"work:playbook-create",
-			"work:playbook:" + tmpl.ID,
+		argsMap := map[string]any{
+			"id":    tmpl.ID,
+			"title": tmpl.Title,
+			"items": json.RawMessage(itemsRaw),
+		}
+		if tmpl.Description != "" {
+			argsMap["description"] = tmpl.Description
 		}
 
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, nil)
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}

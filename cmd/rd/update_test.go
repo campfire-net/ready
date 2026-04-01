@@ -10,16 +10,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TestUpdatePayload verifies that updatePayload marshals correctly for
+// TestUpdatePayload verifies that the update argsMap marshals correctly for
 // a work:update message per convention §4.10.
 func TestUpdatePayload(t *testing.T) {
-	p := updatePayload{
-		Target:   "msg-create-abc123",
-		Priority: "p0",
-		ETA:      "2026-04-01T00:00:00Z",
+	argsMap := map[string]any{
+		"target":   "msg-create-abc123",
+		"priority": "p0",
+		"eta":      "2026-04-01T00:00:00Z",
 	}
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -42,17 +42,17 @@ func TestUpdatePayload(t *testing.T) {
 
 // TestUpdatePayloadAllFields verifies all mutable fields per convention §4.10.
 func TestUpdatePayloadAllFields(t *testing.T) {
-	p := updatePayload{
-		Target:   "msg-create-abc123",
-		Title:    "New title",
-		Context:  "Updated context",
-		Priority: "p1",
-		ETA:      "2026-04-01T00:00:00Z",
-		Due:      "2026-05-01T00:00:00Z",
-		Level:    "subtask",
+	argsMap := map[string]any{
+		"target":   "msg-create-abc123",
+		"title":    "New title",
+		"context":  "Updated context",
+		"priority": "p1",
+		"eta":      "2026-04-01T00:00:00Z",
+		"due":      "2026-05-01T00:00:00Z",
+		"level":    "subtask",
 	}
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -73,14 +73,15 @@ func TestUpdatePayloadAllFields(t *testing.T) {
 	}
 }
 
-// TestUpdatePayloadOmitsEmptyFields verifies that empty optional fields are omitted.
+// TestUpdatePayloadOmitsEmptyFields verifies that unset optional fields are absent.
+// With the executor argsMap pattern, fields not in the map are simply absent.
 func TestUpdatePayloadOmitsEmptyFields(t *testing.T) {
-	p := updatePayload{
-		Target:   "msg-create-abc123",
-		Priority: "p2",
+	argsMap := map[string]any{
+		"target":   "msg-create-abc123",
+		"priority": "p2",
 	}
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -92,7 +93,7 @@ func TestUpdatePayloadOmitsEmptyFields(t *testing.T) {
 
 	for _, field := range []string{"title", "context", "eta", "due", "level"} {
 		if _, ok := decoded[field]; ok {
-			t.Errorf("expected %s to be omitted when empty", field)
+			t.Errorf("expected %s to be absent when not in argsMap", field)
 		}
 	}
 }
@@ -124,18 +125,18 @@ func TestUpdateAntecedents(t *testing.T) {
 	}
 }
 
-// TestUpdateStatusPayload verifies that updateStatusPayload marshals correctly
+// TestUpdateStatusPayload verifies that the status argsMap marshals correctly
 // for a work:status message sent by rd update.
 func TestUpdateStatusPayload(t *testing.T) {
-	p := updateStatusPayload{
-		Target:      "msg-create-abc123",
-		To:          "waiting",
-		Reason:      "Need vendor quote",
-		WaitingOn:   "quote from Raytheon",
-		WaitingType: "vendor",
+	argsMap := map[string]any{
+		"target":       "msg-create-abc123",
+		"to":           "waiting",
+		"reason":       "Need vendor quote",
+		"waiting_on":   "quote from Raytheon",
+		"waiting_type": "vendor",
 	}
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -296,24 +297,24 @@ func TestStatusAlias_InProgres_Typo(t *testing.T) {
 
 // --- claim flag tests ---
 
-// buildClaimPayload mirrors the payload construction logic in update.go when --claim is set.
-func buildClaimPayload(createMsgID string) (payload claimPayload, tags []string, antecedents []string) {
-	payload = claimPayload{Target: createMsgID}
+// buildClaimArgsMap mirrors the argsMap construction in update.go when --claim is set.
+func buildClaimArgsMap(createMsgID string) (argsMap map[string]any, tags []string, antecedents []string) {
+	argsMap = map[string]any{"target": createMsgID}
 	tags = []string{"work:claim"}
 	antecedents = []string{createMsgID}
 	return
 }
 
 // TestUpdate_ClaimFlag_SendsClaimMessage verifies that when --claim is set, the claim
-// payload is constructed with the correct target, tag, and antecedent.
+// argsMap is constructed with the correct target, tag, and antecedent.
 // Convention §4.5: work:claim sets by=sender, antecedents = exactly_one(target).
 func TestUpdate_ClaimFlag_SendsClaimMessage(t *testing.T) {
 	createMsgID := "msg-create-abc123"
 
-	payload, tags, antecedents := buildClaimPayload(createMsgID)
+	argsMap, tags, antecedents := buildClaimArgsMap(createMsgID)
 
-	// Verify claim payload.
-	payloadBytes, err := json.Marshal(payload)
+	// Verify claim argsMap.
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -322,7 +323,7 @@ func TestUpdate_ClaimFlag_SendsClaimMessage(t *testing.T) {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 	if decoded["target"] != createMsgID {
-		t.Errorf("claim payload target: expected %q, got %v", createMsgID, decoded["target"])
+		t.Errorf("claim argsMap target: expected %q, got %v", createMsgID, decoded["target"])
 	}
 
 	// Verify tags: exactly one, must be work:claim.
@@ -368,11 +369,11 @@ func TestUpdate_NoClaimFlag_NoClaim(t *testing.T) {
 	}
 }
 
-// TestUpdate_ClaimFlag_PayloadOmitsEmptyReason verifies that the claim payload
-// omits the reason field when not provided (json omitempty).
+// TestUpdate_ClaimFlag_PayloadOmitsEmptyReason verifies that the claim argsMap
+// does not include reason when not set.
 func TestUpdate_ClaimFlag_PayloadOmitsEmptyReason(t *testing.T) {
-	p := claimPayload{Target: "msg-create-abc123"}
-	payloadBytes, err := json.Marshal(p)
+	argsMap := map[string]any{"target": "msg-create-abc123"}
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -381,7 +382,7 @@ func TestUpdate_ClaimFlag_PayloadOmitsEmptyReason(t *testing.T) {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 	if _, ok := decoded["reason"]; ok {
-		t.Error("claim payload should omit reason when empty")
+		t.Error("claim argsMap should not include reason when not set")
 	}
 }
 

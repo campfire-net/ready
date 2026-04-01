@@ -9,44 +9,6 @@ import (
 	"github.com/campfire-net/ready/pkg/state"
 )
 
-// gatePayload is the JSON payload for a work:gate message.
-// Convention §4.8.
-type gatePayload struct {
-	Target      string `json:"target"`
-	GateType    string `json:"gate_type"`
-	Description string `json:"description,omitempty"`
-}
-
-// validGateTypes is the set of gate types defined in the convention spec §4.8.
-var validGateTypes = map[string]bool{
-	"budget":   true,
-	"design":   true,
-	"scope":    true,
-	"review":   true,
-	"human":    true,
-	"stall":    true,
-	"periodic": true,
-}
-
-// BuildGatePayload constructs the JSON payload, tags, and antecedents for a
-// work:gate message per convention §4.8. The targetMsgID is the work:create
-// message ID of the item being gated. The gateType must be a valid gate type
-// from validGateTypes. Description is optional.
-func BuildGatePayload(targetMsgID, gateType, description string) ([]byte, []string, []string, error) {
-	p := gatePayload{
-		Target:      targetMsgID,
-		GateType:    gateType,
-		Description: description,
-	}
-	payloadBytes, err := json.Marshal(p)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("encoding payload: %w", err)
-	}
-	tags := []string{"work:gate", "work:gate-type:" + gateType}
-	antecedents := []string{targetMsgID}
-	return payloadBytes, tags, antecedents, nil
-}
-
 var gateCmd = &cobra.Command{
 	Use:   "gate <item-id>",
 	Short: "Request human escalation on a work item",
@@ -73,9 +35,6 @@ Example:
 		if gateType == "" {
 			return fmt.Errorf("--gate-type is required: choose from budget, design, scope, review, human, stall, periodic")
 		}
-		if !validGateTypes[gateType] {
-			return fmt.Errorf("invalid --gate-type %q: must be budget, design, scope, review, human, stall, or periodic", gateType)
-		}
 
 		agentID, s, err := requireAgentAndStore()
 		if err != nil {
@@ -94,13 +53,25 @@ Example:
 			return fmt.Errorf("item %s is already %s", item.ID, item.Status)
 		}
 
-		// Build payload, tags, and antecedents via extracted function per §4.8.
-		payloadBytes, tags, antecedents, err := BuildGatePayload(item.MsgID, gateType, description)
+		exec, _, err := requireExecutor()
+		if err != nil {
+			return err
+		}
+		decl, err := loadDeclaration("gate")
 		if err != nil {
 			return err
 		}
 
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+		// Fire-and-forget gate (no futures, D5).
+		argsMap := map[string]any{
+			"target":    item.MsgID,
+			"gate_type": gateType,
+		}
+		if description != "" {
+			argsMap["description"] = description
+		}
+
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}

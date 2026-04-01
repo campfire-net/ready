@@ -13,12 +13,12 @@ import (
 
 // TestDoneResolution verifies that rd done sends a work:close with resolution=done.
 func TestDoneResolution(t *testing.T) {
-	p := closePayload{
-		Target:     "msg-abc",
-		Resolution: "done",
-		Reason:     "Completed",
+	argsMap := map[string]any{
+		"target":     "msg-abc",
+		"resolution": "done",
+		"reason":     "Completed",
 	}
-	b, err := json.Marshal(p)
+	b, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -36,12 +36,12 @@ func TestDoneResolution(t *testing.T) {
 
 // TestFailResolution verifies that rd fail sends a work:close with resolution=failed.
 func TestFailResolution(t *testing.T) {
-	p := closePayload{
-		Target:     "msg-abc",
-		Resolution: "failed",
-		Reason:     "Approach didn't work",
+	argsMap := map[string]any{
+		"target":     "msg-abc",
+		"resolution": "failed",
+		"reason":     "Approach didn't work",
 	}
-	b, err := json.Marshal(p)
+	b, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -56,12 +56,12 @@ func TestFailResolution(t *testing.T) {
 
 // TestCancelResolution verifies that rd cancel sends a work:close with resolution=cancelled.
 func TestCancelResolution(t *testing.T) {
-	p := closePayload{
-		Target:     "msg-abc",
-		Resolution: "cancelled",
-		Reason:     "No longer needed",
+	argsMap := map[string]any{
+		"target":     "msg-abc",
+		"resolution": "cancelled",
+		"reason":     "No longer needed",
 	}
-	b, err := json.Marshal(p)
+	b, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -134,14 +134,14 @@ func TestCancelCascade_ChildrenIdentified(t *testing.T) {
 		}
 	}
 
-	// Verify each would get a closePayload with resolution=cancelled.
+	// Verify each would get an argsMap with resolution=cancelled.
 	for _, item := range toClose {
-		p := closePayload{
-			Target:     item.MsgID,
-			Resolution: "cancelled",
-			Reason:     "cascade",
+		argsMap := map[string]any{
+			"target":     item.MsgID,
+			"resolution": "cancelled",
+			"reason":     "cascade",
 		}
-		b, err := json.Marshal(p)
+		b, err := json.Marshal(argsMap)
 		if err != nil {
 			t.Fatalf("marshal child payload: %v", err)
 		}
@@ -184,11 +184,11 @@ func TestCancelCascade_NoChildrenIsNoop(t *testing.T) {
 // TestDeferPayload verifies that rd defer sends a work:update with the ETA field set.
 func TestDeferPayload(t *testing.T) {
 	etaRFC3339 := "2026-04-01T09:00:00Z"
-	p := updatePayload{
-		Target: "msg-abc",
-		ETA:    etaRFC3339,
+	argsMap := map[string]any{
+		"target": "msg-abc",
+		"eta":    etaRFC3339,
 	}
-	b, err := json.Marshal(p)
+	b, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -202,10 +202,10 @@ func TestDeferPayload(t *testing.T) {
 	if decoded["target"] != "msg-abc" {
 		t.Errorf("expected target=msg-abc, got %v", decoded["target"])
 	}
-	// Other fields should be omitted.
+	// Other fields should be omitted (not present in argsMap).
 	for _, field := range []string{"title", "context", "priority", "due", "level"} {
 		if _, ok := decoded[field]; ok {
-			t.Errorf("field %s should be omitted when empty", field)
+			t.Errorf("field %s should be omitted when not in argsMap", field)
 		}
 	}
 }
@@ -294,11 +294,11 @@ func TestProgressContextEmpty(t *testing.T) {
 // TestProgressPayload verifies that progress sends a work:update with context field.
 func TestProgressPayload(t *testing.T) {
 	appendedContext := "Initial.\n\n[2026-03-25T12:00Z] Progress note"
-	p := updatePayload{
-		Target:  "msg-abc",
-		Context: appendedContext,
+	argsMap := map[string]any{
+		"target":  "msg-abc",
+		"context": appendedContext,
 	}
-	b, err := json.Marshal(p)
+	b, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -309,10 +309,10 @@ func TestProgressPayload(t *testing.T) {
 	if decoded["context"] != appendedContext {
 		t.Errorf("expected context=%q, got %v", appendedContext, decoded["context"])
 	}
-	// ETA and other fields should be absent.
+	// ETA and other fields should be absent (not in argsMap).
 	for _, field := range []string{"eta", "title", "priority", "due", "level"} {
 		if _, ok := decoded[field]; ok {
-			t.Errorf("field %s should be omitted when empty", field)
+			t.Errorf("field %s should be omitted when not in argsMap", field)
 		}
 	}
 }

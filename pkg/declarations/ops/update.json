@@ -5,7 +5,12 @@
   "description": "Modify fields on a work item",
   "args": [
     {"name": "target", "type": "message_id", "required": true},
-    {"name": "fields", "type": "json", "required": true}
+    {"name": "title", "type": "string", "max_length": 256},
+    {"name": "context", "type": "string", "max_length": 65536},
+    {"name": "priority", "type": "enum", "values": ["p0", "p1", "p2", "p3"]},
+    {"name": "eta", "type": "string", "max_length": 32},
+    {"name": "due", "type": "string", "max_length": 32},
+    {"name": "level", "type": "enum", "values": ["epic", "task", "subtask"]}
   ],
   "produces_tags": [
     {"tag": "work:update", "cardinality": "exactly_one"}

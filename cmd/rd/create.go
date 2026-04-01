@@ -55,6 +55,7 @@ func generateID(prefix string, existingIDs map[string]struct{}) (string, error) 
 }
 
 // createPayload is the JSON payload for a work:create message.
+// Retained for engage.go which still uses manual creation during playbook expansion.
 type createPayload struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
@@ -68,46 +69,6 @@ type createPayload struct {
 	ParentID string `json:"parent_id,omitempty"`
 	ETA      string `json:"eta,omitempty"`
 	Due      string `json:"due,omitempty"`
-}
-
-// BuildCreatePayload constructs the JSON payload and tag set for a work:create
-// message. All validation must happen before calling this function.
-// The etaStr and dueStr must already be normalized to RFC3339 UTC if non-empty.
-func BuildCreatePayload(id, title, context, itemType, level, project, forParty, by, priority, parentID, etaStr, dueStr string) ([]byte, []string, error) {
-	p := createPayload{
-		ID:       id,
-		Title:    title,
-		Context:  context,
-		Type:     itemType,
-		Level:    level,
-		Project:  project,
-		For:      forParty,
-		By:       by,
-		Priority: priority,
-		ParentID: parentID,
-		ETA:      etaStr,
-		Due:      dueStr,
-	}
-	payloadBytes, err := json.Marshal(p)
-	if err != nil {
-		return nil, nil, fmt.Errorf("encoding payload: %w", err)
-	}
-
-	tags := []string{"work:create"}
-	tags = append(tags, "work:type:"+itemType)
-	tags = append(tags, "work:for:"+forParty)
-	tags = append(tags, "work:priority:"+priority)
-	if level != "" {
-		tags = append(tags, "work:level:"+level)
-	}
-	if by != "" {
-		tags = append(tags, "work:by:"+by)
-	}
-	if project != "" {
-		tags = append(tags, "work:project:"+project)
-	}
-
-	return payloadBytes, tags, nil
 }
 
 var createCmd = &cobra.Command{
@@ -166,29 +127,6 @@ Note: use --context for descriptions, not --description.`,
 			return fmt.Errorf("--priority is required")
 		}
 
-		// Validate type.
-		validTypes := map[string]bool{
-			"task": true, "decision": true, "review": true, "reminder": true,
-			"deadline": true, "prep": true, "message": true, "directive": true,
-		}
-		if !validTypes[itemType] {
-			return fmt.Errorf("invalid --type %q: must be one of task, decision, review, reminder, deadline, prep, message, directive", itemType)
-		}
-
-		// Validate priority.
-		validPriorities := map[string]bool{"p0": true, "p1": true, "p2": true, "p3": true}
-		if !validPriorities[priority] {
-			return fmt.Errorf("invalid --priority %q: must be one of p0, p1, p2, p3", priority)
-		}
-
-		// Validate level if provided.
-		if level != "" {
-			validLevels := map[string]bool{"epic": true, "task": true, "subtask": true}
-			if !validLevels[level] {
-				return fmt.Errorf("invalid --level %q: must be one of epic, task, subtask", level)
-			}
-		}
-
 		// Normalize ETA to UTC if provided.
 		if eta != "" {
 			normalized, err := timeparse.Parse(eta, time.Now())
@@ -220,7 +158,6 @@ Note: use --context for descriptions, not --description.`,
 		}
 
 		// Load existing IDs for collision detection.
-		// Prefer JSONL (covers both campfire-backed and JSONL-only projects).
 		existingIDs := map[string]struct{}{}
 		existingItems, _ := allItemsFromJSONLOrStore(s)
 		for _, it := range existingItems {
@@ -228,8 +165,7 @@ Note: use --context for descriptions, not --description.`,
 		}
 
 		// Determine ID prefix from project directory.
-		campfireID, projectDir, hasCampfire := projectRoot()
-		_ = campfireID // used by sendToProjectCampfire
+		_, projectDir, hasCampfire := projectRoot()
 		if id == "" {
 			prefix := ""
 			if hasCampfire {
@@ -246,13 +182,45 @@ Note: use --context for descriptions, not --description.`,
 			return fmt.Errorf("item %q already exists", id)
 		}
 
-		// Build payload and tags via extracted function.
-		payloadBytes, tags, err := BuildCreatePayload(id, title, context, itemType, level, project, forParty, by, priority, parentID, eta, due)
+		exec, _, err := requireExecutor()
+		if err != nil {
+			return err
+		}
+		decl, err := loadDeclaration("create")
 		if err != nil {
 			return err
 		}
 
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, nil)
+		argsMap := map[string]any{
+			"id":       id,
+			"title":    title,
+			"type":     itemType,
+			"for":      forParty,
+			"priority": priority,
+		}
+		if context != "" {
+			argsMap["context"] = context
+		}
+		if level != "" {
+			argsMap["level"] = level
+		}
+		if project != "" {
+			argsMap["project"] = project
+		}
+		if by != "" {
+			argsMap["by"] = by
+		}
+		if parentID != "" {
+			argsMap["parent_id"] = parentID
+		}
+		if eta != "" {
+			argsMap["eta"] = eta
+		}
+		if due != "" {
+			argsMap["due"] = due
+		}
+
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}

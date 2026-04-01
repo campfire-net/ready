@@ -9,13 +9,6 @@ import (
 	"github.com/campfire-net/ready/pkg/state"
 )
 
-// closePayload is the JSON payload for a work:close message.
-type closePayload struct {
-	Target     string `json:"target"`
-	Resolution string `json:"resolution"`
-	Reason     string `json:"reason,omitempty"`
-}
-
 var closeCmd = &cobra.Command{
 	Use:   "close <item-id>",
 	Short: "Close a work item",
@@ -40,11 +33,6 @@ Example:
 			resolution = "done"
 		}
 
-		validResolutions := map[string]bool{"done": true, "cancelled": true, "failed": true}
-		if !validResolutions[resolution] {
-			return fmt.Errorf("invalid --resolution %q: must be done, cancelled, or failed", resolution)
-		}
-
 		agentID, s, err := requireAgentAndStore()
 		if err != nil {
 			return err
@@ -62,24 +50,24 @@ Example:
 			return fmt.Errorf("item %s is already %s", item.ID, item.Status)
 		}
 
-		// Build payload.
-		p := closePayload{
-			Target:     item.MsgID,
-			Resolution: resolution,
-			Reason:     reason,
-		}
-		payloadBytes, err := json.Marshal(p)
+		exec, _, err := requireExecutor()
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
+		}
+		decl, err := loadDeclaration("close")
+		if err != nil {
+			return err
 		}
 
-		// Tags.
-		tags := []string{"work:close", "work:resolution:" + resolution}
+		argsMap := map[string]any{
+			"target":     item.MsgID,
+			"resolution": resolution,
+		}
+		if reason != "" {
+			argsMap["reason"] = reason
+		}
 
-		// Antecedents: the work:create message.
-		antecedents := []string{item.MsgID}
-
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}

@@ -6,60 +6,18 @@ import (
 	"os"
 	"strings"
 
-	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/state"
 )
 
 // blockPayload is the JSON payload for a work:block message.
+// Retained for scanning existing block messages in findBlockMessage.
 type blockPayload struct {
 	BlockerID  string `json:"blocker_id"`
 	BlockedID  string `json:"blocked_id"`
 	BlockerMsg string `json:"blocker_msg"`
 	BlockedMsg string `json:"blocked_msg"`
-}
-
-// depUnblockPayload is the JSON payload for a work:unblock message.
-type depUnblockPayload struct {
-	Target string `json:"target"`
-	Reason string `json:"reason,omitempty"`
-}
-
-// BuildBlockPayload constructs the JSON payload, tags, and antecedents for a
-// work:block message per convention §4.6. Both item message IDs are required as
-// antecedents so the campfire protocol can establish causal ordering.
-func BuildBlockPayload(blockerID, blockedID, blockerMsgID, blockedMsgID string) ([]byte, []string, []string, error) {
-	p := blockPayload{
-		BlockerID:  blockerID,
-		BlockedID:  blockedID,
-		BlockerMsg: blockerMsgID,
-		BlockedMsg: blockedMsgID,
-	}
-	payloadBytes, err := json.Marshal(p)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("encoding payload: %w", err)
-	}
-	tags := []string{"work:block"}
-	antecedents := []string{blockerMsgID, blockedMsgID}
-	return payloadBytes, tags, antecedents, nil
-}
-
-// BuildUnblockPayload constructs the JSON payload, tags, and antecedents for a
-// work:unblock message per convention §4.7. The target is the work:block message ID
-// (not an item ID). The antecedent is the block message being reversed.
-func BuildUnblockPayload(blockMsgID, reason string) ([]byte, []string, []string, error) {
-	p := depUnblockPayload{
-		Target: blockMsgID,
-		Reason: reason,
-	}
-	payloadBytes, err := json.Marshal(p)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("encoding payload: %w", err)
-	}
-	tags := []string{"work:unblock"}
-	antecedents := []string{blockMsgID}
-	return payloadBytes, tags, antecedents, nil
 }
 
 // depCmd is the parent command for dep subcommands.
@@ -98,13 +56,23 @@ var depAddCmd = &cobra.Command{
 			return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
 		}
 
-		// Build payload, tags, and antecedents via extracted function per §4.6.
-		payloadBytes, tags, antecedents, err := BuildBlockPayload(blocker.ID, blocked.ID, blocker.MsgID, blocked.MsgID)
+		exec, _, err := requireExecutor()
+		if err != nil {
+			return err
+		}
+		decl, err := loadDeclaration("block")
 		if err != nil {
 			return err
 		}
 
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+		argsMap := map[string]any{
+			"blocker_id":  blocker.ID,
+			"blocked_id":  blocked.ID,
+			"blocker_msg": blocker.MsgID,
+			"blocked_msg": blocked.MsgID,
+		}
+
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}
@@ -136,7 +104,7 @@ var depRemoveCmd = &cobra.Command{
 		blockerArg := args[1]
 		reason, _ := cmd.Flags().GetString("reason")
 
-		_, s, err := requireAgentAndStore()
+		agentID, s, err := requireAgentAndStore()
 		if err != nil {
 			return err
 		}
@@ -158,34 +126,37 @@ var depRemoveCmd = &cobra.Command{
 			return err
 		}
 
-		// Build work:unblock payload via extracted function per §4.7.
-		payloadBytes, tags, antecedents, err := BuildUnblockPayload(blockMsgID, reason)
+		exec, _, err := requireExecutor()
+		if err != nil {
+			return err
+		}
+		decl, err := loadDeclaration("unblock")
 		if err != nil {
 			return err
 		}
 
-		// Send to the campfire that contains the block message.
-		depClient, err := requireClient()
-		if err != nil {
-			return fmt.Errorf("initializing campfire client: %w", err)
+		argsMap := map[string]any{
+			"target": blockMsgID,
 		}
-		msg, err := depClient.Send(protocol.SendRequest{
-			CampfireID:  campfireID,
-			Payload:     payloadBytes,
-			Tags:        tags,
-			Antecedents: antecedents,
-		})
+		if reason != "" {
+			argsMap["reason"] = reason
+		}
+
+		// Send directly to the campfire that contains the block message.
+		// We use executeConventionOp with the known campfireID via a direct executor call,
+		// bypassing the project campfire lookup.
+		msg, newCampfireID, err := executeConventionOpToCampfire(agentID, s, exec, decl, campfireID, argsMap)
 		if err != nil {
 			return err
 		}
 
 		if jsonOutput {
 			out := map[string]interface{}{
-				"msg_id":        msg.ID,
-				"campfire_id":   campfireID,
-				"block_msg_id":  blockMsgID,
-				"blocker_id":    blocker.ID,
-				"blocked_id":    blocked.ID,
+				"msg_id":       msg.ID,
+				"campfire_id":  newCampfireID,
+				"block_msg_id": blockMsgID,
+				"blocker_id":   blocker.ID,
+				"blocked_id":   blocked.ID,
 			}
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")

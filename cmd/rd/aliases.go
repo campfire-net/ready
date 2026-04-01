@@ -105,19 +105,21 @@ Example:
 				}
 			}
 			walk(item.ID)
+			exec, _, err := requireExecutor()
+			if err != nil {
+				return err
+			}
+			closeDecl, err := loadDeclaration("close")
+			if err != nil {
+				return err
+			}
 			for _, child := range descendants {
-				p := closePayload{
-					Target:     child.MsgID,
-					Resolution: "cancelled",
-					Reason:     reason,
+				childArgs := map[string]any{
+					"target":     child.MsgID,
+					"resolution": "cancelled",
+					"reason":     reason,
 				}
-				payloadBytes, err := json.Marshal(p)
-				if err != nil {
-					return fmt.Errorf("encoding child payload: %w", err)
-				}
-				tags := []string{"work:close", "work:resolution:cancelled"}
-				antecedents := []string{child.MsgID}
-				_, _, err = sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+				_, _, err = executeConventionOp(agentID, s, exec, closeDecl, childArgs)
 				if err != nil {
 					return fmt.Errorf("closing child %s: %w", child.ID, err)
 				}
@@ -126,18 +128,20 @@ Example:
 		}
 
 		// Close the parent item.
-		p := closePayload{
-			Target:     item.MsgID,
-			Resolution: "cancelled",
-			Reason:     reason,
-		}
-		payloadBytes, err := json.Marshal(p)
+		exec, _, err := requireExecutor()
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
 		}
-		tags := []string{"work:close", "work:resolution:cancelled"}
-		antecedents := []string{item.MsgID}
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+		closeDecl, err := loadDeclaration("close")
+		if err != nil {
+			return err
+		}
+		parentArgs := map[string]any{
+			"target":     item.MsgID,
+			"resolution": "cancelled",
+			"reason":     reason,
+		}
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, closeDecl, parentArgs)
 		if err != nil {
 			return err
 		}
@@ -213,18 +217,20 @@ Example:
 			return fmt.Errorf("item %s is already %s", item.ID, item.Status)
 		}
 
-		p := updatePayload{
-			Target: item.MsgID,
-			ETA:    etaRFC3339,
-		}
-		payloadBytes, err := json.Marshal(p)
+		exec, _, err := requireExecutor()
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
+		}
+		decl, err := loadDeclaration("update")
+		if err != nil {
+			return err
 		}
 
-		tags := []string{"work:update"}
-		antecedents := []string{item.MsgID}
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+		argsMap := map[string]any{
+			"target": item.MsgID,
+			"eta":    etaRFC3339,
+		}
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}
@@ -290,18 +296,20 @@ Example:
 			newContext = "[" + now + "] " + notes
 		}
 
-		p := updatePayload{
-			Target:  item.MsgID,
-			Context: newContext,
-		}
-		payloadBytes, err := json.Marshal(p)
+		exec, _, err := requireExecutor()
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
+		}
+		decl, err := loadDeclaration("update")
+		if err != nil {
+			return err
 		}
 
-		tags := []string{"work:update"}
-		antecedents := []string{item.MsgID}
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+		argsMap := map[string]any{
+			"target":  item.MsgID,
+			"context": newContext,
+		}
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}
@@ -348,19 +356,21 @@ func runCloseAlias(resolution string) func(cmd *cobra.Command, args []string) er
 			return fmt.Errorf("item %s is already %s", item.ID, item.Status)
 		}
 
-		p := closePayload{
-			Target:     item.MsgID,
-			Resolution: resolution,
-			Reason:     reason,
-		}
-		payloadBytes, err := json.Marshal(p)
+		exec, _, err := requireExecutor()
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
+		}
+		decl, err := loadDeclaration("close")
+		if err != nil {
+			return err
 		}
 
-		tags := []string{"work:close", "work:resolution:" + resolution}
-		antecedents := []string{item.MsgID}
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+		argsMap := map[string]any{
+			"target":     item.MsgID,
+			"resolution": resolution,
+			"reason":     reason,
+		}
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}

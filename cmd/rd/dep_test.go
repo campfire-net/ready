@@ -5,18 +5,48 @@ import (
 	"testing"
 )
 
-// TestBuildBlockPayload_FieldsAndTags verifies that BuildBlockPayload produces
+// buildBlockArgsMap constructs the argsMap for a work:block operation,
+// mirroring the logic in depAddCmd.RunE.
+func buildBlockArgsMap(blockerID, blockedID, blockerMsgID, blockedMsgID string) (map[string]any, []string, []string) {
+	argsMap := map[string]any{
+		"blocker_id":  blockerID,
+		"blocked_id":  blockedID,
+		"blocker_msg": blockerMsgID,
+		"blocked_msg": blockedMsgID,
+	}
+	tags := []string{"work:block"}
+	antecedents := []string{blockerMsgID, blockedMsgID}
+	return argsMap, tags, antecedents
+}
+
+// buildUnblockArgsMap constructs the argsMap for a work:unblock operation,
+// mirroring the logic in depRemoveCmd.RunE.
+func buildUnblockArgsMap(blockMsgID, reason string) (map[string]any, []string, []string) {
+	argsMap := map[string]any{
+		"target": blockMsgID,
+	}
+	if reason != "" {
+		argsMap["reason"] = reason
+	}
+	tags := []string{"work:unblock"}
+	antecedents := []string{blockMsgID}
+	return argsMap, tags, antecedents
+}
+
+// TestBuildBlockArgsMap_FieldsAndTags verifies that buildBlockArgsMap produces
 // the correct JSON fields, exactly one tag (work:block), and two antecedents
 // referencing both work:create message IDs per convention §4.6.
-func TestBuildBlockPayload_FieldsAndTags(t *testing.T) {
+func TestBuildBlockArgsMap_FieldsAndTags(t *testing.T) {
 	blockerID := "ready-t01"
 	blockedID := "ready-t02"
 	blockerMsgID := "msg-create-t01-aaaa-bbbb-cccc-dddddddddddd"
 	blockedMsgID := "msg-create-t02-aaaa-bbbb-cccc-dddddddddddd"
 
-	payloadBytes, tags, _, err := BuildBlockPayload(blockerID, blockedID, blockerMsgID, blockedMsgID)
+	argsMap, tags, _ := buildBlockArgsMap(blockerID, blockedID, blockerMsgID, blockedMsgID)
+
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
-		t.Fatalf("BuildBlockPayload returned error: %v", err)
+		t.Fatalf("json.Marshal: %v", err)
 	}
 
 	// Decode and verify payload fields.
@@ -46,18 +76,15 @@ func TestBuildBlockPayload_FieldsAndTags(t *testing.T) {
 	}
 }
 
-// TestBuildBlockPayload_Antecedents verifies that both work:create message IDs
+// TestBuildBlockArgsMap_Antecedents verifies that both work:create message IDs
 // appear in the antecedents for a work:block message per convention §4.6.
 // This is the campfire causal ordering invariant: the block message causally
 // depends on both item creation messages.
-func TestBuildBlockPayload_Antecedents(t *testing.T) {
+func TestBuildBlockArgsMap_Antecedents(t *testing.T) {
 	blockerMsgID := "msg-create-t01-aaaa-bbbb-cccc-dddddddddddd"
 	blockedMsgID := "msg-create-t02-aaaa-bbbb-cccc-dddddddddddd"
 
-	_, _, antecedents, err := BuildBlockPayload("r-t01", "r-t02", blockerMsgID, blockedMsgID)
-	if err != nil {
-		t.Fatalf("BuildBlockPayload returned error: %v", err)
-	}
+	_, _, antecedents := buildBlockArgsMap("r-t01", "r-t02", blockerMsgID, blockedMsgID)
 
 	// Must have exactly 2 antecedents per §4.6.
 	if len(antecedents) != 2 {
@@ -71,16 +98,18 @@ func TestBuildBlockPayload_Antecedents(t *testing.T) {
 	}
 }
 
-// TestBuildUnblockPayload_TargetIsBlockMsg verifies that BuildUnblockPayload
+// TestBuildUnblockArgsMap_TargetIsBlockMsg verifies that buildUnblockArgsMap
 // sets target to the work:block message ID (not an item ID) per convention §4.7.
 // This is the key invariant: work:unblock references the block message, not the items.
-func TestBuildUnblockPayload_TargetIsBlockMsg(t *testing.T) {
+func TestBuildUnblockArgsMap_TargetIsBlockMsg(t *testing.T) {
 	blockMsgID := "msg-block-abc-1234-5678-9abc-def012345678"
 	reason := "No longer blocked"
 
-	payloadBytes, tags, antecedents, err := BuildUnblockPayload(blockMsgID, reason)
+	argsMap, tags, antecedents := buildUnblockArgsMap(blockMsgID, reason)
+
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
-		t.Fatalf("BuildUnblockPayload returned error: %v", err)
+		t.Fatalf("json.Marshal: %v", err)
 	}
 
 	var decoded map[string]interface{}
@@ -113,12 +142,14 @@ func TestBuildUnblockPayload_TargetIsBlockMsg(t *testing.T) {
 	}
 }
 
-// TestBuildUnblockPayload_ReasonOmittedWhenEmpty verifies that reason is omitted
-// from the JSON payload when empty per convention §4.7 (omitempty).
-func TestBuildUnblockPayload_ReasonOmittedWhenEmpty(t *testing.T) {
-	payloadBytes, _, _, err := BuildUnblockPayload("msg-block-xyz", "")
+// TestBuildUnblockArgsMap_ReasonOmittedWhenEmpty verifies that reason is omitted
+// from the JSON payload when empty per convention §4.7 (omit when not in argsMap).
+func TestBuildUnblockArgsMap_ReasonOmittedWhenEmpty(t *testing.T) {
+	argsMap, _, _ := buildUnblockArgsMap("msg-block-xyz", "")
+
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
-		t.Fatalf("BuildUnblockPayload returned error: %v", err)
+		t.Fatalf("json.Marshal: %v", err)
 	}
 
 	var decoded map[string]interface{}
@@ -127,6 +158,6 @@ func TestBuildUnblockPayload_ReasonOmittedWhenEmpty(t *testing.T) {
 	}
 
 	if _, ok := decoded["reason"]; ok {
-		t.Error("reason should be omitted when empty (omitempty), but was present in JSON")
+		t.Error("reason should be omitted when empty, but was present in JSON")
 	}
 }

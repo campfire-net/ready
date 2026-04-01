@@ -12,15 +12,17 @@ import (
 	"github.com/campfire-net/ready/pkg/state"
 )
 
-// buildClaimMessage constructs the payload and tags for a work:claim operation,
+// buildClaimMessage constructs the argsMap and tags for a work:claim operation,
 // mirroring the logic in claimCmd.RunE. This is the testable function extracted
 // from the command — the command's contract is: given an Item, produce the
-// correct payload (target=item.MsgID) and tags (["work:claim"]) and antecedents
+// correct argsMap (target=item.MsgID) and tags (["work:claim"]) and antecedents
 // ([item.MsgID]).
-func buildClaimMessage(item *state.Item, reason string) (payload claimPayload, tags []string, antecedents []string) {
-	payload = claimPayload{
-		Target: item.MsgID,
-		Reason: reason,
+func buildClaimMessage(item *state.Item, reason string) (argsMap map[string]any, tags []string, antecedents []string) {
+	argsMap = map[string]any{
+		"target": item.MsgID,
+	}
+	if reason != "" {
+		argsMap["reason"] = reason
 	}
 	tags = []string{"work:claim"}
 	antecedents = []string{item.MsgID}
@@ -28,7 +30,7 @@ func buildClaimMessage(item *state.Item, reason string) (payload claimPayload, t
 }
 
 // TestClaimLogic_PayloadFromItem verifies that buildClaimMessage produces the
-// correct payload from an Item — target must be the work:create message ID, not
+// correct argsMap from an Item — target must be the work:create message ID, not
 // the item ID.
 func TestClaimLogic_PayloadFromItem(t *testing.T) {
 	item := &state.Item{
@@ -37,19 +39,21 @@ func TestClaimLogic_PayloadFromItem(t *testing.T) {
 		Status: state.StatusInbox,
 	}
 
-	payload, tags, antecedents := buildClaimMessage(item, "Picking this up")
+	argsMap, tags, antecedents := buildClaimMessage(item, "Picking this up")
 
-	// The payload target must be the MsgID (campfire message ID), not the item ID.
+	// The argsMap target must be the MsgID (campfire message ID), not the item ID.
 	// This is the critical invariant: claim references the work:create message, not
 	// the work item's short identifier.
-	if payload.Target != item.MsgID {
-		t.Errorf("claim payload target must be item.MsgID=%q, got %q", item.MsgID, payload.Target)
+	target, _ := argsMap["target"].(string)
+	if target != item.MsgID {
+		t.Errorf("claim argsMap target must be item.MsgID=%q, got %q", item.MsgID, target)
 	}
-	if payload.Target == item.ID {
-		t.Errorf("claim payload target must NOT be item.ID=%q — it must be the campfire message ID", item.ID)
+	if target == item.ID {
+		t.Errorf("claim argsMap target must NOT be item.ID=%q — it must be the campfire message ID", item.ID)
 	}
-	if payload.Reason != "Picking this up" {
-		t.Errorf("claim payload reason=%q, want 'Picking this up'", payload.Reason)
+	reason, _ := argsMap["reason"].(string)
+	if reason != "Picking this up" {
+		t.Errorf("claim argsMap reason=%q, want 'Picking this up'", reason)
 	}
 
 	// Tags: exactly one, must be work:claim.
@@ -69,18 +73,18 @@ func TestClaimLogic_PayloadFromItem(t *testing.T) {
 	}
 }
 
-// TestClaimLogic_PayloadMarshal verifies the marshaled claim payload round-trips
+// TestClaimLogic_PayloadMarshal verifies the marshaled claim argsMap round-trips
 // through JSON with the correct field mapping (target, not msg_id).
 func TestClaimLogic_PayloadMarshal(t *testing.T) {
 	item := &state.Item{
 		ID:    "ready-test-a1b",
 		MsgID: "msg-cafebabe-0000-0000-0000-000000000001",
 	}
-	payload, _, _ := buildClaimMessage(item, "")
+	argsMap, _, _ := buildClaimMessage(item, "")
 
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(argsMap)
 	if err != nil {
-		t.Fatalf("json.Marshal(claimPayload): %v", err)
+		t.Fatalf("json.Marshal(argsMap): %v", err)
 	}
 
 	var decoded map[string]interface{}
@@ -92,25 +96,31 @@ func TestClaimLogic_PayloadMarshal(t *testing.T) {
 	if decoded["target"] != item.MsgID {
 		t.Errorf("JSON 'target'=%v, want %q (the campfire message ID)", decoded["target"], item.MsgID)
 	}
-	// "reason" must be omitted when empty.
+	// "reason" must not be present when empty (not added to map when empty).
 	if _, ok := decoded["reason"]; ok {
-		t.Errorf("JSON 'reason' should be omitted when empty (omitempty), but was present")
+		t.Errorf("JSON 'reason' should be absent when not set, but was present")
 	}
 }
 
-// buildWaitingUpdateMessages constructs the status messages for rd update --waiting-on,
-// mirroring the auto-waiting logic in updateCmd.RunE. Returns the status payload and tags.
-func buildWaitingUpdateMessages(item *state.Item, waitingOn, waitingType, statusTo, note string) (statusPayload updateStatusPayload, tags []string, antecedents []string) {
+// buildWaitingUpdateMessages constructs the status argsMap for rd update --waiting-on,
+// mirroring the auto-waiting logic in updateCmd.RunE. Returns the status argsMap and tags.
+func buildWaitingUpdateMessages(item *state.Item, waitingOn, waitingType, statusTo, note string) (argsMap map[string]any, tags []string, antecedents []string) {
 	// Auto-set status=waiting if --waiting-on is set without --status.
 	if waitingOn != "" && statusTo == "" {
 		statusTo = state.StatusWaiting
 	}
-	statusPayload = updateStatusPayload{
-		Target:      item.MsgID,
-		To:          statusTo,
-		Reason:      note,
-		WaitingOn:   waitingOn,
-		WaitingType: waitingType,
+	argsMap = map[string]any{
+		"target": item.MsgID,
+		"to":     statusTo,
+	}
+	if note != "" {
+		argsMap["reason"] = note
+	}
+	if waitingOn != "" {
+		argsMap["waiting_on"] = waitingOn
+	}
+	if waitingType != "" {
+		argsMap["waiting_type"] = waitingType
 	}
 	tags = []string{"work:status", "work:status:" + statusTo}
 	antecedents = []string{item.MsgID}
@@ -129,20 +139,24 @@ func TestUpdateLogic_AutoWaitingOnSetsStatus(t *testing.T) {
 
 	// Simulate: rd update ready-b2c --waiting-on "vendor quote" --waiting-type vendor
 	// (no --status flag passed — statusTo starts as "")
-	sp, tags, antecedents := buildWaitingUpdateMessages(item, "vendor quote", "vendor", "", "")
+	argsMap, tags, antecedents := buildWaitingUpdateMessages(item, "vendor quote", "vendor", "", "")
 
 	// Status must be auto-set to waiting.
-	if sp.To != state.StatusWaiting {
-		t.Errorf("auto-waiting: To=%q, want 'waiting' (--waiting-on without --status must auto-set waiting)", sp.To)
+	to, _ := argsMap["to"].(string)
+	if to != state.StatusWaiting {
+		t.Errorf("auto-waiting: to=%q, want 'waiting' (--waiting-on without --status must auto-set waiting)", to)
 	}
-	if sp.WaitingOn != "vendor quote" {
-		t.Errorf("auto-waiting: WaitingOn=%q, want 'vendor quote'", sp.WaitingOn)
+	waitingOn, _ := argsMap["waiting_on"].(string)
+	if waitingOn != "vendor quote" {
+		t.Errorf("auto-waiting: waiting_on=%q, want 'vendor quote'", waitingOn)
 	}
-	if sp.WaitingType != "vendor" {
-		t.Errorf("auto-waiting: WaitingType=%q, want 'vendor'", sp.WaitingType)
+	waitingType, _ := argsMap["waiting_type"].(string)
+	if waitingType != "vendor" {
+		t.Errorf("auto-waiting: waiting_type=%q, want 'vendor'", waitingType)
 	}
-	if sp.Target != item.MsgID {
-		t.Errorf("auto-waiting: Target=%q, want %q", sp.Target, item.MsgID)
+	target, _ := argsMap["target"].(string)
+	if target != item.MsgID {
+		t.Errorf("auto-waiting: target=%q, want %q", target, item.MsgID)
 	}
 
 	// Tags must be work:status + work:status:waiting.
@@ -181,15 +195,16 @@ func TestUpdateLogic_ExplicitStatusBeatsAutoWaiting(t *testing.T) {
 	}
 
 	// Simulate: rd update --waiting-on "info" --status scheduled
-	sp, _, _ := buildWaitingUpdateMessages(item, "some info", "", "scheduled", "")
+	argsMap, _, _ := buildWaitingUpdateMessages(item, "some info", "", "scheduled", "")
 
 	// Explicit --status=scheduled should be used as-is.
-	if sp.To != "scheduled" {
-		t.Errorf("explicit status: To=%q, want 'scheduled' (explicit --status must not be overridden)", sp.To)
+	to, _ := argsMap["to"].(string)
+	if to != "scheduled" {
+		t.Errorf("explicit status: to=%q, want 'scheduled' (explicit --status must not be overridden)", to)
 	}
 }
 
-// TestUpdateLogic_WaitingOnMarshal verifies the status payload marshals with the
+// TestUpdateLogic_WaitingOnMarshal verifies the status argsMap marshals with the
 // correct JSON keys (waiting_on, waiting_type) as required by the convention spec.
 func TestUpdateLogic_WaitingOnMarshal(t *testing.T) {
 	item := &state.Item{
@@ -197,11 +212,11 @@ func TestUpdateLogic_WaitingOnMarshal(t *testing.T) {
 		MsgID: "msg-cafebabe-0000-0000-0000-000000000004",
 	}
 
-	sp, _, _ := buildWaitingUpdateMessages(item, "design review", "person", "", "awaiting input")
+	argsMap, _, _ := buildWaitingUpdateMessages(item, "design review", "person", "", "awaiting input")
 
-	raw, err := json.Marshal(sp)
+	raw, err := json.Marshal(argsMap)
 	if err != nil {
-		t.Fatalf("json.Marshal(updateStatusPayload): %v", err)
+		t.Fatalf("json.Marshal(argsMap): %v", err)
 	}
 
 	var decoded map[string]interface{}
@@ -224,17 +239,17 @@ func TestUpdateLogic_WaitingOnMarshal(t *testing.T) {
 	}
 }
 
-// buildCloseMessage constructs the payload and tags for a work:close operation,
+// buildCloseMessage constructs the argsMap and tags for a work:close operation,
 // mirroring the logic in closeCmd.RunE. The resolution determines the terminal
 // status tag (work:resolution:<resolution>).
-func buildCloseMessage(item *state.Item, resolution, reason string) (payload closePayload, tags []string, antecedents []string) {
+func buildCloseMessage(item *state.Item, resolution, reason string) (argsMap map[string]any, tags []string, antecedents []string) {
 	if resolution == "" {
 		resolution = "done"
 	}
-	payload = closePayload{
-		Target:     item.MsgID,
-		Resolution: resolution,
-		Reason:     reason,
+	argsMap = map[string]any{
+		"target":     item.MsgID,
+		"resolution": resolution,
+		"reason":     reason,
 	}
 	tags = []string{"work:close", "work:resolution:" + resolution}
 	antecedents = []string{item.MsgID}
@@ -293,11 +308,11 @@ func TestCloseLogic_PayloadMarshal(t *testing.T) {
 		MsgID: "msg-cafebabe-0000-0000-0000-000000000006",
 	}
 
-	payload, _, _ := buildCloseMessage(item, "cancelled", "No longer needed")
+	argsMap, _, _ := buildCloseMessage(item, "cancelled", "No longer needed")
 
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(argsMap)
 	if err != nil {
-		t.Fatalf("json.Marshal(closePayload): %v", err)
+		t.Fatalf("json.Marshal(closeArgsMap): %v", err)
 	}
 
 	var decoded map[string]interface{}
@@ -327,11 +342,11 @@ func TestCloseLogic_StateDerivation(t *testing.T) {
 		MsgID: "msg-00000000-0000-0000-0000-000000000001",
 	}
 
-	// Build close payload and tags using the same logic as closeCmd.
-	closePayload, closeTags, _ := buildCloseMessage(createItem, "cancelled", "test")
-	closePayloadJSON, err := json.Marshal(closePayload)
+	// Build close argsMap and tags using the same logic as closeCmd.
+	closeArgsMap, closeTags, _ := buildCloseMessage(createItem, "cancelled", "test")
+	closePayloadJSON, err := json.Marshal(closeArgsMap)
 	if err != nil {
-		t.Fatalf("json.Marshal(closePayload): %v", err)
+		t.Fatalf("json.Marshal(closeArgsMap): %v", err)
 	}
 
 	// Construct minimal MessageRecords to feed into state.Derive.

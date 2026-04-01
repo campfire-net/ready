@@ -9,12 +9,6 @@ import (
 	"github.com/campfire-net/ready/pkg/state"
 )
 
-// claimPayload is the JSON payload for a work:claim message.
-type claimPayload struct {
-	Target string `json:"target"`
-	Reason string `json:"reason,omitempty"`
-}
-
 var claimCmd = &cobra.Command{
 	Use:   "claim <item-id>",
 	Short: "Claim a work item",
@@ -47,23 +41,23 @@ Example:
 			return fmt.Errorf("item %s is already %s", item.ID, item.Status)
 		}
 
-		// Build payload — target is the work:create message ID.
-		p := claimPayload{
-			Target: item.MsgID,
-			Reason: reason,
-		}
-		payloadBytes, err := json.Marshal(p)
+		exec, _, err := requireExecutor()
 		if err != nil {
-			return fmt.Errorf("encoding payload: %w", err)
+			return err
+		}
+		decl, err := loadDeclaration("claim")
+		if err != nil {
+			return err
 		}
 
-		// Tags: exactly one operation tag per convention §4.1.
-		tags := []string{"work:claim"}
+		argsMap := map[string]any{
+			"target": item.MsgID,
+		}
+		if reason != "" {
+			argsMap["reason"] = reason
+		}
 
-		// Antecedents: the work:create message (convention §4.3: exactly_one(target)).
-		antecedents := []string{item.MsgID}
-
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}

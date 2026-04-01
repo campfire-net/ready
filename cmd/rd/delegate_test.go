@@ -5,17 +5,17 @@ import (
 	"testing"
 )
 
-// TestDelegatePayload verifies that delegatePayload marshals correctly for
+// TestDelegatePayload verifies that the delegate argsMap marshals correctly for
 // a work:delegate message per convention §4.5.
 func TestDelegatePayload(t *testing.T) {
-	p := delegatePayload{
-		Target: "msg-create-abc123",
-		To:     "alice@3dl.dev",
-		From:   "baron@3dl.dev",
-		Reason: "Better suited for this task",
+	argsMap := map[string]any{
+		"target": "msg-create-abc123",
+		"to":     "alice@3dl.dev",
+		"from":   "baron@3dl.dev",
+		"reason": "Better suited for this task",
 	}
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -39,14 +39,14 @@ func TestDelegatePayload(t *testing.T) {
 	}
 }
 
-// TestDelegatePayloadOptionalFields verifies that optional fields are omitted when empty.
+// TestDelegatePayloadOptionalFields verifies that optional fields are absent when not in argsMap.
 func TestDelegatePayloadOptionalFields(t *testing.T) {
-	p := delegatePayload{
-		Target: "msg-create-abc123",
-		To:     "alice@3dl.dev",
+	argsMap := map[string]any{
+		"target": "msg-create-abc123",
+		"to":     "alice@3dl.dev",
 	}
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -57,10 +57,10 @@ func TestDelegatePayloadOptionalFields(t *testing.T) {
 	}
 
 	if _, ok := decoded["from"]; ok {
-		t.Error("expected from to be omitted when empty")
+		t.Error("expected from to be absent when not in argsMap")
 	}
 	if _, ok := decoded["reason"]; ok {
-		t.Error("expected reason to be omitted when empty")
+		t.Error("expected reason to be absent when not in argsMap")
 	}
 }
 

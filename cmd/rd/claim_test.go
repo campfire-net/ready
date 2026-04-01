@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-// TestClaimPayload verifies that claimPayload marshals correctly and
+// TestClaimPayload verifies that the claim argsMap marshals correctly and
 // produces the expected JSON structure for a work:claim message.
 func TestClaimPayload(t *testing.T) {
-	p := claimPayload{
-		Target: "msg-create-abc123",
-		Reason: "Accepting delegation",
+	argsMap := map[string]any{
+		"target": "msg-create-abc123",
+		"reason": "Accepting delegation",
 	}
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -32,13 +32,13 @@ func TestClaimPayload(t *testing.T) {
 	}
 }
 
-// TestClaimPayloadNoReason verifies that reason is omitted when empty.
+// TestClaimPayloadNoReason verifies that reason is omitted when not in the argsMap.
 func TestClaimPayloadNoReason(t *testing.T) {
-	p := claimPayload{
-		Target: "msg-create-abc123",
+	argsMap := map[string]any{
+		"target": "msg-create-abc123",
 	}
 
-	payloadBytes, err := json.Marshal(p)
+	payloadBytes, err := json.Marshal(argsMap)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestClaimPayloadNoReason(t *testing.T) {
 	}
 
 	if _, ok := decoded["reason"]; ok {
-		t.Error("expected reason to be omitted when empty")
+		t.Error("expected reason to be omitted when not in argsMap")
 	}
 }
 

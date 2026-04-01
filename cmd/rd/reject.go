@@ -48,13 +48,24 @@ Example:
 			return fmt.Errorf("item %s is not waiting (status=%s)", item.ID, item.Status)
 		}
 
-		// Build payload, tags, and antecedents via extracted function per §4.9.
-		payloadBytes, tags, antecedents, err := BuildGateResolvePayload(item.GateMsgID, "rejected", reason)
+		exec, _, err := requireExecutor()
+		if err != nil {
+			return err
+		}
+		decl, err := loadDeclaration("gate-resolve")
 		if err != nil {
 			return err
 		}
 
-		msg, campfireID, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, antecedents)
+		argsMap := map[string]any{
+			"target":     item.GateMsgID,
+			"resolution": "rejected",
+		}
+		if reason != "" {
+			argsMap["reason"] = reason
+		}
+
+		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
 		if err != nil {
 			return err
 		}
