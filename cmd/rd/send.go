@@ -13,8 +13,8 @@ import (
 	cfencoding "github.com/campfire-net/campfire/pkg/encoding"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/message"
+	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/campfire-net/campfire/pkg/transport"
 	"github.com/campfire-net/campfire/pkg/transport/fs"
 
 	"github.com/campfire-net/ready/pkg/jsonl"
@@ -63,20 +63,24 @@ func sendToProjectCampfire(agentID *identity.Identity, s store.Store, payload st
 		return msg, "", nil
 	}
 
-	m, err := s.GetMembership(campfireID)
-	if err != nil || m == nil {
-		// Campfire is configured but we're not a member yet, or store lookup
-		// failed. Buffer for later sync and return success.
-		fmt.Fprintf(os.Stderr, "warning: not a member of campfire %s — mutation buffered to pending.jsonl\n",
-			campfireID[:minInt(12, len(campfireID))])
+	client, err := requireClient()
+	if err != nil {
+		// Client init failed — buffer for later sync and return success.
+		fmt.Fprintf(os.Stderr, "warning: campfire client init failed (buffered to pending.jsonl): %v\n", err)
 		if bufErr := bufferToPending(msg, campfireID, payload, tags, antecedents); bufErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: %v\n", bufErr)
 		}
 		return msg, campfireID, nil
 	}
 
-	// Try to add a provenance hop and send via transport.
-	if sendErr := addHopAndSend(agentID, s, m, campfireID, msg); sendErr != nil {
+	// Try to send via client.Send().
+	_, sendErr := client.Send(protocol.SendRequest{
+		CampfireID:  campfireID,
+		Payload:     msg.Payload,
+		Tags:        tags,
+		Antecedents: antecedents,
+	})
+	if sendErr != nil {
 		// Transport send failed — JSONL write already succeeded, buffer for sync.
 		fmt.Fprintf(os.Stderr, "warning: campfire send failed (buffered to pending.jsonl): %v\n", sendErr)
 		if bufErr := bufferToPending(msg, campfireID, payload, tags, antecedents); bufErr != nil {
@@ -95,9 +99,12 @@ func sendToProjectCampfire(agentID *identity.Identity, s store.Store, payload st
 		}
 		// Flush pending — attempt to drain .ready/pending.jsonl using the same
 		// campfire send path. Build a flusher that re-uses the already-open store.
-		flushFn := buildFlusher(agentID, s, m, campfireID, projectDir)
-		if n, flushErr := rdSync.FlushPending(projectDir, flushFn); flushErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: partial pending flush (%d sent): %v\n", n, flushErr)
+		m, memberErr := s.GetMembership(campfireID)
+		if memberErr == nil && m != nil {
+			flushFn := buildFlusher(agentID, s, m, campfireID, projectDir)
+			if n, flushErr := rdSync.FlushPending(projectDir, flushFn); flushErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: partial pending flush (%d sent): %v\n", n, flushErr)
+			}
 		}
 	}
 
@@ -105,9 +112,11 @@ func sendToProjectCampfire(agentID *identity.Identity, s store.Store, payload st
 }
 
 // buildFlusher returns a Flusher that sends a single pending MutationRecord to campfire.
-// It reconstructs the message from the stored record fields and calls addHopAndSend.
-// The original message ID and timestamp from the pending record are preserved so that
-// the campfire message ID matches the ID already written to mutations.jsonl.
+// It reconstructs the message from the stored record fields and writes it via the
+// filesystem transport directly. The original message ID and timestamp from the pending
+// record are preserved so that the campfire message ID matches the ID already written
+// to mutations.jsonl. This cannot use client.Send() because client.Send() generates a
+// new message ID — preserving the original ID is a permanent constraint (D6).
 func buildFlusher(agentID *identity.Identity, s store.Store, m *store.Membership, campfireID, projectDir string) rdSync.Flusher {
 	return func(rec jsonl.MutationRecord) error {
 		// Reconstruct the message preserving the original message ID and timestamp.
@@ -144,44 +153,14 @@ func buildFlusher(agentID *identity.Identity, s store.Store, m *store.Membership
 			return fmt.Errorf("encoding pending message sign input: %w", err)
 		}
 		msg.Signature = ed25519.Sign(agentID.PrivateKey, signBytes)
-		return addHopAndSend(agentID, s, m, campfireID, msg)
+		return sendPrebuiltMessage(agentID, s, m, campfireID, msg)
 	}
 }
 
-// addHopAndSend adds a provenance hop to msg and writes it via the filesystem transport.
-func addHopAndSend(agentID *identity.Identity, s store.Store, m *store.Membership, campfireID string, msg *message.Message) error {
-	switch transport.ResolveType(*m) {
-	case transport.TypePeerHTTP:
-		return fmt.Errorf("p2p-http transport not supported by rd (use cf send)")
-	case transport.TypeGitHub:
-		return fmt.Errorf("github transport not supported by rd (use cf send)")
-	default:
-		return sendFilesystem(agentID, s, m, campfireID, msg)
-	}
-}
-
-// sendViaMembership routes a message through the transport indicated by the membership record.
-// Kept for callers in init.go that need to send declarations (no JSONL buffering needed).
-func sendViaMembership(agentID *identity.Identity, s store.Store, m *store.Membership, campfireID, payload string, tags, antecedents []string) (*message.Message, error) {
-	msg, err := message.NewMessage(agentID.PrivateKey, agentID.PublicKey, []byte(payload), tags, antecedents)
-	if err != nil {
-		return nil, fmt.Errorf("creating message: %w", err)
-	}
-	switch transport.ResolveType(*m) {
-	case transport.TypePeerHTTP:
-		return nil, fmt.Errorf("p2p-http transport not supported by rd (use cf send)")
-	case transport.TypeGitHub:
-		return nil, fmt.Errorf("github transport not supported by rd (use cf send)")
-	default:
-		if err := sendFilesystem(agentID, s, m, campfireID, msg); err != nil {
-			return nil, err
-		}
-		return msg, nil
-	}
-}
-
-// sendFilesystem sends a pre-built message via filesystem transport and stores it locally.
-func sendFilesystem(agentID *identity.Identity, s store.Store, m *store.Membership, campfireID string, msg *message.Message) error {
+// sendPrebuiltMessage sends a pre-built message (with existing ID/signature) via the
+// filesystem transport and stores it locally. Used exclusively by buildFlusher to flush
+// pending mutations while preserving their original message IDs.
+func sendPrebuiltMessage(agentID *identity.Identity, s store.Store, m *store.Membership, campfireID string, msg *message.Message) error {
 	baseDir := fs.DefaultBaseDir()
 	if m.TransportDir != "" {
 		baseDir = filepath.Dir(m.TransportDir)

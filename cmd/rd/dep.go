@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/state"
@@ -135,7 +136,7 @@ var depRemoveCmd = &cobra.Command{
 		blockerArg := args[1]
 		reason, _ := cmd.Flags().GetString("reason")
 
-		agentID, s, err := requireAgentAndStore()
+		_, s, err := requireAgentAndStore()
 		if err != nil {
 			return err
 		}
@@ -164,14 +165,16 @@ var depRemoveCmd = &cobra.Command{
 		}
 
 		// Send to the campfire that contains the block message.
-		m, err := s.GetMembership(campfireID)
+		depClient, err := requireClient()
 		if err != nil {
-			return fmt.Errorf("querying membership: %w", err)
+			return fmt.Errorf("initializing campfire client: %w", err)
 		}
-		if m == nil {
-			return fmt.Errorf("not a member of campfire %s", campfireID[:minInt(12, len(campfireID))])
-		}
-		msg, err := sendViaMembership(agentID, s, m, campfireID, string(payloadBytes), tags, antecedents)
+		msg, err := depClient.Send(protocol.SendRequest{
+			CampfireID:  campfireID,
+			Payload:     payloadBytes,
+			Tags:        tags,
+			Antecedents: antecedents,
+		})
 		if err != nil {
 			return err
 		}

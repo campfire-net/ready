@@ -11,6 +11,7 @@ import (
 	"github.com/campfire-net/campfire/pkg/beacon"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/naming"
+	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/campfire/pkg/transport/fs"
 	"github.com/spf13/cobra"
@@ -243,7 +244,7 @@ func resolveReady(org string, cfg *rdconfig.Config, aliases *naming.AliasStore, 
 
 // postBeaconRegistration sends a beacon-registration with naming:name:<segment>
 // to the parent campfire, registering the child campfire under the given name.
-func postBeaconRegistration(agentID *identity.Identity, s store.Store, parentID, childID, name, description string) error {
+func postBeaconRegistration(_ *identity.Identity, s store.Store, parentID, childID, name, description string) error {
 	// Derive the transport base directory from the membership record so we find
 	// the campfire state wherever it was actually created (e.g. ~/.campfire/campfires/<id>/
 	// rather than the default /tmp/campfire/<id>/).
@@ -295,11 +296,15 @@ func postBeaconRegistration(agentID *identity.Identity, s store.Store, parentID,
 	}
 
 	tags := []string{"beacon:registration", "naming:name:" + name}
-	parentMembership, err := s.GetMembership(parentID)
-	if err != nil || parentMembership == nil {
-		return fmt.Errorf("not a member of parent campfire %s", parentID[:12])
+	regClient, err := requireClient()
+	if err != nil {
+		return fmt.Errorf("initializing campfire client: %w", err)
 	}
-	_, err = sendViaMembership(agentID, s, parentMembership, parentID, string(payloadBytes), tags, nil)
+	_, err = regClient.Send(protocol.SendRequest{
+		CampfireID: parentID,
+		Payload:    payloadBytes,
+		Tags:       tags,
+	})
 	return err
 }
 

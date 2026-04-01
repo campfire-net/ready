@@ -13,6 +13,7 @@ import (
 	campfirepkg "github.com/campfire-net/campfire/pkg/campfire"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/naming"
+	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/campfire/pkg/transport/fs"
 	"github.com/spf13/cobra"
@@ -142,13 +143,17 @@ DURABILITY
 		if err != nil {
 			return fmt.Errorf("loading declarations: %w", err)
 		}
-		membership, err := s.GetMembership(campfireID)
-		if err != nil || membership == nil {
-			return fmt.Errorf("cannot find membership for newly created campfire")
+		declClient, err := requireClient()
+		if err != nil {
+			return fmt.Errorf("initializing campfire client for declarations: %w", err)
 		}
 		nDecls := 0
 		for _, payload := range payloads {
-			_, err := sendViaMembership(agentID, s, membership, campfireID, string(payload), []string{"convention:operation"}, nil)
+			_, err := declClient.Send(protocol.SendRequest{
+				CampfireID: campfireID,
+				Payload:    payload,
+				Tags:       []string{"convention:operation"},
+			})
 			if err != nil {
 				return fmt.Errorf("posting declaration %d: %w", nDecls, err)
 			}
