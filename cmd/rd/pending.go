@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/views"
@@ -30,14 +29,7 @@ Items appear in the pending view when status is one of: waiting, scheduled, bloc
 		filter := views.PendingFilter()
 		items = views.Apply(items, filter)
 
-		sort.Slice(items, func(i, j int) bool {
-			pi := priorityOrder(items[i].Priority)
-			pj := priorityOrder(items[j].Priority)
-			if pi != pj {
-				return pi < pj
-			}
-			return items[i].ETA < items[j].ETA
-		})
+		sortByPriorityETA(items)
 
 		if jsonOutput {
 			return outputItemsJSON(items)

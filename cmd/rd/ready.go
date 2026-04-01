@@ -78,15 +78,7 @@ Example:
 			}
 		}
 
-		// Sort by priority then ETA.
-		sort.Slice(items, func(i, j int) bool {
-			pi := priorityOrder(items[i].Priority)
-			pj := priorityOrder(items[j].Priority)
-			if pi != pj {
-				return pi < pj
-			}
-			return items[i].ETA < items[j].ETA
-		})
+		sortByPriorityETA(items)
 
 		if jsonOutput {
 			return outputItemsJSON(items)
@@ -106,6 +98,19 @@ func init() {
 	readyCmd.Flags().String("view", "ready", "named view: ready, work, pending, overdue, delegated, my-work")
 	readyCmd.Flags().String("for", "", "filter by 'for' party (default: current identity; pass \"\" to show all)")
 	rootCmd.AddCommand(readyCmd)
+}
+
+// sortByPriorityETA sorts items by priority (ascending) then ETA (ascending).
+// Used by ready, work, pending, focus, and gates views.
+func sortByPriorityETA(items []*state.Item) {
+	sort.Slice(items, func(i, j int) bool {
+		pi := priorityOrder(items[i].Priority)
+		pj := priorityOrder(items[j].Priority)
+		if pi != pj {
+			return pi < pj
+		}
+		return items[i].ETA < items[j].ETA
+	})
 }
 
 // priorityOrder maps priority strings to sort order integers.
