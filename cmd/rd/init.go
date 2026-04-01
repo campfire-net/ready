@@ -105,10 +105,10 @@ DURABILITY
 
 		// --- Write .campfire/root (pointer in the project) ---
 
-		if err := os.MkdirAll(campfireDir, 0755); err != nil {
+		if err := os.MkdirAll(campfireDir, 0700); err != nil {
 			return fmt.Errorf("creating .campfire dir: %w", err)
 		}
-		if err := os.WriteFile(filepath.Join(campfireDir, "root"), []byte(campfireID), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(campfireDir, "root"), []byte(campfireID), 0600); err != nil {
 			return fmt.Errorf("writing .campfire/root: %w", err)
 		}
 
@@ -341,7 +341,7 @@ func initOffline(cwd, name, description string) error {
 		return fmt.Errorf(".campfire/root already exists — this project is already initialized with a campfire")
 	}
 
-	if err := os.MkdirAll(readyDir, 0755); err != nil {
+	if err := os.MkdirAll(readyDir, 0700); err != nil {
 		return fmt.Errorf("creating .ready dir: %w", err)
 	}
 
@@ -359,7 +359,7 @@ func initOffline(cwd, name, description string) error {
 	if err != nil {
 		return fmt.Errorf("encoding project.json: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(readyDir, "project.json"), append(metaBytes, '\n'), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(readyDir, "project.json"), append(metaBytes, '\n'), 0600); err != nil {
 		return fmt.Errorf("writing .ready/project.json: %w", err)
 	}
 

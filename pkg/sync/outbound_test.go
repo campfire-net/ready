@@ -27,7 +27,7 @@ func makeRecord(msgID, operation string, timestamp int64) jsonl.MutationRecord {
 func setupProject(t *testing.T) string {
 	t.Helper()
 	projectDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectDir, ".ready"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(projectDir, ".ready"), 0700); err != nil {
 		t.Fatalf("mkdir .ready: %v", err)
 	}
 	return projectDir
@@ -408,5 +408,35 @@ func TestLoadState_ZeroOnMissing(t *testing.T) {
 	}
 	if state.PendingCount != 0 {
 		t.Errorf("PendingCount: got %d, want 0", state.PendingCount)
+	}
+}
+
+func TestSaveState_RestrictivePermissions(t *testing.T) {
+	projectDir := t.TempDir()
+
+	s := &rdSync.State{LastSyncedAt: 1, LastSyncedMsgID: "msg-abc", PendingCount: 0}
+	if err := rdSync.SaveState(projectDir, s); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	readyDir := filepath.Join(projectDir, ".ready")
+
+	// Directory must be owner-only (0700).
+	dirInfo, err := os.Stat(readyDir)
+	if err != nil {
+		t.Fatalf("stat .ready: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0700 {
+		t.Errorf(".ready dir permissions: got %04o, want 0700", got)
+	}
+
+	// sync-state.json must be owner-only (0600).
+	stateFile := filepath.Join(readyDir, "sync-state.json")
+	fileInfo, err := os.Stat(stateFile)
+	if err != nil {
+		t.Fatalf("stat sync-state.json: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0600 {
+		t.Errorf("sync-state.json permissions: got %04o, want 0600", got)
 	}
 }

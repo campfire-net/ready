@@ -38,12 +38,12 @@ func (w *Writer) Append(r MutationRecord) error {
 	line = append(line, '\n')
 
 	// Ensure directory exists.
-	if err := os.MkdirAll(filepath.Dir(w.path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(w.path), 0700); err != nil {
 		return fmt.Errorf("jsonl: mkdir %s: %w", filepath.Dir(w.path), err)
 	}
 
 	// Open or create the file for appending.
-	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("jsonl: open %s: %w", w.path, err)
 	}

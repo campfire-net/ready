@@ -50,7 +50,7 @@ func Save(cfHome string, c *Config) error {
 	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}
-	return os.WriteFile(Path(cfHome), data, 0644)
+	return os.WriteFile(Path(cfHome), data, 0600)
 }
 
 // DurabilityAssessment holds the result of a durability evaluation stored
@@ -114,12 +114,12 @@ func LoadSyncConfig(projectDir string) (*SyncConfig, error) {
 // SaveSyncConfig writes the project-local sync config.
 func SaveSyncConfig(projectDir string, c *SyncConfig) error {
 	dir := filepath.Join(projectDir, ".ready")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("creating .ready dir: %w", err)
 	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding sync config: %w", err)
 	}
-	return os.WriteFile(SyncConfigPath(projectDir), data, 0644)
+	return os.WriteFile(SyncConfigPath(projectDir), data, 0600)
 }

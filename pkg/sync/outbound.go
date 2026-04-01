@@ -74,14 +74,14 @@ func LoadState(projectDir string) (*State, error) {
 // SaveState writes the sync state to .ready/sync-state.json in projectDir.
 func SaveState(projectDir string, s *State) error {
 	dir := filepath.Join(projectDir, ReadyDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("sync: mkdir %s: %w", dir, err)
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("sync: encoding state: %w", err)
 	}
-	return os.WriteFile(statePath(projectDir), append(data, '\n'), 0644)
+	return os.WriteFile(statePath(projectDir), append(data, '\n'), 0600)
 }
 
 // MarkSynced updates the sync cursor after a successful campfire send.
@@ -225,7 +225,7 @@ func FlushPending(projectDir string, flush Flusher) (flushed int, err error) {
 
 // truncatePending truncates pending.jsonl to zero bytes (all records flushed).
 func truncatePending(path string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0600)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -250,6 +250,13 @@ func rewritePending(path string, recs []jsonl.MutationRecord) error {
 		return fmt.Errorf("sync: creating temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
+	// Ensure restrictive permissions (os.CreateTemp may use 0600, but we set
+	// explicitly to guarantee no group/other bits regardless of platform or umask).
+	if err := os.Chmod(tmpPath, 0600); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath) //nolint:errcheck
+		return fmt.Errorf("sync: chmod temp file: %w", err)
+	}
 	defer func() {
 		tmp.Close()
 		// Clean up temp file on error (rename will have moved it on success).

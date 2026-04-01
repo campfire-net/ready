@@ -1,22 +1,29 @@
 package main
 
-// send_test.go exercises bufferToPending, client.Send() happy path, and
-// sendPrebuiltMessage ID-preservation (D6 constraint).
+// send_test.go exercises bufferToPending, client.Send() happy path,
+// sendPrebuiltMessage ID-preservation, and the D6 message ID fix for
+// executeConventionOp / executeConventionOpToCampfire.
 
 import (
+	"bufio"
+	"crypto/ed25519"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	campfirepkg "github.com/campfire-net/campfire/pkg/campfire"
+	"github.com/campfire-net/campfire/pkg/convention"
 	cfencoding "github.com/campfire-net/campfire/pkg/encoding"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/message"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/campfire/pkg/transport/fs"
-	"crypto/ed25519"
+
+	"github.com/campfire-net/ready/pkg/jsonl"
 )
 
 // TestBufferToPending_NoProjectRoot verifies that bufferToPending returns an
@@ -47,7 +54,7 @@ func TestBufferToPending_WritesRecord(t *testing.T) {
 	// Create a minimal project dir with .ready/.
 	dir := t.TempDir()
 	readyDir := filepath.Join(dir, ".ready")
-	if err := os.MkdirAll(readyDir, 0755); err != nil {
+	if err := os.MkdirAll(readyDir, 0700); err != nil {
 		t.Fatalf("mkdir .ready: %v", err)
 	}
 

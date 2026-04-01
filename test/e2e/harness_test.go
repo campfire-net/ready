@@ -125,10 +125,10 @@ func NewEnv(t *testing.T) *Env {
 	// Create project dir with .campfire/root
 	projectDir := t.TempDir()
 	campfireDir := filepath.Join(projectDir, ".campfire")
-	if err := os.MkdirAll(campfireDir, 0755); err != nil {
+	if err := os.MkdirAll(campfireDir, 0700); err != nil {
 		t.Fatalf("mkdir .campfire: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(campfireDir, "root"), []byte(result.CampfireID), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(campfireDir, "root"), []byte(result.CampfireID), 0600); err != nil {
 		t.Fatalf("write .campfire/root: %v", err)
 	}
 

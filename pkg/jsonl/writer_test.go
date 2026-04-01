@@ -113,6 +113,36 @@ func TestWriter_Append_ConcurrentNonCorruption(t *testing.T) {
 	}
 }
 
+func TestWriter_Append_RestrictivePermissions(t *testing.T) {
+	dir := t.TempDir()
+	readyDir := filepath.Join(dir, ".ready")
+	path := filepath.Join(readyDir, MutationsFile)
+	w := NewWriter(path)
+
+	rec := makeRecord(t, "work:create", time.Now().UnixNano())
+	if err := w.Append(rec); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	// Directory must be owner-only (0700).
+	dirInfo, err := os.Stat(readyDir)
+	if err != nil {
+		t.Fatalf("stat .ready dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0700 {
+		t.Errorf(".ready dir permissions: got %04o, want 0700", got)
+	}
+
+	// File must be owner-only (0600).
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat mutations file: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0600 {
+		t.Errorf("mutations file permissions: got %04o, want 0600", got)
+	}
+}
+
 // splitLines splits data into non-empty lines (strips trailing \n).
 func splitLines(data []byte) []string {
 	var lines []string
