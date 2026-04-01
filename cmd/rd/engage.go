@@ -10,16 +10,6 @@ import (
 	"github.com/campfire-net/ready/pkg/playbook"
 )
 
-// engagePayload is the JSON payload for a work:engage message.
-type engagePayload struct {
-	PlaybookID string            `json:"playbook_id"`
-	Project    string            `json:"project,omitempty"`
-	For        string            `json:"for"`
-	Variables  map[string]string `json:"variables,omitempty"`
-	// CreatedIDs is the list of item IDs created by this engagement.
-	CreatedIDs []string `json:"created_ids"`
-}
-
 // engageCmd implements rd engage <playbook-id> --project <project> --for <identity> --var key=value.
 var engageCmd = &cobra.Command{
 	Use:   "engage <playbook-id>",
@@ -66,6 +56,11 @@ Example:
 		}
 		defer s.Close()
 
+		exec, _, err := requireExecutor()
+		if err != nil {
+			return err
+		}
+
 		// Find the playbook.
 		pb, err := findPlaybook(s, playbookID)
 		if err != nil {
@@ -78,42 +73,44 @@ Example:
 			return fmt.Errorf("expanding playbook: %w", err)
 		}
 
+		createDecl, err := loadDeclaration("create")
+		if err != nil {
+			return err
+		}
+
 		// Maps template index → msg ID of the work:create message sent.
 		createMsgIDs := make(map[int]string, len(items))
 
-		// Send work:create for each item.
+		// Send work:create for each item using the executor.
 		for _, item := range items {
-			p := createPayload{
-				ID:       item.ID,
-				Title:    item.Title,
-				Context:  item.Context,
-				Type:     item.Type,
-				Level:    item.Level,
-				Project:  project,
-				For:      forParty,
-				Priority: item.Priority,
+			argsMap := map[string]any{
+				"id":       item.ID,
+				"title":    item.Title,
+				"type":     item.Type,
+				"for":      forParty,
+				"priority": item.Priority,
+				"project":  project,
 			}
-			payloadBytes, err := json.Marshal(p)
-			if err != nil {
-				return fmt.Errorf("encoding work:create for %s: %w", item.ID, err)
+			if item.Context != "" {
+				argsMap["context"] = item.Context
 			}
-
-			tags := []string{"work:create", "work:type:" + item.Type, "work:for:" + forParty, "work:priority:" + item.Priority}
 			if item.Level != "" {
-				tags = append(tags, "work:level:"+item.Level)
-			}
-			if project != "" {
-				tags = append(tags, "work:project:"+project)
+				argsMap["level"] = item.Level
 			}
 
-			msg, _, err := sendToProjectCampfire(agentID, s, string(payloadBytes), tags, nil)
+			msg, _, err := executeConventionOp(agentID, s, exec, createDecl, argsMap)
 			if err != nil {
 				return fmt.Errorf("sending work:create for %s: %w", item.ID, err)
 			}
 			createMsgIDs[item.TemplateIndex] = msg.ID
 		}
 
-		// Send work:block for each dependency edge.
+		blockDecl, err := loadDeclaration("block")
+		if err != nil {
+			return err
+		}
+
+		// Send work:block for each dependency edge using the executor.
 		for _, item := range items {
 			for _, depID := range item.Deps {
 				// Find the dep item to get its msg ID.
@@ -129,19 +126,13 @@ Example:
 				}
 
 				// item is blocked by depItem (depItem must complete first).
-				// Convention: work:block payload has blocker_id and blocked_id.
-				bp := blockPayload{
-					BlockerID:  depItem.ID,
-					BlockedID:  item.ID,
-					BlockerMsg: createMsgIDs[depItem.TemplateIndex],
-					BlockedMsg: createMsgIDs[item.TemplateIndex],
+				argsMap := map[string]any{
+					"blocker_id":  depItem.ID,
+					"blocked_id":  item.ID,
+					"blocker_msg": createMsgIDs[depItem.TemplateIndex],
+					"blocked_msg": createMsgIDs[item.TemplateIndex],
 				}
-				bpBytes, err := json.Marshal(bp)
-				if err != nil {
-					return fmt.Errorf("encoding work:block: %w", err)
-				}
-				antecedents := []string{bp.BlockerMsg, bp.BlockedMsg}
-				_, _, err = sendToProjectCampfire(agentID, s, string(bpBytes), []string{"work:block"}, antecedents)
+				_, _, err = executeConventionOp(agentID, s, exec, blockDecl, argsMap)
 				if err != nil {
 					return fmt.Errorf("sending work:block for %s→%s: %w", depItem.ID, item.ID, err)
 				}
@@ -154,26 +145,22 @@ Example:
 			createdIDs[i] = item.ID
 		}
 
-		// Send the work:engage message.
-		if len(variables) == 0 {
-			variables = nil
-		}
-		ep := engagePayload{
-			PlaybookID: playbookID,
-			Project:    project,
-			For:        forParty,
-			Variables:  variables,
-			CreatedIDs: createdIDs,
-		}
-		epBytes, err := json.Marshal(ep)
+		engageDecl, err := loadDeclaration("engage")
 		if err != nil {
-			return fmt.Errorf("encoding work:engage: %w", err)
+			return err
 		}
-		engageTags := []string{
-			"work:engage",
-			"work:playbook:" + playbookID,
+
+		// Send the work:engage message using the executor.
+		engageArgs := map[string]any{
+			"playbook_id": playbookID,
+			"project":     project,
+			"for":         forParty,
 		}
-		engageMsg, campfireID, err := sendToProjectCampfire(agentID, s, string(epBytes), engageTags, nil)
+		if len(variables) > 0 {
+			engageArgs["variables"] = variables
+		}
+
+		engageMsg, campfireID, err := executeConventionOp(agentID, s, exec, engageDecl, engageArgs)
 		if err != nil {
 			return fmt.Errorf("sending work:engage: %w", err)
 		}

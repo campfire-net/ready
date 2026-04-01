@@ -55,7 +55,7 @@ func generateID(prefix string, existingIDs map[string]struct{}) (string, error) 
 }
 
 // createPayload is the JSON payload for a work:create message.
-// Retained for engage.go which still uses manual creation during playbook expansion.
+// Retained for scanning existing create messages in state loading.
 type createPayload struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
