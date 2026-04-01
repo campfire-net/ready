@@ -5,25 +5,19 @@ package main
 // executeConventionOp / executeConventionOpToCampfire.
 
 import (
-	"bufio"
 	"crypto/ed25519"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	campfirepkg "github.com/campfire-net/campfire/pkg/campfire"
-	"github.com/campfire-net/campfire/pkg/convention"
 	cfencoding "github.com/campfire-net/campfire/pkg/encoding"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/message"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/campfire/pkg/transport/fs"
-
-	"github.com/campfire-net/ready/pkg/jsonl"
 )
 
 // TestBufferToPending_NoProjectRoot verifies that bufferToPending returns an
@@ -182,6 +176,72 @@ func TestClientSend_HappyPath(t *testing.T) {
 	}
 	if rec.CampfireID != campfireID {
 		t.Errorf("stored message CampfireID=%q, want %q", rec.CampfireID, campfireID)
+	}
+}
+
+// TestD6_ExtractOperationFromTags verifies that extractOperationFromTags returns
+// the first work: tag, which is the operation name recorded in JSONL and campfire.
+// This is the tagging invariant used throughout the D6 constraint path.
+func TestD6_ExtractOperationFromTags(t *testing.T) {
+	tests := []struct {
+		tags []string
+		want string
+	}{
+		{[]string{"work:create"}, "work:create"},
+		{[]string{"work:close", "work:resolution:done"}, "work:close"},
+		{[]string{"work:status", "work:status:waiting"}, "work:status"},
+		{[]string{"work:claim"}, "work:claim"},
+		{[]string{}, ""},
+		{nil, ""},
+		{[]string{"unrelated:tag"}, ""},
+		{[]string{"unrelated:tag", "work:update"}, "work:update"},
+	}
+	for _, tc := range tests {
+		got := extractOperationFromTags(tc.tags)
+		if got != tc.want {
+			t.Errorf("extractOperationFromTags(%v) = %q, want %q", tc.tags, got, tc.want)
+		}
+	}
+}
+
+// TestD6_MessageID_NonEmpty verifies that a message created via message.NewMessage
+// always has a non-empty ID. This is a precondition for D6: the ID recorded in
+// JSONL must be non-empty so it can be matched against campfire-assigned IDs.
+func TestD6_MessageID_NonEmpty(t *testing.T) {
+	id, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("identity.Generate: %v", err)
+	}
+	msg, err := message.NewMessage(id.PrivateKey, id.PublicKey, []byte(`{"op":"test"}`), []string{"work:create"}, nil)
+	if err != nil {
+		t.Fatalf("message.NewMessage: %v", err)
+	}
+	if msg.ID == "" {
+		t.Fatal("D6 constraint violated: NewMessage returned message with empty ID")
+	}
+	if len(msg.ID) < 32 {
+		t.Errorf("D6: message ID too short (%d chars), expected at least 32 hex chars: %q", len(msg.ID), msg.ID)
+	}
+}
+
+// TestD6_TwoDistinctMessages_HaveDifferentIDs verifies that two independently
+// created messages always receive different IDs. D6 relies on unique IDs so that
+// JSONL records and campfire messages can be matched unambiguously.
+func TestD6_TwoDistinctMessages_HaveDifferentIDs(t *testing.T) {
+	id, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("identity.Generate: %v", err)
+	}
+	msg1, err := message.NewMessage(id.PrivateKey, id.PublicKey, []byte(`{"op":"test1"}`), []string{"work:create"}, nil)
+	if err != nil {
+		t.Fatalf("NewMessage (1): %v", err)
+	}
+	msg2, err := message.NewMessage(id.PrivateKey, id.PublicKey, []byte(`{"op":"test2"}`), []string{"work:create"}, nil)
+	if err != nil {
+		t.Fatalf("NewMessage (2): %v", err)
+	}
+	if msg1.ID == msg2.ID {
+		t.Errorf("D6: two distinct messages share the same ID %q — ID generation is not unique", msg1.ID)
 	}
 }
 

@@ -98,8 +98,8 @@ func TestCloseAliasTags(t *testing.T) {
 
 // --- cancel cascade tests ---
 
-// TestCancelCascade_ChildrenIdentified verifies that children of a parent
-// are correctly identified by parent_id for cascade closure.
+// TestCancelCascade_ChildrenIdentified verifies that cascadeCloseDescendants selects
+// only open direct children of the parent (terminal children and unrelated items excluded).
 func TestCancelCascade_ChildrenIdentified(t *testing.T) {
 	parent := &state.Item{ID: "ready-p1", MsgID: "msg-p1", Status: state.StatusActive}
 	child1 := &state.Item{ID: "ready-c1", MsgID: "msg-c1", Status: state.StatusActive, ParentID: "ready-p1"}
@@ -109,51 +109,25 @@ func TestCancelCascade_ChildrenIdentified(t *testing.T) {
 
 	allItems := []*state.Item{parent, child1, child2, child3Done, unrelated}
 
-	// Simulate the cascade selection logic from cancelCmd.
 	var toClose []*state.Item
-	for _, item := range allItems {
-		if item.ParentID != parent.ID {
-			continue
-		}
-		if state.IsTerminal(item) {
-			continue
-		}
-		toClose = append(toClose, item)
+	closedIDs, err := cascadeCloseDescendants(allItems, parent.ID, "cascade", func(c *state.Item, _ string) error {
+		toClose = append(toClose, c)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("cascadeCloseDescendants: %v", err)
 	}
 
-	if len(toClose) != 2 {
-		t.Errorf("expected 2 children to cascade-close, got %d", len(toClose))
+	if len(closedIDs) != 2 {
+		t.Errorf("expected 2 children to cascade-close, got %d", len(closedIDs))
 	}
-	// Verify the done child is excluded.
+	// Verify the done child and unrelated item are excluded.
 	for _, item := range toClose {
 		if item.ID == child3Done.ID {
 			t.Errorf("done child %s should not be in cascade set", child3Done.ID)
 		}
 		if item.ID == unrelated.ID {
 			t.Errorf("unrelated item %s should not be in cascade set", unrelated.ID)
-		}
-	}
-
-	// Verify each would get an argsMap with resolution=cancelled.
-	for _, item := range toClose {
-		argsMap := map[string]any{
-			"target":     item.MsgID,
-			"resolution": "cancelled",
-			"reason":     "cascade",
-		}
-		b, err := json.Marshal(argsMap)
-		if err != nil {
-			t.Fatalf("marshal child payload: %v", err)
-		}
-		var decoded map[string]interface{}
-		if err := json.Unmarshal(b, &decoded); err != nil {
-			t.Fatalf("unmarshal child payload: %v", err)
-		}
-		if decoded["resolution"] != "cancelled" {
-			t.Errorf("child %s expected resolution=cancelled, got %v", item.ID, decoded["resolution"])
-		}
-		if decoded["target"] != item.MsgID {
-			t.Errorf("child %s expected target=%s, got %v", item.ID, item.MsgID, decoded["target"])
 		}
 	}
 }
@@ -163,19 +137,142 @@ func TestCancelCascade_NoChildrenIsNoop(t *testing.T) {
 	leaf := &state.Item{ID: "ready-l1", MsgID: "msg-l1", Status: state.StatusActive}
 	allItems := []*state.Item{leaf}
 
-	var toClose []*state.Item
-	for _, item := range allItems {
-		if item.ParentID != leaf.ID {
-			continue
-		}
-		if state.IsTerminal(item) {
-			continue
-		}
-		toClose = append(toClose, item)
+	closedIDs, err := cascadeCloseDescendants(allItems, leaf.ID, "cascade", noopClose)
+	if err != nil {
+		t.Fatalf("cascadeCloseDescendants: %v", err)
 	}
 
-	if len(toClose) != 0 {
-		t.Errorf("expected 0 children for leaf item, got %d", len(toClose))
+	if len(closedIDs) != 0 {
+		t.Errorf("expected 0 children for leaf item, got %d", len(closedIDs))
+	}
+}
+
+// noopClose is a stub closeOne that does nothing, used when tests only care about
+// which items cascadeCloseDescendants selects, not about what it sends.
+func noopClose(_ *state.Item, _ string) error { return nil }
+
+// TestCancelCascade_RecursiveGrandchildren verifies that cascadeCloseDescendants walks
+// the full subtree recursively: grandchildren are closed before their parent children,
+// and all open descendants are included.
+func TestCancelCascade_RecursiveGrandchildren(t *testing.T) {
+	//   parent
+	//   ├── child1 (active)
+	//   │   └── grandchild1 (active)
+	//   │   └── grandchild2 (done — should be excluded)
+	//   └── child2 (cancelled — should be excluded)
+	parent := &state.Item{ID: "ready-p1", MsgID: "msg-p1", Status: state.StatusActive}
+	child1 := &state.Item{ID: "ready-c1", MsgID: "msg-c1", Status: state.StatusActive, ParentID: "ready-p1"}
+	child2 := &state.Item{ID: "ready-c2", MsgID: "msg-c2", Status: state.StatusCancelled, ParentID: "ready-p1"}
+	grandchild1 := &state.Item{ID: "ready-g1", MsgID: "msg-g1", Status: state.StatusActive, ParentID: "ready-c1"}
+	grandchild2 := &state.Item{ID: "ready-g2", MsgID: "msg-g2", Status: state.StatusDone, ParentID: "ready-c1"}
+
+	allItems := []*state.Item{parent, child1, child2, grandchild1, grandchild2}
+
+	// Use a recording stub so we can inspect the order of calls.
+	var toClose []*state.Item
+	closedIDs, err := cascadeCloseDescendants(allItems, parent.ID, "test-reason", func(c *state.Item, _ string) error {
+		toClose = append(toClose, c)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("cascadeCloseDescendants: %v", err)
+	}
+
+	// Expect grandchild1 and child1 (grandchild2 is done, child2 is cancelled).
+	if len(toClose) != 2 {
+		t.Fatalf("expected 2 open descendants, got %d: %v", len(toClose), closedIDs)
+	}
+
+	// grandchild1 must come before child1 (depth-first, leaves first).
+	if toClose[0].ID != grandchild1.ID {
+		t.Errorf("expected grandchild1 first (leaves before parents), got %s", toClose[0].ID)
+	}
+	if toClose[1].ID != child1.ID {
+		t.Errorf("expected child1 second (parent after children), got %s", toClose[1].ID)
+	}
+
+	// Verify closed children and done grandchildren are excluded.
+	for _, item := range toClose {
+		if item.ID == child2.ID {
+			t.Errorf("cancelled child2 should not be in cascade set")
+		}
+		if item.ID == grandchild2.ID {
+			t.Errorf("done grandchild2 should not be in cascade set")
+		}
+		if item.ID == parent.ID {
+			t.Errorf("parent should not be in descendants set (closed separately)")
+		}
+	}
+}
+
+// TestCancelCascade_AllChildrenTerminal verifies that cascadeCloseDescendants on a
+// parent where all children are already terminal returns an empty set — only the
+// parent is closed (by cancelCmd.RunE itself, not by the cascade helper).
+func TestCancelCascade_AllChildrenTerminal(t *testing.T) {
+	parent := &state.Item{ID: "ready-p2", MsgID: "msg-p2", Status: state.StatusActive}
+	child1 := &state.Item{ID: "ready-c3", MsgID: "msg-c3", Status: state.StatusDone, ParentID: "ready-p2"}
+	child2 := &state.Item{ID: "ready-c4", MsgID: "msg-c4", Status: state.StatusCancelled, ParentID: "ready-p2"}
+	child3 := &state.Item{ID: "ready-c5", MsgID: "msg-c5", Status: state.StatusFailed, ParentID: "ready-p2"}
+
+	allItems := []*state.Item{parent, child1, child2, child3}
+	closedIDs, err := cascadeCloseDescendants(allItems, parent.ID, "test-reason", noopClose)
+	if err != nil {
+		t.Fatalf("cascadeCloseDescendants: %v", err)
+	}
+
+	if len(closedIDs) != 0 {
+		t.Errorf("expected 0 open descendants when all children are terminal, got %d", len(closedIDs))
+	}
+}
+
+// capturedCloseCall records the child and reason passed to a stub closeOne callback.
+type capturedCloseCall struct {
+	childID string
+	msgID   string
+	reason  string
+}
+
+// TestCancelCascade_ReasonPropagated verifies that cascadeCloseDescendants —
+// the same function invoked by cancelCmd.RunE — passes the caller-supplied
+// reason into the closeOne callback for each open descendant.
+//
+// A capturing closeOne stub (no executor, no store, no filesystem) records
+// what cascadeCloseDescendants actually delivers to the callback, proving that
+// the --reason flag value flows through to the childArgs sent to executeConventionOp.
+func TestCancelCascade_ReasonPropagated(t *testing.T) {
+	parent := &state.Item{ID: "ready-p3", MsgID: "msg-p3", Status: state.StatusActive}
+	child := &state.Item{ID: "ready-c6", MsgID: "msg-c6", Status: state.StatusActive, ParentID: "ready-p3"}
+
+	allItems := []*state.Item{parent, child}
+	reason := "Scope cut — entire feature cancelled"
+
+	var calls []capturedCloseCall
+	closeOne := func(c *state.Item, r string) error {
+		calls = append(calls, capturedCloseCall{childID: c.ID, msgID: c.MsgID, reason: r})
+		return nil
+	}
+
+	closedIDs, err := cascadeCloseDescendants(allItems, parent.ID, reason, closeOne)
+	if err != nil {
+		t.Fatalf("cascadeCloseDescendants: %v", err)
+	}
+
+	if len(closedIDs) != 1 {
+		t.Fatalf("expected 1 closed ID, got %d: %v", len(closedIDs), closedIDs)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected closeOne called once, got %d calls", len(calls))
+	}
+
+	got := calls[0]
+	if got.childID != child.ID {
+		t.Errorf("closeOne childID=%q, want %q", got.childID, child.ID)
+	}
+	if got.msgID != child.MsgID {
+		t.Errorf("closeOne msgID=%q, want %q", got.msgID, child.MsgID)
+	}
+	if got.reason != reason {
+		t.Errorf("closeOne reason=%q, want %q — cancelCmd.RunE must propagate --reason into childArgs", got.reason, reason)
 	}
 }
 

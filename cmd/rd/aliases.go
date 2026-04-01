@@ -39,6 +39,38 @@ Example:
 	RunE: runCloseAlias("failed"),
 }
 
+// cascadeCloseDescendants walks the subtree rooted at rootID depth-first and calls
+// closeOne(child, reason) for each open descendant (leaves before parents).
+// It is extracted from cancelCmd.RunE so it can be unit-tested with a stub closeOne.
+func cascadeCloseDescendants(allItems []*state.Item, rootID string, reason string, closeOne func(child *state.Item, reason string) error) ([]string, error) {
+	childrenOf := make(map[string][]*state.Item)
+	for _, it := range allItems {
+		if it.ParentID != "" {
+			childrenOf[it.ParentID] = append(childrenOf[it.ParentID], it)
+		}
+	}
+	var descendants []*state.Item
+	var walk func(parentID string)
+	walk = func(parentID string) {
+		for _, child := range childrenOf[parentID] {
+			walk(child.ID)
+			if !state.IsTerminal(child) {
+				descendants = append(descendants, child)
+			}
+		}
+	}
+	walk(rootID)
+
+	var closedIDs []string
+	for _, child := range descendants {
+		if err := closeOne(child, reason); err != nil {
+			return closedIDs, fmt.Errorf("closing child %s: %w", child.ID, err)
+		}
+		closedIDs = append(closedIDs, child.ID)
+	}
+	return closedIDs, nil
+}
+
 // cancelCmd closes an item with resolution=cancelled, optionally cascading to children.
 var cancelCmd = &cobra.Command{
 	Use:   "cancel <item-id>",
@@ -86,25 +118,6 @@ Example:
 			if err != nil {
 				return fmt.Errorf("loading items for cascade: %w", err)
 			}
-			// Build parent→children index.
-			childrenOf := make(map[string][]*state.Item)
-			for _, it := range allItems {
-				if it.ParentID != "" {
-					childrenOf[it.ParentID] = append(childrenOf[it.ParentID], it)
-				}
-			}
-			// Walk subtree depth-first (close leaves before parents).
-			var descendants []*state.Item
-			var walk func(parentID string)
-			walk = func(parentID string) {
-				for _, child := range childrenOf[parentID] {
-					walk(child.ID) // grandchildren first
-					if !state.IsTerminal(child) {
-						descendants = append(descendants, child)
-					}
-				}
-			}
-			walk(item.ID)
 			exec, _, err := requireExecutor()
 			if err != nil {
 				return err
@@ -113,17 +126,17 @@ Example:
 			if err != nil {
 				return err
 			}
-			for _, child := range descendants {
+			closedIDs, err = cascadeCloseDescendants(allItems, item.ID, reason, func(child *state.Item, reason string) error {
 				childArgs := map[string]any{
 					"target":     child.MsgID,
 					"resolution": "cancelled",
 					"reason":     reason,
 				}
-				_, _, err = executeConventionOp(agentID, s, exec, closeDecl, childArgs)
-				if err != nil {
-					return fmt.Errorf("closing child %s: %w", child.ID, err)
-				}
-				closedIDs = append(closedIDs, child.ID)
+				_, _, err := executeConventionOp(agentID, s, exec, closeDecl, childArgs)
+				return err
+			})
+			if err != nil {
+				return err
 			}
 		}
 
