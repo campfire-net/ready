@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/campfire-net/campfire/pkg/identity"
+	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/resolve"
@@ -16,8 +17,9 @@ import (
 var Version = "dev"
 
 var (
-	jsonOutput bool
-	rdHome     string
+	jsonOutput     bool
+	rdHome         string
+	protocolClient *protocol.Client
 )
 
 var rootCmd = &cobra.Command{
@@ -98,6 +100,21 @@ func requireAgentAndStore() (*identity.Identity, store.Store, error) {
 		return nil, nil, fmt.Errorf("opening store: %w", err)
 	}
 	return agentID, s, nil
+}
+
+// requireClient returns a *protocol.Client backed by the campfire home directory.
+// The client is cached after first initialization (CLI is single-threaded).
+// WithNoWalkUp is mandatory — prevents recentering UX ambush in agent/CLI contexts.
+func requireClient() (*protocol.Client, error) {
+	if protocolClient != nil {
+		return protocolClient, nil
+	}
+	c, err := protocol.Init(CFHome(), protocol.WithNoWalkUp())
+	if err != nil {
+		return nil, fmt.Errorf("initializing campfire client: %w", err)
+	}
+	protocolClient = c
+	return c, nil
 }
 
 // readyProjectDir walks up from cwd looking for a .ready/ directory.
