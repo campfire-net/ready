@@ -69,7 +69,7 @@ func sendToProjectCampfire(agentID *identity.Identity, s store.Store, payload st
 	if err != nil {
 		// Client init failed — buffer for later sync and return success.
 		fmt.Fprintf(os.Stderr, "warning: campfire client init failed (buffered to pending.jsonl): %v\n", err)
-		if bufErr := bufferToPending(msg, campfireID, payload, tags, antecedents); bufErr != nil {
+		if bufErr := bufferToPending(msg, campfireID, agentID.PublicKeyHex(), payload, tags, antecedents); bufErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: %v\n", bufErr)
 		}
 		return msg, campfireID, nil
@@ -85,7 +85,7 @@ func sendToProjectCampfire(agentID *identity.Identity, s store.Store, payload st
 	if sendErr != nil {
 		// Transport send failed — JSONL write already succeeded, buffer for sync.
 		fmt.Fprintf(os.Stderr, "warning: campfire send failed (buffered to pending.jsonl): %v\n", sendErr)
-		if bufErr := bufferToPending(msg, campfireID, payload, tags, antecedents); bufErr != nil {
+		if bufErr := bufferToPending(msg, campfireID, agentID.PublicKeyHex(), payload, tags, antecedents); bufErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: %v\n", bufErr)
 		}
 		// Return success — mutation is durable in JSONL.
@@ -167,7 +167,7 @@ func executeConventionOp(agentID *identity.Identity, s store.Store, exec *conven
 	if _, execErr := exec.Execute(ctx, decl, campfireID, argsMap); execErr != nil {
 		// Executor failed — JSONL write already succeeded, buffer for sync.
 		fmt.Fprintf(os.Stderr, "warning: campfire send failed (buffered to pending.jsonl): %v\n", execErr)
-		if bufErr := bufferToPending(msg, campfireID, string(payloadJSON), []string{primaryTag}, nil); bufErr != nil {
+		if bufErr := bufferToPending(msg, campfireID, agentID.PublicKeyHex(), string(payloadJSON), []string{primaryTag}, nil); bufErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: %v\n", bufErr)
 		}
 		return msg, campfireID, nil
@@ -227,7 +227,7 @@ func executeConventionOpToCampfire(agentID *identity.Identity, s store.Store, ex
 	ctx := context.Background()
 	if _, execErr := exec.Execute(ctx, decl, campfireID, argsMap); execErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: campfire send failed (buffered to pending.jsonl): %v\n", execErr)
-		if bufErr := bufferToPending(msg, campfireID, string(payloadJSON), []string{primaryTag}, nil); bufErr != nil {
+		if bufErr := bufferToPending(msg, campfireID, agentID.PublicKeyHex(), string(payloadJSON), []string{primaryTag}, nil); bufErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: %v\n", bufErr)
 		}
 		return msg, campfireID, nil
@@ -256,7 +256,18 @@ func executeConventionOpToCampfire(agentID *identity.Identity, s store.Store, ex
 // record are preserved so that the campfire message ID matches the ID already written
 // to mutations.jsonl. This cannot use client.Send() because client.Send() generates a
 // new message ID — preserving the original ID is a permanent constraint (D6).
+//
+// Signing isolation: private and public key bytes are copied at construction time so
+// that each flusher closure holds its own key material. This prevents aliasing bugs if
+// the caller's agentID is modified after buildFlusher returns and ensures the signing
+// context for this flusher is independent of any external mutation of the identity.
 func buildFlusher(agentID *identity.Identity, s store.Store, m *store.Membership, campfireID, projectDir string) rdSync.Flusher {
+	// Copy key bytes at closure-creation time so this flusher has an isolated signing context.
+	privKeyCopy := make(ed25519.PrivateKey, len(agentID.PrivateKey))
+	copy(privKeyCopy, agentID.PrivateKey)
+	pubKeyCopy := make(ed25519.PublicKey, len(agentID.PublicKey))
+	copy(pubKeyCopy, agentID.PublicKey)
+
 	return func(rec jsonl.MutationRecord) error {
 		// Reconstruct the message preserving the original message ID and timestamp.
 		// We build the Message struct directly and re-sign using the same signing
@@ -273,7 +284,7 @@ func buildFlusher(agentID *identity.Identity, s store.Store, m *store.Membership
 		}
 		msg := &message.Message{
 			ID:          rec.MsgID,
-			Sender:      agentID.PublicKey,
+			Sender:      pubKeyCopy,
 			Payload:     []byte(rec.Payload),
 			Tags:        tags,
 			Antecedents: antecedents,
@@ -291,8 +302,15 @@ func buildFlusher(agentID *identity.Identity, s store.Store, m *store.Membership
 		if err != nil {
 			return fmt.Errorf("encoding pending message sign input: %w", err)
 		}
-		msg.Signature = ed25519.Sign(agentID.PrivateKey, signBytes)
-		return sendPrebuiltMessage(agentID, s, m, campfireID, msg)
+		msg.Signature = ed25519.Sign(privKeyCopy, signBytes)
+		// Use a synthetic identity built from the copied keys so that sendPrebuiltMessage's
+		// member verification uses the original public key, not any post-construction mutation
+		// of the caller's agentID. This completes the signing isolation guarantee.
+		isolatedID := &identity.Identity{
+			PrivateKey: privKeyCopy,
+			PublicKey:  pubKeyCopy,
+		}
+		return sendPrebuiltMessage(isolatedID, s, m, campfireID, msg)
 	}
 }
 
@@ -349,9 +367,12 @@ func sendPrebuiltMessage(agentID *identity.Identity, s store.Store, m *store.Mem
 }
 
 // bufferToPending appends a mutation to .ready/pending.jsonl for later sync.
+// senderHex must be the hex-encoded public key of the signing identity (agentID.PublicKeyHex()).
+// It is recorded in the pending record so that the record is self-describing: any tool that
+// reads pending.jsonl can identify who authored the mutation without consulting the live identity.
 // Returns an error if no project root is found or the write fails.
 // Callers log the error as a warning — the primary mutation already succeeded in JSONL.
-func bufferToPending(msg *message.Message, campfireID, payload string, tags, antecedents []string) error {
+func bufferToPending(msg *message.Message, campfireID, senderHex, payload string, tags, antecedents []string) error {
 	pp := pendingPath()
 	if pp == "" {
 		return fmt.Errorf("no project root found — cannot buffer mutation to pending.jsonl")
@@ -364,6 +385,7 @@ func bufferToPending(msg *message.Message, campfireID, payload string, tags, ant
 		Operation:   extractOperationFromTags(tags),
 		Payload:     json.RawMessage(payload),
 		Tags:        tags,
+		Sender:      senderHex,
 		Antecedents: antecedents,
 	}
 	if err := w.Append(rec); err != nil {

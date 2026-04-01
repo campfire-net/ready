@@ -1,11 +1,12 @@
 package main
 
 // send_test.go exercises bufferToPending, client.Send() happy path,
-// sendPrebuiltMessage ID-preservation, and the D6 message ID fix for
-// executeConventionOp / executeConventionOpToCampfire.
+// sendPrebuiltMessage ID-preservation (D6 constraint), buildFlusher signing
+// isolation, and bufferToPending Sender field recording.
 
 import (
 	"crypto/ed25519"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,6 +19,8 @@ import (
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/campfire/pkg/transport/fs"
+
+	"github.com/campfire-net/ready/pkg/jsonl"
 )
 
 // TestBufferToPending_NoProjectRoot verifies that bufferToPending returns an
@@ -36,7 +39,7 @@ func TestBufferToPending_NoProjectRoot(t *testing.T) {
 	}
 
 	msg := &message.Message{ID: "test-msg-id-no-project-root"}
-	err = bufferToPending(msg, "campfire-test-id", `{"op":"test"}`, []string{"work:create"}, nil)
+	err = bufferToPending(msg, "campfire-test-id", "deadbeef", `{"op":"test"}`, []string{"work:create"}, nil)
 	if err == nil {
 		t.Fatal("bufferToPending: expected error when no project root, got nil")
 	}
@@ -62,7 +65,7 @@ func TestBufferToPending_WritesRecord(t *testing.T) {
 	}
 
 	msg := &message.Message{ID: "test-msg-id-buffer-writes"}
-	err = bufferToPending(msg, "campfire-test-id", `{"op":"test"}`, []string{"work:create"}, nil)
+	err = bufferToPending(msg, "campfire-test-id", "deadbeef", `{"op":"test"}`, []string{"work:create"}, nil)
 	if err != nil {
 		t.Fatalf("bufferToPending: unexpected error: %v", err)
 	}
@@ -74,6 +77,47 @@ func TestBufferToPending_WritesRecord(t *testing.T) {
 	}
 	if len(data) == 0 {
 		t.Fatal("pending.jsonl is empty — expected a buffered record")
+	}
+}
+
+// TestBufferToPending_RecordsSender verifies that bufferToPending writes the
+// senderHex argument to the Sender field of the pending MutationRecord.
+// This ensures pending.jsonl is self-describing: any reader can identify who
+// authored the mutation without consulting the live identity.
+func TestBufferToPending_RecordsSender(t *testing.T) {
+	dir := t.TempDir()
+	readyDir := filepath.Join(dir, ".ready")
+	if err := os.MkdirAll(readyDir, 0755); err != nil {
+		t.Fatalf("mkdir .ready: %v", err)
+	}
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	wantSender := "aabbccddeeff0011223344556677889900112233445566778899aabbccddeeff"
+	msg := &message.Message{ID: "test-msg-id-sender-recorded"}
+	if err := bufferToPending(msg, "campfire-test-id", wantSender, `{"op":"test"}`, []string{"work:create"}, nil); err != nil {
+		t.Fatalf("bufferToPending: %v", err)
+	}
+
+	pendingFile := filepath.Join(readyDir, "pending.jsonl")
+	data, err := os.ReadFile(pendingFile)
+	if err != nil {
+		t.Fatalf("reading pending.jsonl: %v", err)
+	}
+
+	var rec jsonl.MutationRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		t.Fatalf("unmarshal pending record: %v", err)
+	}
+	if rec.Sender != wantSender {
+		t.Errorf("pending record Sender=%q, want %q — Sender field not recorded in pending.jsonl", rec.Sender, wantSender)
 	}
 }
 
@@ -307,5 +351,65 @@ func TestSendPrebuiltMessage_PreservesID(t *testing.T) {
 	}
 	if rec.CampfireID != campfireID {
 		t.Errorf("stored message CampfireID=%q, want %q", rec.CampfireID, campfireID)
+	}
+}
+
+// TestBuildFlusher_SigningIsolation verifies that buildFlusher copies the key material
+// at construction time. The flusher signs and sends correctly using the copied keys.
+// This test verifies the signing path end-to-end: the flushed message is retrievable
+// from the store with the correct sender identity.
+func TestBuildFlusher_SigningIsolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	campfireID, id, s, _ := newSendTestCampfire(t, tmpDir)
+	defer s.Close()
+
+	m, err := s.GetMembership(campfireID)
+	if err != nil || m == nil {
+		t.Fatalf("GetMembership: %v (m=%v)", err, m)
+	}
+
+	// Capture the original public key hex.
+	origPubHex := id.PublicKeyHex()
+
+	// Build the flusher — at this point the key copies should be made internally.
+	flusher := buildFlusher(id, s, m, campfireID, tmpDir)
+
+	// Overwrite the identity keys with a different keypair AFTER buildFlusher returns.
+	// If buildFlusher holds a direct reference (no copy), it would sign with these new keys.
+	// If it made copies at construction time, it must sign with the original keys.
+	newPub, newPriv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey: %v", err)
+	}
+	copy(id.PrivateKey, newPriv)
+	copy(id.PublicKey, newPub)
+
+	// Send a pending record via the flusher.
+	knownID := "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+	rec := jsonl.MutationRecord{
+		MsgID:       knownID,
+		CampfireID:  campfireID,
+		Timestamp:   time.Now().UnixNano(),
+		Operation:   "work:create",
+		Payload:     json.RawMessage(`{"op":"isolation-test"}`),
+		Tags:        []string{"work:create"},
+		Sender:      origPubHex,
+		Antecedents: []string{},
+	}
+	if err := flusher(rec); err != nil {
+		t.Fatalf("flusher: %v", err)
+	}
+
+	// The message stored in the campfire must have the correct sender public key.
+	// This verifies the flusher uses isolated key copies for signing (not a dangling reference).
+	storedMsg, err := s.GetMessage(knownID)
+	if err != nil {
+		t.Fatalf("store.GetMessage(%q): %v", knownID, err)
+	}
+	if storedMsg == nil {
+		t.Fatalf("message %q not found in store after flush", knownID)
+	}
+	if storedMsg.Sender != origPubHex {
+		t.Errorf("flushed message Sender=%q, want %q — flusher used wrong key", storedMsg.Sender, origPubHex)
 	}
 }
