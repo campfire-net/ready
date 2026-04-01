@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/store"
@@ -660,14 +659,4 @@ func IsBlocked(item *Item) bool {
 // IsTerminal reports whether item is in a terminal state.
 func IsTerminal(item *Item) bool {
 	return TerminalStatuses[item.Status]
-}
-
-// HasTagPrefix reports whether a message record has the given tag prefix.
-func HasTagPrefix(tags []string, prefix string) bool {
-	for _, t := range tags {
-		if strings.HasPrefix(t, prefix) {
-			return true
-		}
-	}
-	return false
 }

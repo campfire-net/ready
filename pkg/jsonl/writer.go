@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 const (
@@ -27,17 +26,6 @@ type Writer struct {
 // The file and its parent directory are created on first Append, not here.
 func NewWriter(path string) *Writer {
 	return &Writer{path: path}
-}
-
-// WriterForProject returns a Writer rooted at the project directory.
-// The project directory is located via the same .campfire/root walk-up used
-// by send.go. Returns an error if no project root is found.
-func WriterForProject() (*Writer, error) {
-	dir, err := findProjectRoot()
-	if err != nil {
-		return nil, err
-	}
-	return NewWriter(filepath.Join(dir, ReadyDir, MutationsFile)), nil
 }
 
 // Append marshals r as a single JSON line and appends it to the JSONL file.
@@ -77,32 +65,3 @@ func (w *Writer) Append(r MutationRecord) error {
 	return nil
 }
 
-// Path returns the absolute path of the mutations file.
-func (w *Writer) Path() string {
-	return w.path
-}
-
-// findProjectRoot walks up from cwd looking for a .campfire/root file,
-// matching the logic in cmd/rd/send.go:projectRoot().
-func findProjectRoot() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("jsonl: getwd: %w", err)
-	}
-	for {
-		rootFile := filepath.Join(dir, ".campfire", "root")
-		data, err := os.ReadFile(rootFile)
-		if err == nil {
-			id := strings.TrimSpace(string(data))
-			if len(id) == 64 {
-				return dir, nil
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return "", fmt.Errorf("jsonl: no .campfire/root found — run 'rd init' first")
-}

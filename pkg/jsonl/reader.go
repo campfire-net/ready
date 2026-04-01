@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 )
 
@@ -22,16 +21,6 @@ func NewReader(path string) *Reader {
 	return &Reader{path: path}
 }
 
-// ReaderForProject returns a Reader rooted at the project directory.
-// Returns an error if no project root is found.
-func ReaderForProject() (*Reader, error) {
-	dir, err := findProjectRoot()
-	if err != nil {
-		return nil, err
-	}
-	return NewReader(filepath.Join(dir, ReadyDir, MutationsFile)), nil
-}
-
 // ReadAll returns all records from the file sorted by Timestamp ascending.
 // Returns an empty slice if the file does not exist.
 // Malformed lines are skipped.
@@ -44,11 +33,6 @@ func (r *Reader) ReadAll() ([]MutationRecord, error) {
 // Returns an empty slice if the file does not exist or has no matching records.
 func (r *Reader) ReadSince(after int64) ([]MutationRecord, error) {
 	return r.readSince(after)
-}
-
-// Path returns the absolute path of the mutations file this Reader targets.
-func (r *Reader) Path() string {
-	return r.path
 }
 
 // readSince reads all records with Timestamp > after from the JSONL file.
