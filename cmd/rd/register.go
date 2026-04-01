@@ -13,7 +13,6 @@ import (
 	"github.com/campfire-net/campfire/pkg/naming"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/campfire-net/campfire/pkg/transport/fs"
 	"github.com/spf13/cobra"
 
 	"github.com/campfire-net/ready/pkg/rdconfig"
@@ -249,31 +248,26 @@ func resolveReady(org string, cfg *rdconfig.Config, aliases *naming.AliasStore, 
 
 // postBeaconRegistration sends a beacon-registration with naming:name:<segment>
 // to the parent campfire, registering the child campfire under the given name.
-func postBeaconRegistration(_ *identity.Identity, s store.Store, parentID, childID, name, description string) error {
-	// Derive the transport base directory from the membership record so we find
-	// the campfire state wherever it was actually created (e.g. ~/.campfire/campfires/<id>/
-	// rather than the default /tmp/campfire/<id>/).
-	baseDir := fs.DefaultBaseDir()
-	if m, err := s.GetMembership(childID); err == nil && m != nil && m.TransportDir != "" {
-		baseDir = filepath.Dir(m.TransportDir)
-	}
-	tr := fs.New(baseDir)
-	cfState, err := tr.ReadState(childID)
+//
+// It locates the child campfire's published beacon via beacon.Scan on the
+// default beacon directory — beacon publishing happens during campfire creation
+// (protocol.Client.Create / createLocalCampfire), so the beacon is always
+// present before postBeaconRegistration is called.
+func postBeaconRegistration(_ *identity.Identity, _ store.Store, parentID, childID, name, description string) error {
+	// Scan the default beacon directory for the child campfire's published beacon.
+	beacons, err := beacon.Scan(beacon.DefaultBeaconDir())
 	if err != nil {
-		return fmt.Errorf("reading campfire state for %s: %w", childID[:12], err)
+		return fmt.Errorf("scanning beacons for %s: %w", childID[:12], err)
 	}
-
-	innerBeacon, err := beacon.New(
-		cfState.PublicKey, cfState.PrivateKey,
-		cfState.JoinProtocol, cfState.ReceptionRequirements,
-		beacon.TransportConfig{
-			Protocol: "filesystem",
-			Config:   map[string]string{"dir": tr.CampfireDir(childID)},
-		},
-		description,
-	)
-	if err != nil {
-		return fmt.Errorf("creating inner beacon: %w", err)
+	var innerBeacon *beacon.Beacon
+	for i := range beacons {
+		if beacons[i].CampfireIDHex() == childID {
+			innerBeacon = &beacons[i]
+			break
+		}
+	}
+	if innerBeacon == nil {
+		return fmt.Errorf("no beacon found for campfire %s — was it created with createLocalCampfire?", childID[:12])
 	}
 
 	regPayload := map[string]interface{}{
