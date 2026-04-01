@@ -207,6 +207,85 @@ func TestE2E_Register_WithOrg_CreatesHome(t *testing.T) {
 	}
 }
 
+// TestE2E_Init_ClientCreate_BeaconAndDeclarations verifies the refactored
+// createLocalCampfire (using client.Create) produces the expected artifacts:
+//   - .campfire/root contains a 64-char campfire ID matching JSON output
+//   - .campfire/beacons/ contains at least one beacon file (project-local publish)
+//   - Declarations are posted (JSON output shows >= 10)
+//   - rd create works in the resulting project (campfire is functional)
+//
+// This is the integration test required by rudi-kpz.
+func TestE2E_Init_ClientCreate_BeaconAndDeclarations(t *testing.T) {
+	e := NewEnv(t)
+
+	projectDir := t.TempDir()
+	stdout, stderr, code := e.RdInDir(projectDir, "init", "--name", "client-create-test", "--json", "--confirm")
+	if code != 0 {
+		t.Fatalf("rd init failed (exit %d):\nstderr: %s\nstdout: %s", code, stderr, stdout)
+	}
+
+	// --- 1. .campfire/root must exist and contain a valid campfire ID ---
+	rootFile := filepath.Join(projectDir, ".campfire", "root")
+	rootBytes, err := os.ReadFile(rootFile)
+	if err != nil {
+		t.Fatalf(".campfire/root not found: %v", err)
+	}
+	campfireID := strings.TrimSpace(string(rootBytes))
+	if len(campfireID) != 64 {
+		t.Errorf(".campfire/root: expected 64-char ID, got %d chars: %q", len(campfireID), campfireID)
+	}
+
+	// --- 2. JSON output must include campfire_id matching root file ---
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("JSON parse failed: %v\noutput: %s", err, stdout)
+	}
+	if result["campfire_id"] != campfireID {
+		t.Errorf("JSON campfire_id %q != .campfire/root %q", result["campfire_id"], campfireID)
+	}
+
+	// --- 3. Declarations must be posted ---
+	decls, _ := result["declarations"].(float64)
+	if decls < 10 {
+		t.Errorf("declarations count: got %v, want >= 10", result["declarations"])
+	}
+
+	// --- 4. Project-local beacon must be published to .campfire/beacons/ ---
+	beaconsDir := filepath.Join(projectDir, ".campfire", "beacons")
+	entries, err := os.ReadDir(beaconsDir)
+	if err != nil {
+		t.Fatalf(".campfire/beacons/ not found: %v\n(project-local beacon publish is broken — createLocalCampfire must publish to projectDir/beacons/)", err)
+	}
+	hasBeacon := false
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".beacon") {
+			hasBeacon = true
+			break
+		}
+	}
+	if !hasBeacon {
+		t.Errorf(".campfire/beacons/ exists but contains no .beacon files: %v", entries)
+	}
+
+	// --- 5. rd create must succeed in the new project (campfire is functional) ---
+	createOut, createErr, createCode := e.RdInDir(projectDir, "create",
+		"--title", "post-init item",
+		"--priority", "p2",
+		"--type", "task",
+		"--json",
+	)
+	if createCode != 0 {
+		t.Fatalf("rd create after init failed (exit %d): %s", createCode, createErr)
+	}
+	var item Item
+	if err := json.Unmarshal([]byte(createOut), &item); err != nil {
+		t.Fatalf("JSON parse of rd create output: %v\noutput: %s", err, createOut)
+	}
+	if item.ID == "" {
+		t.Error("created item has empty ID")
+	}
+}
+
 // TestE2E_Register_SecondProject_DiscoverExisting verifies a second project
 // discovers the existing home (via config) without --org.
 func TestE2E_Register_SecondProject_DiscoverExisting(t *testing.T) {

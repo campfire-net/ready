@@ -51,6 +51,11 @@ discoverability. Run this whenever you're ready to add naming.`,
 		}
 		defer s.Close()
 
+		client, err := requireClient()
+		if err != nil {
+			return err
+		}
+
 		// Default name from project directory.
 		if name == "" {
 			name = filepath.Base(projectDir)
@@ -64,7 +69,7 @@ discoverability. Run this whenever you're ready to add naming.`,
 
 		// --- Find or create home campfire ---
 
-		homeID, orgName, createdHome, err := resolveHome(cmd, homeFlag, org, cfg, aliases, agentID, s)
+		homeID, orgName, createdHome, err := resolveHome(cmd, homeFlag, org, cfg, aliases, agentID, s, client)
 		if err != nil {
 			return err
 		}
@@ -91,7 +96,7 @@ discoverability. Run this whenever you're ready to add naming.`,
 
 		// --- Find or create ready namespace ---
 
-		readyID, createdReady, err := resolveReady(orgName, cfg, aliases, agentID, s, homeID)
+		readyID, createdReady, err := resolveReady(orgName, cfg, aliases, agentID, s, client, homeID)
 		if err != nil {
 			return err
 		}
@@ -157,7 +162,7 @@ discoverability. Run this whenever you're ready to add naming.`,
 // resolveHome finds or creates the home campfire based on flags, config, and aliases.
 // Returns (homeID, orgName, createdHome, error).
 // Returns empty homeID when no home is found and none was requested (not an error).
-func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config, aliases *naming.AliasStore, agentID *identity.Identity, s store.Store) (string, string, bool, error) {
+func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config, aliases *naming.AliasStore, agentID *identity.Identity, s store.Store, client *protocol.Client) (string, string, bool, error) {
 	// Mode 1: explicit --home flag.
 	if homeFlag != "" {
 		orgName := org
@@ -175,7 +180,7 @@ func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config,
 	// Mode 2: explicit --org — create a new home.
 	if cmd.Flags().Changed("org") && org != "" {
 		homeDesc := org + " operator root"
-		homeID, err := createLocalCampfire(agentID, s, "invite-only", []string{"beacon:registration"}, homeDesc)
+		homeID, err := createLocalCampfire(client, "", "invite-only", []string{"beacon:registration"}, homeDesc)
 		if err != nil {
 			return "", "", false, fmt.Errorf("creating home campfire: %w", err)
 		}
@@ -212,7 +217,7 @@ func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config,
 }
 
 // resolveReady finds or creates the ready namespace campfire under the home.
-func resolveReady(org string, cfg *rdconfig.Config, aliases *naming.AliasStore, agentID *identity.Identity, s store.Store, homeID string) (string, bool, error) {
+func resolveReady(org string, cfg *rdconfig.Config, aliases *naming.AliasStore, agentID *identity.Identity, s store.Store, client *protocol.Client, homeID string) (string, bool, error) {
 	readyAlias := org + ".ready"
 
 	// Check config first.
@@ -228,7 +233,7 @@ func resolveReady(org string, cfg *rdconfig.Config, aliases *naming.AliasStore, 
 
 	// Create ready namespace campfire.
 	readyDesc := org + " ready namespace"
-	readyID, err := createLocalCampfire(agentID, s, "invite-only", []string{"beacon:registration"}, readyDesc)
+	readyID, err := createLocalCampfire(client, "", "invite-only", []string{"beacon:registration"}, readyDesc)
 	if err != nil {
 		return "", false, fmt.Errorf("creating ready namespace: %w", err)
 	}

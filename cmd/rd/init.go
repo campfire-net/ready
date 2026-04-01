@@ -10,12 +10,8 @@ import (
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/beacon"
-	campfirepkg "github.com/campfire-net/campfire/pkg/campfire"
-	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/naming"
 	"github.com/campfire-net/campfire/pkg/protocol"
-	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/campfire-net/campfire/pkg/transport/fs"
 	"github.com/spf13/cobra"
 
 	"github.com/campfire-net/ready/pkg/declarations"
@@ -88,12 +84,11 @@ DURABILITY
 			return fmt.Errorf(".ready/ already exists — this project is already initialized (offline mode). Use 'rd sync' to connect to a campfire")
 		}
 
-		// Load identity.
-		agentID, s, err := requireAgentAndStore()
+		// Load client.
+		client, err := requireClient()
 		if err != nil {
 			return err
 		}
-		defer s.Close()
 
 		// Default description.
 		if description == "" {
@@ -102,39 +97,19 @@ DURABILITY
 
 		// --- Create the campfire (state in ~/.campfire/campfires/<id>/) ---
 
-		campfireID, err := createLocalCampfire(agentID, s, "invite-only", []string{"work:create"}, description)
+		campfireDir := filepath.Join(cwd, ".campfire")
+		campfireID, err := createLocalCampfire(client, campfireDir, "invite-only", []string{"work:create"}, description)
 		if err != nil {
 			return err
 		}
 
 		// --- Write .campfire/root (pointer in the project) ---
 
-		campfireDir := filepath.Join(cwd, ".campfire")
 		if err := os.MkdirAll(campfireDir, 0755); err != nil {
 			return fmt.Errorf("creating .campfire dir: %w", err)
 		}
 		if err := os.WriteFile(filepath.Join(campfireDir, "root"), []byte(campfireID), 0644); err != nil {
 			return fmt.Errorf("writing .campfire/root: %w", err)
-		}
-
-		// Publish beacon to .campfire/beacons/ for project-local discovery.
-		baseDir := localCampfireBaseDir()
-		tr := fs.New(baseDir)
-		cfState, err := tr.ReadState(campfireID)
-		if err == nil {
-			b, _ := beacon.New(
-				cfState.PublicKey, cfState.PrivateKey,
-				cfState.JoinProtocol, cfState.ReceptionRequirements,
-				beacon.TransportConfig{
-					Protocol: "filesystem",
-					Config:   map[string]string{"dir": tr.CampfireDir(campfireID)},
-				},
-				description,
-			)
-			if b != nil {
-				projectBeaconsDir := filepath.Join(campfireDir, "beacons")
-				_ = beacon.Publish(projectBeaconsDir, b)
-			}
 		}
 
 		// --- Post convention:operation declarations via transport ---
@@ -326,58 +301,31 @@ func localCampfireBaseDir() string {
 	return filepath.Join(CFHome(), "campfires")
 }
 
-// createLocalCampfire creates a campfire with the filesystem transport at a
-// persistent base directory. Used for non-project campfires (home, ready namespace)
-// that don't have a project directory to root into.
-func createLocalCampfire(agentID *identity.Identity, s store.Store, joinProtocol string, receptionReqs []string, description string) (string, error) {
-	cf, err := campfirepkg.New(joinProtocol, receptionReqs, 1)
+// createLocalCampfire creates a campfire with the filesystem transport at the
+// persistent base directory (~/.campfire/campfires/ by default). Used for both
+// project campfires and non-project campfires (home, ready namespace).
+//
+// projectDir is the project .campfire/ directory. When non-empty, the beacon is
+// also published to projectDir/beacons/ for project-local discovery. Pass empty
+// string to skip the project-local beacon publish (e.g. for home/namespace campfires).
+func createLocalCampfire(client *protocol.Client, projectDir string, joinProtocol string, receptionReqs []string, description string) (string, error) {
+	result, err := client.Create(protocol.CreateRequest{
+		JoinProtocol:          joinProtocol,
+		ReceptionRequirements: receptionReqs,
+		Description:           description,
+		Transport:             protocol.FilesystemTransport{Dir: localCampfireBaseDir()},
+	})
 	if err != nil {
-		return "", fmt.Errorf("creating campfire: %w", err)
-	}
-	cf.AddMember(agentID.PublicKey)
-	campfireID := cf.PublicKeyHex()
-
-	baseDir := localCampfireBaseDir()
-	tr := fs.New(baseDir)
-	if err := tr.Init(cf); err != nil {
-		return "", fmt.Errorf("initializing transport: %w", err)
-	}
-	if err := tr.WriteMember(campfireID, campfirepkg.MemberRecord{
-		PublicKey: agentID.PublicKey,
-		JoinedAt:  time.Now().UnixNano(),
-	}); err != nil {
-		return "", fmt.Errorf("writing member record: %w", err)
+		return "", err
 	}
 
-	b, err := beacon.New(
-		cf.PublicKey, cf.PrivateKey,
-		cf.JoinProtocol, cf.ReceptionRequirements,
-		beacon.TransportConfig{
-			Protocol: "filesystem",
-			Config:   map[string]string{"dir": tr.CampfireDir(campfireID)},
-		},
-		description,
-	)
-	if err != nil {
-		return "", fmt.Errorf("creating beacon: %w", err)
-	}
-	if err := beacon.Publish(beacon.DefaultBeaconDir(), b); err != nil {
-		return "", fmt.Errorf("publishing beacon: %w", err)
+	// Project-local beacon publish (client.Create only publishes to ~/.campfire/beacons).
+	if projectDir != "" && result.Beacon != nil {
+		projectBeaconsDir := filepath.Join(projectDir, "beacons")
+		_ = beacon.Publish(projectBeaconsDir, result.Beacon)
 	}
 
-	if err := s.AddMembership(store.Membership{
-		CampfireID:   campfireID,
-		TransportDir: tr.CampfireDir(campfireID),
-		JoinProtocol: cf.JoinProtocol,
-		Role:         store.PeerRoleCreator,
-		JoinedAt:     store.NowNano(),
-		Threshold:    cf.Threshold,
-		Description:  description,
-	}); err != nil {
-		return "", fmt.Errorf("recording membership: %w", err)
-	}
-
-	return campfireID, nil
+	return result.CampfireID, nil
 }
 
 // initOffline initializes a project in JSONL-only mode — no campfire required.
