@@ -282,7 +282,7 @@ section {
 /* ── Tier grid (SaaS pricing style) ── */
 .tier-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--ds-space-md);
   align-items: start;
 }
@@ -371,6 +371,8 @@ section {
   font-size: 11px;
   padding: var(--ds-space-sm) var(--ds-space-md) !important;
   border-radius: var(--ds-radius-md);
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .tier-note {
@@ -431,10 +433,6 @@ section {
 }
 
 /* ── Responsive ── */
-@media (max-width: 1100px) {
-  .tier-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
 @media (max-width: 768px) {
   .nav-links { display: none; }
 
