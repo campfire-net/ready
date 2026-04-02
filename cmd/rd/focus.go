@@ -21,6 +21,7 @@ Example:
   rd focus --boost-gates budget     # ready items awaiting budget approval`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		gateType, _ := cmd.Flags().GetString("boost-gates")
+		projectFilter, _ := cmd.Flags().GetString("project")
 
 		s, err := openStore()
 		if err != nil {
@@ -35,6 +36,7 @@ Example:
 
 		filter := views.FocusFilter(gateType)
 		items = views.Apply(items, filter)
+		items = filterByProject(items, projectFilter)
 
 		sortByPriorityETA(items)
 
@@ -58,5 +60,6 @@ Example:
 
 func init() {
 	focusCmd.Flags().String("boost-gates", "", "narrow to gate items of this type: budget, design, scope, review, human, stall")
+	focusCmd.Flags().String("project", "", "filter by project")
 	rootCmd.AddCommand(focusCmd)
 }

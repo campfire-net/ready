@@ -15,6 +15,8 @@ or blocked by a dependency.
 
 Items appear in the pending view when status is one of: waiting, scheduled, blocked.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		projectFilter, _ := cmd.Flags().GetString("project")
+
 		s, err := openStore()
 		if err != nil {
 			return err
@@ -28,6 +30,7 @@ Items appear in the pending view when status is one of: waiting, scheduled, bloc
 
 		filter := views.PendingFilter()
 		items = views.Apply(items, filter)
+		items = filterByProject(items, projectFilter)
 
 		sortByPriorityETA(items)
 
@@ -46,5 +49,6 @@ Items appear in the pending view when status is one of: waiting, scheduled, bloc
 }
 
 func init() {
+	pendingCmd.Flags().String("project", "", "filter by project")
 	rootCmd.AddCommand(pendingCmd)
 }

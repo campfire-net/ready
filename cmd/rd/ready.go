@@ -38,6 +38,7 @@ Example:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		viewName, _ := cmd.Flags().GetString("view")
 		forFilter, _ := cmd.Flags().GetString("for")
+		projectFilter, _ := cmd.Flags().GetString("project")
 
 		agentID, s, err := requireAgentAndStore()
 		if err != nil {
@@ -78,6 +79,8 @@ Example:
 			}
 		}
 
+		items = filterByProject(items, projectFilter)
+
 		sortByPriorityETA(items)
 
 		if jsonOutput {
@@ -97,7 +100,22 @@ Example:
 func init() {
 	readyCmd.Flags().String("view", "ready", "named view: ready, work, pending, overdue, delegated, my-work")
 	readyCmd.Flags().String("for", "", "filter by 'for' party (default: current identity; pass \"\" to show all)")
+	readyCmd.Flags().String("project", "", "filter by project")
 	rootCmd.AddCommand(readyCmd)
+}
+
+// filterByProject returns only items matching the given project, or all items if project is empty.
+func filterByProject(items []*state.Item, project string) []*state.Item {
+	if project == "" {
+		return items
+	}
+	var out []*state.Item
+	for _, item := range items {
+		if item.Project == project {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // sortByPriorityETA sorts items by priority (ascending) then ETA (ascending).

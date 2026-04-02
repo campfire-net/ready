@@ -15,6 +15,7 @@ var workCmd = &cobra.Command{
 Use --for to filter by the party the work is assigned to.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		forFilter, _ := cmd.Flags().GetString("for")
+		projectFilter, _ := cmd.Flags().GetString("project")
 
 		s, err := openStore()
 		if err != nil {
@@ -34,6 +35,7 @@ Use --for to filter by the party the work is assigned to.`,
 			filter = views.WorkFilter()
 		}
 		items = views.Apply(items, filter)
+		items = filterByProject(items, projectFilter)
 
 		sortByPriorityETA(items)
 
@@ -53,5 +55,6 @@ Use --for to filter by the party the work is assigned to.`,
 
 func init() {
 	workCmd.Flags().String("for", "", "filter by party (by field) — shows my-work view for that identity")
+	workCmd.Flags().String("project", "", "filter by project")
 	rootCmd.AddCommand(workCmd)
 }

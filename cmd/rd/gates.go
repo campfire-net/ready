@@ -21,6 +21,8 @@ Use 'rd approve <item-id>' or 'rd reject <item-id>' to resolve a gate.
 
 Convention spec §5: gates view — pending human escalations.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		projectFilter, _ := cmd.Flags().GetString("project")
+
 		s, err := openStore()
 		if err != nil {
 			return err
@@ -35,6 +37,7 @@ Convention spec §5: gates view — pending human escalations.`,
 		// Apply the gates view filter.
 		filter := views.GatesFilter()
 		items = views.Apply(items, filter)
+		items = filterByProject(items, projectFilter)
 
 		sortByPriorityETA(items)
 
@@ -73,5 +76,6 @@ func truncate(s string, n int) string {
 }
 
 func init() {
+	gatesCmd.Flags().String("project", "", "filter by project")
 	rootCmd.AddCommand(gatesCmd)
 }
