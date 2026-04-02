@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/campfire-net/campfire/pkg/convention"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/declarations"
 	"github.com/campfire-net/ready/pkg/resolve"
@@ -132,17 +135,33 @@ func loadDeclaration(name string) (*convention.Declaration, error) {
 
 // requireClient returns a *protocol.Client backed by the campfire home directory.
 // The client is cached after first initialization (CLI is single-threaded).
-// WithNoWalkUp is mandatory — prevents recentering UX ambush in agent/CLI contexts.
+// Walk-up is enabled so Init() can discover the center campfire and trigger the
+// recentering slide-in. The authorize hook fires at most once per center.
 func requireClient() (*protocol.Client, error) {
 	if protocolClient != nil {
 		return protocolClient, nil
 	}
-	c, err := protocol.Init(CFHome(), protocol.WithNoWalkUp())
+	c, err := protocol.Init(CFHome(), protocol.WithAuthorizeFunc(centerAuthorize))
 	if err != nil {
 		return nil, fmt.Errorf("initializing campfire client: %w", err)
 	}
 	protocolClient = c
 	return c, nil
+}
+
+// centerAuthorize is the recentering authorize hook. It prompts the user once
+// when Init() detects an unlinked center campfire. In non-interactive contexts
+// (pipes, agents) it returns false to skip silently.
+func centerAuthorize(description string) (bool, error) {
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		return false, nil
+	}
+	fmt.Fprintf(os.Stderr, "rd: %s [y/N] ", description)
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return false, nil
+	}
+	return strings.EqualFold(strings.TrimSpace(scanner.Text()), "y"), nil
 }
 
 // readyProjectDir walks up from cwd looking for a .ready/ directory.

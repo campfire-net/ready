@@ -78,6 +78,26 @@ type Item struct {
 	CreatedAt int64 `json:"created_at"`
 	// UpdatedAt is the timestamp of the most recent state-changing message.
 	UpdatedAt int64 `json:"updated_at"`
+
+	// History is the audit trail of status-changing events, in chronological order.
+	// Populated from work:create, work:status, work:claim, work:close messages,
+	// and from ImportHistory entries embedded in work:update messages.
+	History []HistoryEntry `json:"history,omitempty"`
+}
+
+// HistoryEntry is a single audit trail entry for a work item.
+type HistoryEntry struct {
+	// Timestamp is ISO8601 UTC — either the original event time (for imported
+	// history) or the campfire message time.
+	Timestamp string `json:"timestamp"`
+	// FromStatus is the status before this change.
+	FromStatus string `json:"from_status"`
+	// ToStatus is the status after this change.
+	ToStatus string `json:"to_status"`
+	// ChangedBy is the actor (email, pubkey hex, or "system").
+	ChangedBy string `json:"changed_by"`
+	// Note is an optional human-readable description of the change.
+	Note string `json:"note,omitempty"`
 }
 
 // createPayload mirrors the fields in a work:create message payload.
@@ -139,6 +159,12 @@ type updatePayload struct {
 	For      string `json:"for,omitempty"`
 	By       string `json:"by,omitempty"`
 	Gate     string `json:"gate,omitempty"`
+	// ImportHistory carries historical audit entries replayed during migration.
+	// Each entry is appended to the item's History slice. Original actor and
+	// timestamp are preserved in the entry; the campfire message timestamp
+	// reflects import time (SendRequest has no Timestamp field in cf 0.14 —
+	// see rd item rudi-trl).
+	ImportHistory []HistoryEntry `json:"import_history,omitempty"`
 }
 
 // blockPayload mirrors the fields in a work:block message payload.
@@ -275,6 +301,13 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 				CreatedAt:  m.Timestamp,
 				UpdatedAt:  m.Timestamp,
 			}
+			item.History = append(item.History, HistoryEntry{
+				Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
+				FromStatus: StatusInbox,
+				ToStatus:   StatusInbox,
+				ChangedBy:  m.Sender,
+				Note:       "created",
+			})
 			items[p.ID] = item
 			msgIndex[m.ID] = p.ID
 
@@ -288,8 +321,16 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			if !ok {
 				continue
 			}
+			prevStatus := item.Status
 			item.Status = p.To
 			item.UpdatedAt = m.Timestamp
+			item.History = append(item.History, HistoryEntry{
+				Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
+				FromStatus: prevStatus,
+				ToStatus:   p.To,
+				ChangedBy:  m.Sender,
+				Note:       p.Reason,
+			})
 			if p.To == StatusWaiting {
 				item.WaitingOn = p.WaitingOn
 				item.WaitingType = p.WaitingType
@@ -311,9 +352,16 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 				continue
 			}
 			// Claim sets by=sender and transitions to active.
+			prevStatus := item.Status
 			item.By = m.Sender
 			item.Status = StatusActive
 			item.UpdatedAt = m.Timestamp
+			item.History = append(item.History, HistoryEntry{
+				Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
+				FromStatus: prevStatus,
+				ToStatus:   StatusActive,
+				ChangedBy:  m.Sender,
+			})
 
 		case hasTag(m.Tags, "work:delegate"):
 			var p delegatePayload
@@ -339,6 +387,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 				continue
 			}
 			// Resolution maps to terminal status.
+			prevStatus := item.Status
 			switch p.Resolution {
 			case "done":
 				item.Status = StatusDone
@@ -350,6 +399,13 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 				item.Status = StatusDone
 			}
 			item.UpdatedAt = m.Timestamp
+			item.History = append(item.History, HistoryEntry{
+				Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
+				FromStatus: prevStatus,
+				ToStatus:   item.Status,
+				ChangedBy:  m.Sender,
+				Note:       p.Reason,
+			})
 			// Implicit unblock: remove all block edges where this item is the blocker.
 			// Also clean up blockMsgIndex so stale entries don't linger.
 			var newEdges []blockEdge
@@ -400,6 +456,10 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			}
 			if p.Gate != "" {
 				item.Gate = clearOrSet(p.Gate)
+			}
+			// ImportHistory: append original history entries from migration replay.
+			if len(p.ImportHistory) > 0 {
+				item.History = append(item.History, p.ImportHistory...)
 			}
 			item.UpdatedAt = m.Timestamp
 

@@ -76,6 +76,18 @@ Example:
 		if item.Context != "" {
 			fmt.Printf("\nContext:\n%s\n", item.Context)
 		}
+		if len(item.History) > 0 {
+			fmt.Printf("\nHistory:\n")
+			for _, h := range item.History {
+				actor := h.ChangedBy
+				ts := h.Timestamp
+				note := ""
+				if h.Note != "" {
+					note = " — " + h.Note
+				}
+				fmt.Printf("  [%s] %s → %s by %s%s\n", ts, h.FromStatus, h.ToStatus, actor, note)
+			}
+		}
 		fmt.Printf("\nCampfire: %s\n", item.CampfireID)
 		fmt.Printf("Msg ID:   %s\n", item.MsgID)
 		return nil
