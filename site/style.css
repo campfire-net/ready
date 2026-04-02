@@ -279,7 +279,108 @@ section {
   background: var(--ds-surface);
 }
 
-/* ── Setup tiers ── */
+/* ── Tier grid (SaaS pricing style) ── */
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--ds-space-md);
+  align-items: start;
+}
+
+.tier-card {
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-lg);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.tier-card:hover {
+  border-color: var(--ds-border);
+  transform: translateY(-2px);
+}
+
+.tier-card--featured {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.tier-card--featured:hover {
+  border-color: var(--accent);
+}
+
+.tier-header {
+  padding: var(--ds-space-lg) var(--ds-space-lg) var(--ds-space-md);
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.tier-card--featured .tier-header {
+  border-bottom-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.tier-label {
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.tier-header h3 {
+  font-size: var(--ds-text-xl);
+  font-weight: 700;
+  margin: var(--ds-space-xs) 0 4px;
+}
+
+.tier-price {
+  font-size: var(--ds-text-sm);
+  color: var(--ds-text-secondary);
+}
+
+.tier-features {
+  list-style: none;
+  padding: var(--ds-space-md) var(--ds-space-lg);
+  margin: 0;
+  flex-grow: 1;
+}
+
+.tier-features li {
+  font-size: var(--ds-text-sm);
+  color: var(--ds-text-secondary);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--ds-border);
+  line-height: 1.5;
+}
+
+.tier-features li:last-child {
+  border-bottom: none;
+}
+
+.tier-features li::before {
+  content: "\2713";
+  color: var(--accent);
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.tier-code {
+  margin: 0 var(--ds-space-md);
+  font-size: 11px;
+  padding: var(--ds-space-sm) var(--ds-space-md) !important;
+  border-radius: var(--ds-radius-md);
+}
+
+.tier-note {
+  font-size: 12px;
+  color: var(--ds-text-secondary);
+  padding: var(--ds-space-sm) var(--ds-space-lg) var(--ds-space-lg);
+  line-height: 1.5;
+}
+
+/* ── Legacy setup tiers (unused, kept for reference) ── */
 .setup-tier {
   margin-bottom: var(--ds-space-xl);
   padding-bottom: var(--ds-space-xl);
@@ -330,6 +431,10 @@ section {
 }
 
 /* ── Responsive ── */
+@media (max-width: 1100px) {
+  .tier-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
 @media (max-width: 768px) {
   .nav-links { display: none; }
 
@@ -341,6 +446,7 @@ section {
   .section-title { font-size: var(--ds-text-xl); }
 
   .two-col { grid-template-columns: 1fr; }
+  .tier-grid { grid-template-columns: 1fr; }
   .install-grid { grid-template-columns: 1fr; }
   .ecosystem-links { grid-template-columns: 1fr; }
 }

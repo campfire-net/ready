@@ -50,7 +50,7 @@
       <ul class="nav-links">
         <li><a href="#usage">Usage</a></li>
         <li><a href="#claude">Claude Code</a></li>
-        <li><a href="#setup">Setup</a></li>
+        <li><a href="#setup">Plans</a></li>
         <li><a href="#federation">Federation</a></li>
         <li><a href="https://github.com/campfire-net/ready">GitHub</a></li>
       </ul>
@@ -204,88 +204,127 @@ This project uses `rd` for work management.
     </div>
   </section>
 
-  <!-- Section 3: Setup modes -->
+  <!-- Section 3: Setup tiers -->
   <section id="setup">
     <div class="ds-container">
-      <p class="section-label">From solo to portfolio</p>
-      <h2 class="section-title">Single project, multi-project, or org-wide</h2>
+      <p class="section-label">Scale as you grow</p>
+      <h2 class="section-title">From one project to your whole org</h2>
       <p class="section-desc">
-        Start with one project. Add more when you need them. Registration is optional &mdash;
-        every project works standalone.
+        Same tool at every level. No migration, no import/export. Each tier adds capability
+        without changing the commands you already know.
       </p>
 
-      <!-- Single project -->
-      <div class="setup-tier">
-        <h3>Single project</h3>
-        <p>One command. Your project gets a campfire that stores all work items locally.</p>
-        <div class="ds-code-block"><span class="cmd">cd ~/projects/myapp</span>
-<span class="cmd">rd init --name myapp</span>
-<span class="output">initialized myapp
-  campfire: a7f3e2...
-  declarations: 12 operations published</span>
+      <div class="tier-grid">
 
-<span class="comment"># Start working</span>
-<span class="cmd">rd create --title "Set up CI pipeline" --type task --priority p1</span>
+        <!-- Tier 1: For One Project -->
+        <div class="tier-card">
+          <div class="tier-header">
+            <span class="tier-label">For one project</span>
+            <h3>Solo</h3>
+            <p class="tier-price">Free &middot; Local</p>
+          </div>
+          <ul class="tier-features">
+            <li>One campfire per project</li>
+            <li>Filesystem transport</li>
+            <li>Works offline</li>
+            <li>Full CLI &mdash; create, claim, close</li>
+            <li>Named views &amp; attention engine</li>
+            <li>JSONL audit trail</li>
+          </ul>
+          <div class="ds-code-block tier-code"><span class="cmd">cd ~/myproject</span>
+<span class="cmd">rd init --name myproject</span>
+<span class="cmd">rd create "Ship the feature" --priority p0</span>
 <span class="cmd">rd ready</span></div>
-        <div class="ds-callout" style="margin-top: var(--ds-space-sm);">
-          <span class="ds-callout-label">What happens</span>
-          <code>rd init</code> creates a campfire at <code>.campfire/root</code> and publishes
-          12 convention operation declarations. These declarations make the campfire self-describing &mdash;
-          any agent can discover what operations are available by reading the campfire.
+          <p class="tier-note">No account. No server. Just <code>rd init</code> and go.</p>
         </div>
-      </div>
 
-      <!-- Multi-project -->
-      <div class="setup-tier">
-        <h3>Multi-project</h3>
-        <p>Register projects under an org home. They discover each other. Work stays in each project's campfire.</p>
-        <div class="ds-code-block"><span class="comment"># First project — creates the org home</span>
-<span class="cmd">cd ~/projects/api</span>
-<span class="cmd">rd init --name api</span>
+        <!-- Tier 2: For an Individual -->
+        <div class="tier-card">
+          <div class="tier-header">
+            <span class="tier-label">For an individual</span>
+            <h3>Multi-Project</h3>
+            <p class="tier-price">Free &middot; Local</p>
+          </div>
+          <ul class="tier-features">
+            <li>Everything in Solo</li>
+            <li>One identity, many projects</li>
+            <li>Center campfire for delegation</li>
+            <li>Cross-project queries</li>
+            <li>Context key auto-discovery</li>
+            <li>Project-scoped views</li>
+          </ul>
+          <div class="ds-code-block tier-code"><span class="cmd">cf init</span>
+<span class="comment"># Each project gets its own campfire</span>
+<span class="cmd">cd ~/api && rd init --name api</span>
+<span class="cmd">cd ~/frontend && rd init --name frontend</span>
+
+<span class="comment"># Query across projects</span>
+<span class="cmd">rd ready --project api</span>
+<span class="cmd">rd list --project frontend</span></div>
+          <p class="tier-note">Your center campfire links your projects. Walk-up discovery does the wiring.</p>
+        </div>
+
+        <!-- Tier 3: For Your Team -->
+        <div class="tier-card tier-card--featured">
+          <div class="tier-header">
+            <span class="tier-label">For your team</span>
+            <h3>Collaboration</h3>
+            <p class="tier-price">Free &middot; Hosted or Git</p>
+          </div>
+          <ul class="tier-features">
+            <li>Everything in Multi-Project</li>
+            <li>Shared campfires &mdash; real-time sync</li>
+            <li>Delegation: <code>for</code> / <code>by</code> routing</li>
+            <li>Gate escalations &amp; approvals</li>
+            <li>Agent + human on same queue</li>
+            <li>Git-backed or hosted persistent</li>
+          </ul>
+          <div class="ds-code-block tier-code"><span class="comment"># Hosted — always on, zero infrastructure</span>
+<span class="cmd">cf init --remote https://mcp.getcampfire.dev</span>
+<span class="cmd">rd init --name backend</span>
+
+<span class="comment"># Or git-backed — campfire state in repo</span>
+<span class="cmd">cf init</span>
+<span class="cmd">rd init --name backend</span>
+<span class="cmd">echo ".ready/" >> .gitignore</span>
+
+<span class="comment"># Delegate to agents and humans</span>
+<span class="cmd">rd delegate myapp-a1b --to claude-session-xyz</span>
+<span class="cmd">rd ready --view delegated</span></div>
+          <p class="tier-note">Teammates join with <code>cf join &lt;campfire-id&gt;</code>. Items sync via the campfire protocol.</p>
+        </div>
+
+        <!-- Tier 4: Enterprise -->
+        <div class="tier-card">
+          <div class="tier-header">
+            <span class="tier-label">Enterprise</span>
+            <h3>Org-Wide</h3>
+            <p class="tier-price">Hosted &middot; Contact us</p>
+          </div>
+          <ul class="tier-features">
+            <li>Everything in Collaboration</li>
+            <li>Org home &mdash; cross-project discovery</li>
+            <li>Operator provenance levels</li>
+            <li>Convention gate enforcement</li>
+            <li>Compaction-safe audit trail</li>
+            <li>Bridge integration (Teams, Slack)</li>
+          </ul>
+          <div class="ds-code-block tier-code"><span class="comment"># Org-wide registration</span>
 <span class="cmd">rd register --org acme</span>
-<span class="output">created home campfire: b8c4d1...
-registered cf://acme.ready/api</span>
 
-<span class="comment"># Second project — joins the existing org home</span>
-<span class="cmd">cd ~/projects/frontend</span>
-<span class="cmd">rd init --name frontend</span>
-<span class="cmd">rd register</span>
-<span class="output">found home campfire: b8c4d1... (acme)
-registered cf://acme.ready/frontend</span>
+<span class="comment"># Agent hits a decision point — escalates</span>
+<span class="cmd">rd gate myapp-d4e --type design \
+  --reason "PKCE vs device flow"</span>
 
-<span class="comment"># See work across projects</span>
-<span class="cmd">rd ready</span>
-<span class="output">  api-3f2       p0   inbox   5m   Rate limiter dropping valid requests
-  frontend-a1b  p1   active  2h   Dashboard loading state missing</span></div>
-        <div class="ds-callout" style="margin-top: var(--ds-space-sm);">
-          <span class="ds-callout-label">What happens</span>
-          <code>rd register --org acme</code> creates a home campfire and a ready namespace under it.
-          Subsequent projects in the same org auto-discover the home via your <code>~/.campfire/config.json</code>.
-          Each project keeps its own campfire &mdash; the home just links them for discovery.
+<span class="comment"># Operator resolves from anywhere</span>
+<span class="cmd">rd approve myapp-d4e \
+  --reason "PKCE, we need browser redirect"</span>
+
+<span class="comment"># Full audit trail survives compaction</span>
+<span class="cmd">rd show myapp-d4e</span></div>
+          <p class="tier-note">Provenance-gated operations. Cryptographic audit trail. Bridge to existing tools.</p>
         </div>
-      </div>
 
-      <!-- Org-wide -->
-      <div class="setup-tier">
-        <h3>Org-wide with delegation</h3>
-        <p>Operators delegate to agents and humans. The attention engine routes work to whoever's doing it.</p>
-        <div class="ds-code-block"><span class="comment"># Operator creates and delegates</span>
-<span class="cmd">rd create --title "Implement OAuth PKCE flow" --type task --priority p0 \
-  --for baron@acme.dev --by claude-session-xyz</span>
-<span class="output">created api-d4e</span>
-
-<span class="comment"># Agent's view — only sees work assigned to it</span>
-<span class="cmd">rd ready --view my-work</span>
-<span class="output">  api-d4e   p0   inbox   now   Implement OAuth PKCE flow</span>
-
-<span class="comment"># Agent claims, works, hits a decision point</span>
-<span class="cmd">rd claim api-d4e</span>
-<span class="cmd">rd gate api-d4e --type design --reason "PKCE vs device flow — need operator decision"</span>
-
-<span class="comment"># Operator sees the gate, resolves it</span>
-<span class="cmd">rd ready --view delegated</span>
-<span class="output">  api-d4e   p0   active  GATE:design   Implement OAuth PKCE flow</span>
-<span class="cmd">rd approve api-d4e --reason "PKCE, we need browser redirect"</span></div>
       </div>
     </div>
   </section>
