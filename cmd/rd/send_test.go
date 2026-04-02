@@ -2,17 +2,22 @@ package main
 
 // send_test.go exercises bufferToPending, client.Send() happy path,
 // sendPrebuiltMessage ID-preservation (D6 constraint), buildFlusher signing
-// isolation, and bufferToPending Sender field recording.
+// isolation, bufferToPending Sender field recording, and the D6 message ID fix
+// for executeConventionOp / executeConventionOpToCampfire.
 
 import (
+	"bufio"
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	campfirepkg "github.com/campfire-net/campfire/pkg/campfire"
+	"github.com/campfire-net/campfire/pkg/convention"
 	cfencoding "github.com/campfire-net/campfire/pkg/encoding"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/message"
@@ -351,6 +356,246 @@ func TestSendPrebuiltMessage_PreservesID(t *testing.T) {
 	}
 	if rec.CampfireID != campfireID {
 		t.Errorf("stored message CampfireID=%q, want %q", rec.CampfireID, campfireID)
+	}
+}
+
+// knownIDBackendFull implements the full convention.ExecutorBackend interface,
+// returning a fixed message ID from SendMessage. Used to test D6 ID propagation
+// end-to-end through executeConventionOp.
+type knownIDBackendFull struct {
+	returnID string
+}
+
+func (k *knownIDBackendFull) SendMessage(_ context.Context, _ string, _ []byte, _ []string, _ []string) (string, error) {
+	return k.returnID, nil
+}
+
+func (k *knownIDBackendFull) SendCampfireKeySigned(_ context.Context, _ string, _ []byte, _ []string, _ []string) (string, error) {
+	return k.returnID, nil
+}
+
+func (k *knownIDBackendFull) ReadMessages(_ context.Context, _ string, _ []string) ([]convention.MessageRecord, error) {
+	return nil, nil
+}
+
+func (k *knownIDBackendFull) SendFutureAndAwait(_ context.Context, _ string, _ []byte, _ []string, _ []string, _ time.Duration) (string, []byte, error) {
+	return k.returnID, nil, nil
+}
+
+// newProjectDirWithCampfire creates a temp directory with:
+//   - .campfire/root containing a 64-char hex campfire ID
+//   - .ready/ subdirectory for JSONL output
+//
+// Returns the dir path and the campfire ID. Caller must change into this dir and
+// restore cwd with t.Cleanup.
+func newProjectDirWithCampfire(t *testing.T) (dir, campfireID string) {
+	t.Helper()
+	dir = t.TempDir()
+
+	// 64-char deterministic hex campfire ID.
+	campfireID = strings.Repeat("ab", 32) // 64 hex chars
+
+	campfireDir := filepath.Join(dir, ".campfire")
+	if err := os.MkdirAll(campfireDir, 0755); err != nil {
+		t.Fatalf("mkdir .campfire: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(campfireDir, "root"), []byte(campfireID+"\n"), 0600); err != nil {
+		t.Fatalf("write .campfire/root: %v", err)
+	}
+
+	readyDir := filepath.Join(dir, ".ready")
+	if err := os.MkdirAll(readyDir, 0755); err != nil {
+		t.Fatalf("mkdir .ready: %v", err)
+	}
+
+	return dir, campfireID
+}
+
+// TestExecuteConventionOp_D6_ReturnedIDMatchesCampfire verifies the D6 fix:
+// when executeConventionOp succeeds, the returned message ID must be the
+// campfire-assigned ID (from exec.Execute result.MessageID), not a locally-
+// generated ID. Before the fix, a new message.NewMessage() ID was returned
+// instead — breaking downstream operations that reference the message ID
+// (close targets, antecedents, dep block targets, JSON output).
+func TestExecuteConventionOp_D6_ReturnedIDMatchesCampfire(t *testing.T) {
+	dir, _ := newProjectDirWithCampfire(t)
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	id, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("identity.Generate: %v", err)
+	}
+	s, err := store.Open(filepath.Join(dir, "store.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+
+	// knownID simulates what the campfire server assigns — distinct from any
+	// locally-generated ID (different hash source).
+	const knownID = "0000d6test0000000000000000000000000000000000000000000000000cafebabe"
+
+	backend := &knownIDBackendFull{returnID: knownID}
+	exec := convention.NewExecutorForTest(backend, id.PublicKeyHex())
+
+	decl, err := loadDeclaration("create")
+	if err != nil {
+		t.Fatalf("loadDeclaration(create): %v", err)
+	}
+
+	argsMap := map[string]any{
+		"id":       "ready-d6-test",
+		"title":    "D6 test item",
+		"type":     "task",
+		"for":      "baron@3dl.dev",
+		"priority": "p2",
+	}
+
+	msg, _, err := executeConventionOp(id, s, exec, decl, argsMap)
+	if err != nil {
+		t.Fatalf("executeConventionOp: %v", err)
+	}
+
+	// D6 assertion: returned ID must be the campfire-assigned ID.
+	if msg.ID != knownID {
+		t.Errorf("msg.ID = %q, want campfire-assigned %q\nD6 violation: returned ID is locally-generated, not the campfire message ID.\nCallers using msg.ID as a close target or antecedent will reference a non-existent message.", msg.ID, knownID)
+	}
+}
+
+// TestExecuteConventionOp_D6_JSONLIDMatchesCampfire verifies the second D6
+// invariant: the mutations.jsonl record written after a successful executor call
+// must use result.MessageID (the campfire-assigned ID), not a locally-generated ID.
+// If JSONL records a different ID than campfire, the flush path will try to send a
+// message with an ID that was already recorded differently on campfire.
+func TestExecuteConventionOp_D6_JSONLIDMatchesCampfire(t *testing.T) {
+	dir, _ := newProjectDirWithCampfire(t)
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	id, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("identity.Generate: %v", err)
+	}
+	s, err := store.Open(filepath.Join(dir, "store.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+
+	const knownID = "0000d6jsonl000000000000000000000000000000000000000000000cafebabe00"
+
+	backend := &knownIDBackendFull{returnID: knownID}
+	exec := convention.NewExecutorForTest(backend, id.PublicKeyHex())
+
+	decl, err := loadDeclaration("create")
+	if err != nil {
+		t.Fatalf("loadDeclaration(create): %v", err)
+	}
+
+	argsMap := map[string]any{
+		"id":       "ready-d6-jsonl-test",
+		"title":    "D6 JSONL test item",
+		"type":     "task",
+		"for":      "baron@3dl.dev",
+		"priority": "p2",
+	}
+
+	_, _, err = executeConventionOp(id, s, exec, decl, argsMap)
+	if err != nil {
+		t.Fatalf("executeConventionOp: %v", err)
+	}
+
+	// Read mutations.jsonl and verify the recorded msg_id.
+	mutationsPath := filepath.Join(dir, ".ready", jsonl.MutationsFile)
+	data, err := os.ReadFile(mutationsPath)
+	if err != nil {
+		t.Fatalf("reading mutations.jsonl: %v", err)
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	found := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		var rec map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("parsing mutations.jsonl line: %v", err)
+		}
+		if msgID, ok := rec["msg_id"].(string); ok {
+			found = true
+			if msgID != knownID {
+				t.Errorf("mutations.jsonl msg_id=%q, want campfire-assigned %q\nD6 violation: JSONL recorded a locally-generated ID instead of the campfire message ID.", msgID, knownID)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no records found in mutations.jsonl after executeConventionOp")
+	}
+}
+
+// TestExecuteConventionOpToCampfire_D6_ReturnedIDMatchesCampfire verifies the
+// same D6 fix applies to executeConventionOpToCampfire (used by dep remove).
+func TestExecuteConventionOpToCampfire_D6_ReturnedIDMatchesCampfire(t *testing.T) {
+	dir, campfireID := newProjectDirWithCampfire(t)
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	id, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("identity.Generate: %v", err)
+	}
+	s, err := store.Open(filepath.Join(dir, "store.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+
+	const knownID = "0000d6tocampfire00000000000000000000000000000000000000000cafebabe0"
+
+	backend := &knownIDBackendFull{returnID: knownID}
+	exec := convention.NewExecutorForTest(backend, id.PublicKeyHex())
+
+	decl, err := loadDeclaration("unblock")
+	if err != nil {
+		t.Fatalf("loadDeclaration(unblock): %v", err)
+	}
+
+	argsMap := map[string]any{
+		"target":   "some-block-msg-id",
+		"unblocks": "ready-dep-test",
+	}
+
+	msg, _, err := executeConventionOpToCampfire(id, s, exec, decl, campfireID, argsMap)
+	if err != nil {
+		t.Fatalf("executeConventionOpToCampfire: %v", err)
+	}
+
+	if msg.ID != knownID {
+		t.Errorf("msg.ID = %q, want campfire-assigned %q — D6 violation in executeConventionOpToCampfire", msg.ID, knownID)
 	}
 }
 

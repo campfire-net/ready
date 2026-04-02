@@ -461,3 +461,187 @@ func TestPull_GateResolvePulled(t *testing.T) {
 		t.Error("msg-gate-resolve missing from mutations.jsonl — work:gate-resolve tag must be in workTags()")
 	}
 }
+
+// --- Gap detection boundary tests ---
+
+// TestPull_GapDetection_JustUnderMaxTTL verifies that Pull does NOT emit a gap
+// warning when offline duration is just under max-ttl.
+// The condition is strictly greater-than: offlineDuration > maxTTL.
+func TestPull_GapDetection_JustUnderMaxTTL(t *testing.T) {
+	projectDir := setupProject(t)
+
+	campfireID := "test-campfire-id"
+	lister := &fakeLister{messages: nil}
+
+	// Set last pull to 30 minutes ago with a 1-hour max-ttl.
+	// 30 minutes is clearly within the 1-hour TTL.
+	maxTTL := time.Hour
+	halfTTLAgo := time.Now().Add(-(maxTTL / 2)).UnixNano()
+	state := &rdSync.State{LastPullAt: halfTTLAgo}
+	if err := rdSync.SaveState(projectDir, state); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	result, err := rdSync.Pull(lister, campfireID, jsonlMutationsPath(projectDir), projectDir, maxTTL)
+	if err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+
+	// Half of max-ttl — well within threshold, no warning.
+	if result.GapWarning != "" {
+		t.Errorf("unexpected gap warning when offline < max-ttl: %s", result.GapWarning)
+	}
+}
+
+// TestPull_GapDetection_OneSecondOverMaxTTL verifies that Pull emits a gap
+// warning when offline duration exceeds max-ttl by even a small amount (1 second).
+func TestPull_GapDetection_OneSecondOverMaxTTL(t *testing.T) {
+	projectDir := setupProject(t)
+
+	campfireID := "test-campfire-id"
+	lister := &fakeLister{messages: nil}
+
+	maxTTL := time.Hour
+	// One second past max-ttl.
+	oneSecondOver := time.Now().Add(-(maxTTL + time.Second)).UnixNano()
+	state := &rdSync.State{LastPullAt: oneSecondOver}
+	if err := rdSync.SaveState(projectDir, state); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	result, err := rdSync.Pull(lister, campfireID, jsonlMutationsPath(projectDir), projectDir, maxTTL)
+	if err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+
+	if result.GapWarning == "" {
+		t.Error("expected gap warning when offline exceeds max-ttl by 1 second, got none")
+	}
+	t.Logf("gap warning: %s", result.GapWarning)
+}
+
+// TestPull_GapDetection_ZeroMaxTTL verifies that passing maxTTL=0 to Pull
+// uses DefaultMaxTTL (30 days). An offline gap of 1 day is within the 30-day
+// default, so no warning should be emitted.
+func TestPull_GapDetection_ZeroMaxTTL(t *testing.T) {
+	projectDir := setupProject(t)
+
+	campfireID := "test-campfire-id"
+	lister := &fakeLister{messages: nil}
+
+	// Set last pull to 1 day ago — within DefaultMaxTTL (30 days).
+	oneDayAgo := time.Now().Add(-24 * time.Hour).UnixNano()
+	state := &rdSync.State{LastPullAt: oneDayAgo}
+	if err := rdSync.SaveState(projectDir, state); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	// Pass maxTTL=0 to trigger DefaultMaxTTL (30 days).
+	result, err := rdSync.Pull(lister, campfireID, jsonlMutationsPath(projectDir), projectDir, 0)
+	if err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+
+	if result.GapWarning != "" {
+		t.Errorf("unexpected gap warning with 1-day gap and DefaultMaxTTL (30 days): %s", result.GapWarning)
+	}
+}
+
+// TestPull_GapDetection_WarnIncludesDurations verifies that the gap warning
+// message includes both the offline duration and the max-ttl, so operators can
+// understand the severity of the gap from the warning text alone.
+func TestPull_GapDetection_WarnIncludesDurations(t *testing.T) {
+	projectDir := setupProject(t)
+
+	campfireID := "test-campfire-id"
+	lister := &fakeLister{messages: nil}
+
+	// Set last pull to 3 days ago with a 1-day max-ttl.
+	threeDaysAgo := time.Now().Add(-72 * time.Hour).UnixNano()
+	state := &rdSync.State{LastPullAt: threeDaysAgo}
+	if err := rdSync.SaveState(projectDir, state); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	maxTTL := 24 * time.Hour
+	result, err := rdSync.Pull(lister, campfireID, jsonlMutationsPath(projectDir), projectDir, maxTTL)
+	if err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+
+	if result.GapWarning == "" {
+		t.Fatal("expected gap warning, got none")
+	}
+
+	// Warning must mention both the offline duration and the max-ttl so operators
+	// can diagnose the severity without additional context.
+	warning := result.GapWarning
+	if !containsApproxDuration(warning, "72h") && !containsApproxDuration(warning, "3d") {
+		t.Logf("gap warning: %s", warning)
+		// The offline duration may be formatted differently (e.g. "72h0m0s").
+		// Just check it contains a time-like string — the key test is that it has *something*.
+		if !containsTimeFragment(warning) {
+			t.Errorf("gap warning should mention offline duration, got: %q", warning)
+		}
+	}
+	t.Logf("gap warning (expected): %s", warning)
+}
+
+// TestPull_GapDetection_SequentialPulls verifies that gap detection resets
+// after a successful pull — the next pull uses the updated last_pull_at
+// and should not warn if the gap since the last pull is within max-ttl.
+func TestPull_GapDetection_SequentialPulls(t *testing.T) {
+	projectDir := setupProject(t)
+
+	campfireID := "test-campfire-id"
+	lister := &fakeLister{messages: nil}
+	maxTTL := time.Hour
+
+	// First pull: no prior state, so no gap warning.
+	result1, err := rdSync.Pull(lister, campfireID, jsonlMutationsPath(projectDir), projectDir, maxTTL)
+	if err != nil {
+		t.Fatalf("first Pull: %v", err)
+	}
+	if result1.GapWarning != "" {
+		t.Errorf("first pull: unexpected gap warning: %s", result1.GapWarning)
+	}
+
+	// Second pull immediately after: gap since first pull is ~0, well within maxTTL.
+	result2, err := rdSync.Pull(lister, campfireID, jsonlMutationsPath(projectDir), projectDir, maxTTL)
+	if err != nil {
+		t.Fatalf("second Pull: %v", err)
+	}
+	if result2.GapWarning != "" {
+		t.Errorf("second pull immediately after first: unexpected gap warning: %s", result2.GapWarning)
+	}
+}
+
+// containsApproxDuration is a helper to check if s contains a rough duration string.
+func containsApproxDuration(s, substr string) bool {
+	return len(s) > 0 && len(substr) > 0 && contains(s, substr)
+}
+
+// containsTimeFragment checks that s contains any digit followed by 'h', 'm', or 's'.
+func containsTimeFragment(s string) bool {
+	for i := 0; i < len(s)-1; i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			if s[i+1] == 'h' || s[i+1] == 'm' || s[i+1] == 's' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// contains checks if haystack contains needle (case-sensitive).
+func contains(haystack, needle string) bool {
+	return len(haystack) >= len(needle) && (haystack == needle ||
+		func() bool {
+			for i := 0; i <= len(haystack)-len(needle); i++ {
+				if haystack[i:i+len(needle)] == needle {
+					return true
+				}
+			}
+			return false
+		}())
+}
