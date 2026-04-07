@@ -14,6 +14,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/declarations"
+	"github.com/campfire-net/ready/pkg/provenance"
 	"github.com/campfire-net/ready/pkg/resolve"
 	"github.com/campfire-net/ready/pkg/state"
 )
@@ -122,14 +123,39 @@ func requireAgentAndStore() (*identity.Identity, store.Store, error) {
 	return agentID, s, nil
 }
 
-// requireExecutor returns a convention.Executor backed by the protocol client.
-// The client is initialized (and cached) via requireClient().
+// requireExecutor returns a convention.Executor backed by the protocol client,
+// with a ProvenanceChecker wired in so that min_operator_level gates are
+// enforced correctly.
+//
+// The checker reads work:role-grant messages from the local store. The campfire
+// creator (from Membership.CreatorPubkey) is bootstrapped as maintainer (level 2).
+// All others default to contributor (level 1) until an explicit role-grant
+// message says otherwise.
 func requireExecutor() (*convention.Executor, *protocol.Client, error) {
 	client, err := requireClient()
 	if err != nil {
 		return nil, nil, err
 	}
 	exec := convention.NewExecutor(client, client.PublicKeyHex())
+
+	// Wire in provenance checking so that min_operator_level gates work.
+	// Best-effort: if we can't open the store or find the campfire, fall back to
+	// no provenance checker rather than blocking all operations.
+	if campfireID, _, ok := projectRoot(); ok && campfireID != "" {
+		s, storeErr := openStore()
+		if storeErr == nil {
+			defer s.Close()
+			var creatorKey string
+			if m, memErr := s.GetMembership(campfireID); memErr == nil && m != nil {
+				creatorKey = m.CreatorPubkey
+			}
+			checker, checkerErr := provenance.NewStoreChecker(s, campfireID, creatorKey)
+			if checkerErr == nil {
+				exec = exec.WithProvenance(checker)
+			}
+		}
+	}
+
 	return exec, client, nil
 }
 
