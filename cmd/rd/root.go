@@ -150,13 +150,13 @@ func loadDeclaration(name string) (*convention.Declaration, error) {
 
 // requireClient returns a *protocol.Client backed by the campfire home directory.
 // The client is cached after first initialization (CLI is single-threaded).
-// Walk-up is enabled by default so Init() can discover the center campfire and trigger the
-// recentering slide-in. The authorize hook fires at most once per center.
+// WithWalkUp() enables center-campfire discovery; WithConfigDir threads the resolved
+// home dir into InitWithConfig (walk-up is opt-in, not the default).
 func requireClient() (*protocol.Client, error) {
 	if protocolClient != nil {
 		return protocolClient, nil
 	}
-	c, err := protocol.Init(CFHome(), protocol.WithAuthorizeFunc(centerAuthorize))
+	c, err := protocol.InitWithConfig(protocol.WithConfigDir(CFHome()), protocol.WithWalkUp(), protocol.WithAuthorizeFunc(centerAuthorize))
 	if err != nil {
 		return nil, fmt.Errorf("initializing campfire client: %w", err)
 	}
