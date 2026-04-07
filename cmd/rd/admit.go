@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -255,19 +254,6 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 	return nil
 }
 
-// extractPubkeyFromContext tries to extract a "pubkey" field from a JSON context string.
-func extractPubkeyFromContext(ctx string) string {
-	if ctx == "" {
-		return ""
-	}
-	var payload struct {
-		Pubkey string `json:"pubkey"`
-	}
-	if err := json.Unmarshal([]byte(ctx), &payload); err != nil {
-		return ""
-	}
-	return payload.Pubkey
-}
 
 // admitMember admits the given public key to the campfire identified by campfireID.
 // It looks up the transport dir from the client's membership store.

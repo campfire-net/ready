@@ -170,8 +170,7 @@ func (s *Server) Start(ctx context.Context) {
 		go func() {
 			defer wg.Done()
 			if err := s.serveOperation(ctx, op); err != nil && err != ctx.Err() {
-				// Log non-cancellation errors. In production rd, these are discarded
-				// (no logger available at pkg level). Callers can use WithErrorHandler.
+				// Non-cancellation errors are silently discarded — no logger at pkg level.
 				_ = err
 			}
 		}()

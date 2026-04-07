@@ -63,11 +63,6 @@ Example:
 				}
 				crossDepsOut = append(crossDepsOut, cdj)
 			}
-			type itemWithCross struct {
-				*crossDepJSON
-			}
-			_ = itemWithCross{}
-
 			// Build augmented output map.
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
