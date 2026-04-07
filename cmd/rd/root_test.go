@@ -131,3 +131,146 @@ func TestRequireClient_IdentityMatchesRequireAgentAndStore(t *testing.T) {
 		t.Errorf("protocol.Client public key %q != legacy identity public key %q — different keypairs", clientPubKey, legacyPubKey)
 	}
 }
+
+// TestRequireClient_PicksUpCFHomeEnv verifies that requireClient() resolves
+// the config dir from CF_HOME environment variable, not from the rdHome flag.
+// This test directly verifies that InitWithConfig(WithConfigDir(CFHome())) +
+// CFHome()'s env resolution works without relying on the flag.
+//
+// The test does NOT set rdHome. It sets CF_HOME to a temp directory, then
+// calls requireClient(). This proves WithConfigDir(CFHome()) threads the env-resolved
+// path into the protocol client initialization.
+func TestRequireClient_PicksUpCFHomeEnv(t *testing.T) {
+	dir := t.TempDir()
+
+	// Clear the flag so CFHome() must resolve via env.
+	origRDHome := rdHome
+	rdHome = ""
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	// Set CF_HOME to the temp directory.
+	oldCFHome := os.Getenv("CF_HOME")
+	os.Setenv("CF_HOME", dir)
+	t.Cleanup(func() {
+		if oldCFHome != "" {
+			os.Setenv("CF_HOME", oldCFHome)
+		} else {
+			os.Unsetenv("CF_HOME")
+		}
+	})
+
+	// Reset the client cache.
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	c, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient() error: %v", err)
+	}
+	if c == nil {
+		t.Fatal("requireClient() returned nil client")
+	}
+
+	// Verify the identity and store files were created in the CF_HOME directory.
+	idPath := filepath.Join(dir, "identity.json")
+	if _, err := os.Stat(idPath); err != nil {
+		t.Errorf("identity.json not created at CF_HOME %q: %v", dir, err)
+	}
+
+	storePath := filepath.Join(dir, "store.db")
+	if _, err := os.Stat(storePath); err != nil {
+		t.Errorf("store.db not created at CF_HOME %q: %v", dir, err)
+	}
+
+	// Verify the client has a valid public key.
+	pubKey := c.PublicKeyHex()
+	if pubKey == "" {
+		t.Error("PublicKeyHex() returned empty string — identity not loaded")
+	}
+}
+
+// TestRequireClient_PicksUpConfigDirViaFilesystemDetection verifies that
+// requireClient() resolves the config dir via filesystem walk-up (HOME env
+// manipulation, no rdHome flag, no CF_HOME env).
+//
+// Sets HOME to a temp directory with a .cf/ subdirectory present (no identity.json yet),
+// clears both rdHome and CF_HOME, then calls requireClient(). This proves CFHome()
+// can find .cf/ via walk-up and WithConfigDir(CFHome()) threads it to InitWithConfig().
+// The test also implicitly verifies that WithWalkUp() is present in the InitWithConfig()
+// call (walk-up behavior is available when initialized).
+//
+// TODO: WithWalkUp() should be tested more thoroughly in ready-589's e2e test,
+// which will have a real campfire hierarchy to verify walk-up against.
+func TestRequireClient_PicksUpConfigDirViaFilesystemDetection(t *testing.T) {
+	// Create a temporary HOME with .cf/ subdirectory.
+	tmpHome := t.TempDir()
+	cfDir := filepath.Join(tmpHome, ".cf")
+	if err := os.MkdirAll(cfDir, 0755); err != nil {
+		t.Fatalf("failed to create .cf directory: %v", err)
+	}
+
+	// Clear the flag and env so CFHome() must walk up the filesystem.
+	origRDHome := rdHome
+	rdHome = ""
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	oldCFHome := os.Getenv("CF_HOME")
+	os.Unsetenv("CF_HOME")
+	t.Cleanup(func() {
+		if oldCFHome != "" {
+			os.Setenv("CF_HOME", oldCFHome)
+		}
+	})
+
+	// Replace HOME so os.UserHomeDir() returns our temp directory.
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	t.Cleanup(func() {
+		if oldHome != "" {
+			os.Setenv("HOME", oldHome)
+		} else {
+			os.Unsetenv("HOME")
+		}
+	})
+
+	// Reset the client cache.
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	c, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient() error: %v", err)
+	}
+	if c == nil {
+		t.Fatal("requireClient() returned nil client")
+	}
+
+	// Verify the identity and store files were created in the detected .cf directory.
+	idPath := filepath.Join(cfDir, "identity.json")
+	if _, err := os.Stat(idPath); err != nil {
+		t.Errorf("identity.json not created at detected .cf dir %q: %v", cfDir, err)
+	}
+
+	storePath := filepath.Join(cfDir, "store.db")
+	if _, err := os.Stat(storePath); err != nil {
+		t.Errorf("store.db not created at detected .cf dir %q: %v", cfDir, err)
+	}
+
+	// Verify the client has a valid public key.
+	pubKey := c.PublicKeyHex()
+	if pubKey == "" {
+		t.Error("PublicKeyHex() returned empty string — identity not loaded")
+	}
+}
