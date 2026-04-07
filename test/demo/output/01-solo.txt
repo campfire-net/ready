@@ -1,0 +1,62 @@
+=== SECTION: init ===
+$ cf init --cf-home "/tmp/rdtest-solo-9tao"
+Your identity campfire: 27f89765a1fb9bb6160e168ef1c9410369babe774a2b4b225305b285e8847ebd. Share it like any beacon.
+
+Next: cf discover    find campfires
+      cf create      start one
+      cf join <id>   join one
+
+=== SECTION: project ===
+$ cd PROJECT && rd init --name "myproject" --confirm
+warning: campfire durability check — sync may be unreliable:
+  no durability tags declared — retention is unknown
+  operator is unverified — do not commit irreplaceable state regardless of durability claims
+  minimum requirements: max-ttl:0 + lifecycle:persistent + provenance:basic or higher
+  set RD_CAMPFIRE_TAGS and RD_PROVENANCE to configure, or pass --confirm to proceed anyway
+warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
+initialized myproject
+  campfire: 6ef132115eed...
+  summary campfire: 83fe0f1b35ab...
+  inbox campfire: d8ad41cabe14...
+  encrypted: true (E2E intent set; SDK encryption enabled when available)
+  declarations: 16 operations published
+
+  sync config stored with warnings (see .ready/config.json)
+
+  home campfire: found (27f89765a1fb...)
+  run 'rd register --org <name>' to add naming
+
+=== SECTION: create ===
+$ rd create --title "Ship login page" --priority p1 --type task --json
+{
+  "campfire_id": "6ef132115eedf899785acf9a3f75d14533b2c15fac9f5c01785b8cb3670c75a1",
+  "for": "d01d6c35d4dacd6e5b6cf494a2c677f6661b179e98eefa1b8004bf7f8f6695f0",
+  "id": "rdtestsoloprojf0-45e",
+  "msg_id": "67b48949-4114-415f-a72b-19eae4f799cb",
+  "priority": "p1",
+  "title": "Ship login page",
+  "type": "task"
+}
+# item ID: rdtestsoloprojf0-45e
+
+=== SECTION: ready ===
+$ rd ready
+  rdtestsoloprojf0-45e  p1        inbox       3h          Ship login page
+
+=== SECTION: claim ===
+$ rd claim rdtestsoloprojf0-45e
+claimed rdtestsoloprojf0-45e
+
+=== SECTION: progress ===
+$ rd progress rdtestsoloprojf0-45e --notes "Wired up auth middleware"
+progress noted on rdtestsoloprojf0-45e
+
+=== SECTION: done ===
+$ rd done rdtestsoloprojf0-45e --reason "Login page ships with JWT auth"
+closed rdtestsoloprojf0-45e (done)
+
+=== SECTION: verify ===
+$ rd list --all
+  rdtestsoloprojf0-45e  p1        done        3h          Ship login page
+
+# Demo complete. Transcript written to: /home/baron/projects/ready/test/demo/output/01-solo.txt
