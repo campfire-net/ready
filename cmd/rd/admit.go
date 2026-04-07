@@ -217,10 +217,9 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 		return fmt.Errorf("getting campfire membership: %w", membershipErr)
 	}
 
+	// admitRole follows the same mapping as grantRole: org-observer→member,
+	// agent→agent. Since grantRole already handles org-observer, use it directly.
 	admitRole := grantRole
-	if role == "agent" {
-		admitRole = "agent"
-	}
 
 	admitErr := client.Admit(protocol.AdmitRequest{
 		CampfireID:      campfireID,
