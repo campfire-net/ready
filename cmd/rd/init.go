@@ -293,7 +293,7 @@ func campfireTagsFromEnv() []string {
 
 // localCampfireBaseDir returns a persistent base directory for
 // campfires (home, ready namespace). Uses CF_TRANSPORT_DIR if set, otherwise
-// ~/.campfire/campfires/.
+// {CFHome()}/campfires/ (e.g., ~/.cf/campfires/ or ~/.campfire/campfires/ for legacy users).
 func localCampfireBaseDir() string {
 	if env := os.Getenv("CF_TRANSPORT_DIR"); env != "" {
 		return env

@@ -61,10 +61,16 @@ https://ready.getcampfire.dev`,
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output as JSON")
-	rootCmd.PersistentFlags().StringVar(&rdHome, "cf-home", "", "campfire home directory (default: ~/.campfire)")
+	rootCmd.PersistentFlags().StringVar(&rdHome, "cf-home", "", "campfire home directory (default: ~/.cf)")
 }
 
 // CFHome returns the resolved campfire home directory.
+// Detection order:
+// (1) rdHome flag set → use it
+// (2) CF_HOME env set → use it
+// (3) ~/.cf exists → use it (new install path)
+// (4) ~/.campfire exists → use it (legacy user migration path)
+// (5) neither → default to ~/.cf
 func CFHome() string {
 	if rdHome != "" {
 		return rdHome
@@ -77,7 +83,16 @@ func CFHome() string {
 		fmt.Fprintf(os.Stderr, "error: cannot determine home directory: %v\n", err)
 		os.Exit(1)
 	}
-	return filepath.Join(home, ".campfire")
+	newPath := filepath.Join(home, ".cf")
+	legacyPath := filepath.Join(home, ".campfire")
+
+	if _, err := os.Stat(newPath); err == nil {
+		return newPath
+	}
+	if _, err := os.Stat(legacyPath); err == nil {
+		return legacyPath
+	}
+	return newPath
 }
 
 // IdentityPath returns the path to the identity file.
@@ -135,13 +150,13 @@ func loadDeclaration(name string) (*convention.Declaration, error) {
 
 // requireClient returns a *protocol.Client backed by the campfire home directory.
 // The client is cached after first initialization (CLI is single-threaded).
-// Walk-up is enabled so Init() can discover the center campfire and trigger the
+// Walk-up is enabled so InitWithConfig() can discover the center campfire and trigger the
 // recentering slide-in. The authorize hook fires at most once per center.
 func requireClient() (*protocol.Client, error) {
 	if protocolClient != nil {
 		return protocolClient, nil
 	}
-	c, err := protocol.Init(CFHome(), protocol.WithAuthorizeFunc(centerAuthorize))
+	c, err := protocol.InitWithConfig(protocol.WithConfigDir(CFHome()), protocol.WithWalkUp(), protocol.WithAuthorizeFunc(centerAuthorize))
 	if err != nil {
 		return nil, fmt.Errorf("initializing campfire client: %w", err)
 	}
