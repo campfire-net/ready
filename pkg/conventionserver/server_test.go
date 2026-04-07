@@ -669,3 +669,38 @@ func TestServerWritesSummaryOnCreate(t *testing.T) {
 		t.Error("no work:item-summary found in summary campfire after work:create")
 	}
 }
+
+// TestStartRejectsUnknownInboxCampfire verifies that Start() returns a non-nil
+// error when the configured inbox campfire ID is not in the client's membership
+// list, rather than silently dropping all join requests.
+func TestStartRejectsUnknownInboxCampfire(t *testing.T) {
+	env := setupTestEnv(t)
+
+	loader := func(name string) (*convention.Declaration, error) {
+		return minimalCloseDecl(), nil
+	}
+
+	// Use a made-up campfire ID that the serverClient has no membership for.
+	unknownInboxID := "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+
+	srv, err := conventionserver.New(
+		env.serverClient,
+		env.campfireID,
+		conventionserver.WithPollInterval(50*time.Millisecond),
+		conventionserver.WithDeclarationLoader(loader),
+		conventionserver.WithInboxCampfireID(unknownInboxID),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	startErr := srv.Start(ctx)
+	cancel() // shut down the operation goroutines that were already launched
+
+	if startErr == nil {
+		t.Fatal("Start() should return an error when inbox campfire is not in membership list, got nil")
+	}
+}
