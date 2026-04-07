@@ -411,6 +411,11 @@ func projectRoot() (campfireID string, projectDir string, ok bool) {
 		if cfgErr == nil && cfg != nil && cfg.ProjectName != "" {
 			aliases := naming.NewAliasStore(CFHome())
 			if resolvedID, aliasErr := aliases.Get(cfg.ProjectName); aliasErr == nil && len(resolvedID) == 64 {
+				// Rewrite .campfire/root to keep it in sync when ProjectName takes priority.
+				rootFile := filepath.Join(dir, ".campfire", "root")
+				if existing, readErr := os.ReadFile(rootFile); readErr == nil && strings.TrimSpace(string(existing)) != resolvedID {
+					_ = os.WriteFile(rootFile, []byte(resolvedID), 0600)
+				}
 				return resolvedID, dir, true
 			}
 		}

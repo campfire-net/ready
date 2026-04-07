@@ -151,6 +151,156 @@ func TestShowCommandDisplay_NoHexWithoutDebug(t *testing.T) {
 	}
 }
 
+// TestProjectRoot_ProjectNameWinsOverCampfireRoot verifies that when both
+// .ready/config.json (ProjectName) and .campfire/root exist with different IDs,
+// the ProjectName-resolved ID wins and .campfire/root is rewritten to match.
+func TestProjectRoot_ProjectNameWinsOverCampfireRoot(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test-priority")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Set CF_HOME to tmpDir so AliasStore uses our temp store.
+	origCFHome := os.Getenv("CF_HOME")
+	os.Setenv("CF_HOME", tmpDir)
+	defer func() {
+		if origCFHome != "" {
+			os.Setenv("CF_HOME", origCFHome)
+		} else {
+			os.Unsetenv("CF_HOME")
+		}
+	}()
+	origRDHome := rdHome
+	rdHome = ""
+	defer func() { rdHome = origRDHome }()
+
+	// Populate the alias store: "myproject" → primaryID.
+	primaryID := strings.Repeat("aa", 32) // 64-char
+	staleID := strings.Repeat("bb", 32)   // different, stale
+
+	aliasFile := filepath.Join(tmpDir, "aliases.json")
+	aliasContent := `{"myproject":"` + primaryID + `"}`
+	if err := os.WriteFile(aliasFile, []byte(aliasContent), 0600); err != nil {
+		t.Fatalf("WriteFile aliases.json: %v", err)
+	}
+
+	// Create .ready/config.json with ProjectName=myproject.
+	readyDir := filepath.Join(tmpDir, ".ready")
+	if err := os.MkdirAll(readyDir, 0700); err != nil {
+		t.Fatalf("MkdirAll .ready: %v", err)
+	}
+	configContent := `{"project_name":"myproject"}`
+	if err := os.WriteFile(filepath.Join(readyDir, "config.json"), []byte(configContent), 0600); err != nil {
+		t.Fatalf("WriteFile config.json: %v", err)
+	}
+
+	// Create .campfire/root with a DIFFERENT (stale) ID.
+	campfireDir := filepath.Join(tmpDir, ".campfire")
+	if err := os.MkdirAll(campfireDir, 0700); err != nil {
+		t.Fatalf("MkdirAll .campfire: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(campfireDir, "root"), []byte(staleID), 0600); err != nil {
+		t.Fatalf("WriteFile .campfire/root: %v", err)
+	}
+
+	// Change to tmpDir so projectRoot() walks up from there.
+	origCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origCwd)
+
+	// projectRoot() must return primaryID (ProjectName wins).
+	gotID, gotDir, ok := projectRoot()
+	if !ok {
+		t.Fatal("projectRoot() returned false — expected to find the project")
+	}
+	if gotID != primaryID {
+		t.Errorf("projectRoot() campfireID = %q, want %q (ProjectName must win)", gotID, primaryID)
+	}
+	if gotDir != tmpDir {
+		t.Errorf("projectRoot() dir = %q, want %q", gotDir, tmpDir)
+	}
+
+	// .campfire/root must have been rewritten to primaryID.
+	rewritten, err := os.ReadFile(filepath.Join(campfireDir, "root"))
+	if err != nil {
+		t.Fatalf("reading rewritten .campfire/root: %v", err)
+	}
+	if strings.TrimSpace(string(rewritten)) != primaryID {
+		t.Errorf(".campfire/root after rewrite = %q, want %q", strings.TrimSpace(string(rewritten)), primaryID)
+	}
+}
+
+// TestFormatCampfireIDForDisplay_ResolvesWithRealAliasStore verifies that
+// formatCampfireIDForDisplay returns the project name (not hex) when the alias
+// store has a matching entry. This is the positive path test missing from the
+// original suite.
+func TestFormatCampfireIDForDisplay_ResolvesWithRealAliasStore(t *testing.T) {
+	originalDebug := debugOutput
+	defer func() { debugOutput = originalDebug }()
+	debugOutput = false
+
+	tmpDir, err := os.MkdirTemp("", "test-resolve-positive")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	hexID := strings.Repeat("cc", 32) // 64-char
+
+	// Set CF_HOME so AliasStore uses tmpDir.
+	origCFHome := os.Getenv("CF_HOME")
+	os.Setenv("CF_HOME", tmpDir)
+	defer func() {
+		if origCFHome != "" {
+			os.Setenv("CF_HOME", origCFHome)
+		} else {
+			os.Unsetenv("CF_HOME")
+		}
+	}()
+	origRDHome := rdHome
+	rdHome = ""
+	defer func() { rdHome = origRDHome }()
+
+	// Write alias store: "cool.project" → hexID.
+	aliasContent := `{"cool.project":"` + hexID + `"}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "aliases.json"), []byte(aliasContent), 0600); err != nil {
+		t.Fatalf("WriteFile aliases.json: %v", err)
+	}
+
+	// Write .ready/config.json with project_name.
+	readyDir := filepath.Join(tmpDir, ".ready")
+	if err := os.MkdirAll(readyDir, 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	configContent := `{"project_name":"cool.project"}`
+	if err := os.WriteFile(filepath.Join(readyDir, "config.json"), []byte(configContent), 0600); err != nil {
+		t.Fatalf("WriteFile config.json: %v", err)
+	}
+
+	origCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origCwd)
+
+	result := formatCampfireIDForDisplay(hexID)
+	if result == hexID {
+		t.Errorf("formatCampfireIDForDisplay returned hex %q, want project name %q", result, "cool.project")
+	}
+	if result != "cool.project" {
+		t.Errorf("formatCampfireIDForDisplay = %q, want %q", result, "cool.project")
+	}
+}
+
 // Helper to check if a string is valid hex
 func isValidHex(s string) bool {
 	for _, c := range s {
