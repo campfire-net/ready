@@ -545,3 +545,35 @@ $ CF_HOME=$AGENT_CF rd gates
 ```
 
 Full transcript: `test/demo/output/06-gate-escalation.txt`
+
+### Use case 4 — Org observer (read-only summary access)
+
+The observer is admitted to the project's **summary campfire** only, not the main campfire. They see item projections but cannot propagate writes.
+
+```
+# Owner admits observer to summary campfire (read-only role)
+$ CF_HOME=$OWNER_CF rd admit <observer-pubkey> --role org-observer
+admitted <observer-pubkey> (org-observer)
+
+# Observer joins the summary campfire ID
+$ CF_HOME=$OBS_CF rd join <summary-campfire-id>
+joined <summary-campfire-id>
+
+# Direct join of main campfire is rejected
+$ CF_HOME=$OBS_CF rd join <main-campfire-id>
+error: campfire rejected join: invite-only
+
+# Observer sees item projections
+$ CF_HOME=$OBS_CF rd list
+  rdtestobserverprojgwj-f1f  p0  inbox  overdue  Migrate auth to OAuth2
+  rdtestobserverprojgwj-79d  p1  inbox  3h       Refactor billing module
+  rdtestobserverprojgwj-fce  p2  inbox  23h      Update API docs
+
+# Observer write attempt is blocked at the campfire layer
+$ CF_HOME=$OBS_CF rd create "Sneaky item" --type task --priority p3
+warning: campfire send failed (buffered to pending.jsonl): not a member of campfire c798c111...
+```
+
+Write isolation is enforced at the campfire layer, not locally. Observer-created items buffer to `pending.jsonl` and are never delivered to project members.
+
+Full transcript: `test/demo/output/04-org-observer.txt`
