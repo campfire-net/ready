@@ -10,6 +10,8 @@ package main
 //   - pollForRoleGrant: times out when no matching message arrives (ready-421)
 //   - resolveName: returns hex ID unchanged when input is already 64-char hex (ready-421)
 //   - TOFU beacon root: all five paths via applyBeaconRootTOFU / resetBeaconRoot (ready-c3a)
+//   - Open campfire join: non-member joins open campfire via client.Join() (ready-1b5)
+//   - Invite-only campfire join: client.Join() returns "invite-only" error (ready-1b5)
 
 import (
 	"encoding/json"
@@ -385,5 +387,182 @@ func TestBeaconRoot_EmptyRoot_NoOp(t *testing.T) {
 	configPath := filepath.Join(cfHome, "rd.json")
 	if _, statErr := os.Stat(configPath); statErr == nil {
 		t.Error("applyBeaconRootTOFU with empty root must not write config file")
+	}
+}
+
+// TestJoin_OpenCampfire_NonMemberJoinsSuccessfully verifies the open join_protocol path:
+// - Identity A creates an open campfire (filesystem transport, shared temp base dir).
+// - Identity B (separate CF_HOME, non-member) calls client.Join() using the
+//   campfire-specific dir returned by resolveTransportDir.
+// - Join succeeds and B can subsequently send a message (post-join create).
+//
+// This is the regression test for ready-1b5. No mocks — real protocol.Client
+// instances with real temp dirs and real SQLite stores.
+func TestJoin_OpenCampfire_NonMemberJoinsSuccessfully(t *testing.T) {
+	// Use a shared transport dir so both identities access the same campfire state.
+	sharedTransportDir := t.TempDir()
+	origTransportDir := os.Getenv("CF_TRANSPORT_DIR")
+	os.Setenv("CF_TRANSPORT_DIR", sharedTransportDir)
+	t.Cleanup(func() {
+		if origTransportDir != "" {
+			os.Setenv("CF_TRANSPORT_DIR", origTransportDir)
+		} else {
+			os.Unsetenv("CF_TRANSPORT_DIR")
+		}
+	})
+
+	// --- Identity A: campfire creator ---
+	cfHomeA := t.TempDir()
+	origRDHome := rdHome
+	rdHome = cfHomeA
+	protocolClientOrig := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = protocolClientOrig
+		rdHome = origRDHome
+	})
+
+	clientA, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient (A): %v", err)
+	}
+
+	// A creates an open campfire in the shared transport dir.
+	createResult, err := clientA.Create(protocol.CreateRequest{
+		JoinProtocol: "open",
+		Transport:    protocol.FilesystemTransport{Dir: sharedTransportDir},
+	})
+	if err != nil {
+		t.Fatalf("A.Create (open): %v", err)
+	}
+	campfireID := createResult.CampfireID
+
+	// --- Identity B: non-member joiner (separate CF_HOME) ---
+	// Reset global client cache so B gets a fresh client with a different identity.
+	if protocolClient != nil {
+		protocolClient.Close()
+	}
+	protocolClient = nil
+
+	cfHomeB := t.TempDir()
+	rdHome = cfHomeB
+
+	clientB, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient (B): %v", err)
+	}
+
+	// resolveTransportDir must return the campfire-specific dir (sharedTransportDir/campfireID).
+	// With no beacon published (no beacon dir scan), it falls back to:
+	//   localCampfireBaseDir() / campfireID = sharedTransportDir / campfireID
+	transportDir := resolveTransportDir(campfireID)
+	wantDir := filepath.Join(sharedTransportDir, campfireID)
+	if transportDir != wantDir {
+		t.Errorf("resolveTransportDir = %q, want %q", transportDir, wantDir)
+	}
+
+	// B calls client.Join() — open campfire, must succeed.
+	joinResult, err := clientB.Join(protocol.JoinRequest{
+		CampfireID: campfireID,
+		Transport:  protocol.FilesystemTransport{Dir: transportDir},
+	})
+	if err != nil {
+		t.Fatalf("B.Join (open campfire): %v", err)
+	}
+	if joinResult.JoinProtocol != "open" {
+		t.Errorf("joinResult.JoinProtocol = %q, want %q", joinResult.JoinProtocol, "open")
+	}
+
+	// After join, B must be able to send a message (simulates 'rd create').
+	_, err = clientB.Send(protocol.SendRequest{
+		CampfireID: campfireID,
+		Payload:    []byte(`{"title":"post-join message from B"}`),
+		Tags:       []string{"work:create"},
+	})
+	if err != nil {
+		t.Fatalf("B.Send after join: %v — B is not recognized as a member after joining", err)
+	}
+}
+
+// TestJoin_InviteOnlyCampfire_FailsWithClearError verifies the invite-only path:
+// - Identity A creates an invite-only campfire.
+// - Identity B (non-member) calls client.Join() on the invite-only campfire.
+// - Join fails with an error containing "invite-only".
+// - The error must NOT be a transport error — it must clearly indicate the protocol
+//   rejection so rd join can distinguish it from network/transport failures and
+//   produce the right user-facing message.
+//
+// This is the regression test for ready-1b5. No mocks — real protocol.Client instances.
+func TestJoin_InviteOnlyCampfire_FailsWithClearError(t *testing.T) {
+	sharedTransportDir := t.TempDir()
+	origTransportDir := os.Getenv("CF_TRANSPORT_DIR")
+	os.Setenv("CF_TRANSPORT_DIR", sharedTransportDir)
+	t.Cleanup(func() {
+		if origTransportDir != "" {
+			os.Setenv("CF_TRANSPORT_DIR", origTransportDir)
+		} else {
+			os.Unsetenv("CF_TRANSPORT_DIR")
+		}
+	})
+
+	// --- Identity A: campfire creator ---
+	cfHomeA := t.TempDir()
+	origRDHome := rdHome
+	rdHome = cfHomeA
+	protocolClientOrig := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = protocolClientOrig
+		rdHome = origRDHome
+	})
+
+	clientA, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient (A): %v", err)
+	}
+
+	// A creates an invite-only campfire.
+	createResult, err := clientA.Create(protocol.CreateRequest{
+		JoinProtocol: "invite-only",
+		Transport:    protocol.FilesystemTransport{Dir: sharedTransportDir},
+	})
+	if err != nil {
+		t.Fatalf("A.Create (invite-only): %v", err)
+	}
+	campfireID := createResult.CampfireID
+
+	// --- Identity B: non-member (separate CF_HOME) ---
+	if protocolClient != nil {
+		protocolClient.Close()
+	}
+	protocolClient = nil
+
+	cfHomeB := t.TempDir()
+	rdHome = cfHomeB
+
+	clientB, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient (B): %v", err)
+	}
+
+	// B attempts to join an invite-only campfire without pre-admission.
+	transportDir := filepath.Join(sharedTransportDir, campfireID)
+	_, joinErr := clientB.Join(protocol.JoinRequest{
+		CampfireID: campfireID,
+		Transport:  protocol.FilesystemTransport{Dir: transportDir},
+	})
+	if joinErr == nil {
+		t.Fatal("B.Join (invite-only): expected error, got nil — non-member must not join invite-only campfire")
+	}
+
+	// Error must contain "invite-only" so rd join can produce the right user-facing message.
+	if !strings.Contains(joinErr.Error(), "invite-only") {
+		t.Errorf("B.Join error = %q — expected 'invite-only' in message so rd join can distinguish protocol rejection from transport errors", joinErr.Error())
 	}
 }

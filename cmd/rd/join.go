@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/campfire-net/campfire/pkg/beacon"
 	"github.com/campfire-net/campfire/pkg/naming"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/spf13/cobra"
@@ -27,8 +29,9 @@ var joinCmd = &cobra.Command{
 
 For open campfires, joins immediately.
 
-For invite-only campfires, posts a work:join-request and polls for a
-work:role-grant (admission grant) targeting your public key.
+For invite-only campfires, exits with an error and prints your public key.
+Ask an existing member to run 'cf admit <your-pubkey>' or 'rd admit', then
+run 'rd join' again.
 
 TOFU PINNING
   The first time you join using a non-default beacon root (--root), rd warns
@@ -49,11 +52,10 @@ EXAMPLES
 		resetRoot, _ := cmd.Flags().GetBool("reset-beacon-root")
 		beaconRootFlag, _ := cmd.Flags().GetString("root")
 		confirm, _ := cmd.Flags().GetBool("confirm")
-		timeout, _ := cmd.Flags().GetDuration("timeout")
-		role, _ := cmd.Flags().GetString("role")
-		if role == "" {
-			role = "member"
-		}
+		// --timeout and --role are kept as flags for forward compatibility but are
+		// not used in the current open-join path (invite-only join-request path removed).
+		_, _ = cmd.Flags().GetDuration("timeout")
+		_, _ = cmd.Flags().GetString("role")
 
 		cfg, err := rdconfig.Load(CFHome())
 		if err != nil {
@@ -99,7 +101,7 @@ EXAMPLES
 		// Attempt to join.
 		result, err := client.Join(protocol.JoinRequest{
 			CampfireID: campfireID,
-			Transport:  protocol.FilesystemTransport{Dir: localCampfireBaseDir()},
+			Transport:  protocol.FilesystemTransport{Dir: resolveTransportDir(campfireID)},
 		})
 		if err == nil {
 			displayID := campfireID
@@ -111,63 +113,69 @@ EXAMPLES
 			return nil
 		}
 
-		// Join failed. If this is an invite-only campfire, post a join-request.
-		fmt.Fprintf(os.Stderr, "rd: campfire is invite-only — posting join request\n")
-
-		exec, _, execErr := requireExecutor()
-		if execErr != nil {
-			return fmt.Errorf("initializing executor: %w", execErr)
+		// Join failed. Distinguish invite-only from transport/network errors.
+		//
+		// Invite-only campfires: non-members cannot post work:join-request because
+		// sending requires membership (chicken-and-egg). Tell the user clearly: they
+		// must be admitted by an existing member first, then run 'rd join' again.
+		//
+		// Other errors (transport state not found, corrupted state, network errors):
+		// report the raw error so the user can diagnose.
+		if strings.Contains(err.Error(), "invite-only") {
+			agentID, s, storeErr := requireAgentAndStore()
+			pubkeyStr := "(could not load identity)"
+			if storeErr == nil {
+				pubkeyStr = agentID.PublicKeyHex()
+				s.Close()
+			}
+			return fmt.Errorf("campfire is invite-only — ask a member to admit your public key, then run 'rd join' again\n  your public key: %s", pubkeyStr)
 		}
-
-		agentID, s, storeErr := requireAgentAndStore()
-		if storeErr != nil {
-			return fmt.Errorf("loading identity: %w", storeErr)
-		}
-		defer s.Close()
-
-		decl, declErr := loadDeclaration("join-request")
-		if declErr != nil {
-			return fmt.Errorf("loading join-request declaration: %w", declErr)
-		}
-
-		myPubKey := agentID.PublicKeyHex()
-
-		ctx := context.Background()
-		result2, sendErr := exec.Execute(ctx, decl, campfireID, map[string]any{
-			"pubkey":         myPubKey,
-			"requested_role": role,
-		})
-		if sendErr != nil {
-			return fmt.Errorf("posting join request: %w", sendErr)
-		}
-
-		fmt.Fprintf(os.Stdout, "join request posted (msg %s)\n", result2.MessageID[:12]+"...")
-		fmt.Fprintf(os.Stdout, "waiting for admission (timeout: %s) ...\n", timeout)
-
-		// Poll for a work:role-grant targeting our pubkey.
-		grantMsgID, pollErr := pollForRoleGrant(client, campfireID, myPubKey, timeout)
-		if pollErr != nil {
-			return fmt.Errorf("waiting for role grant: %w\n  run 'rd join' again after the admin admits you", pollErr)
-		}
-
-		fmt.Fprintf(os.Stdout, "admitted! role-grant received (msg %s)\n", grantMsgID[:12]+"...")
-
-		// Now join with the pre-admission in place.
-		result3, joinErr := client.Join(protocol.JoinRequest{
-			CampfireID: campfireID,
-			Transport:  protocol.FilesystemTransport{Dir: localCampfireBaseDir()},
-		})
-		if joinErr != nil {
-			return fmt.Errorf("joining after admission: %w", joinErr)
-		}
-
-		displayID := campfireID
-		if len(displayID) > 12 {
-			displayID = displayID[:12] + "..."
-		}
-		fmt.Fprintf(os.Stdout, "joined campfire %s (%s)\n", displayID, result3.JoinProtocol)
-		return nil
+		return fmt.Errorf("joining campfire: %w", err)
 	},
+}
+
+// resolveTransportDir returns the campfire-specific filesystem transport directory.
+//
+// The campfire library's joinFilesystem uses path-rooted mode (fs.ForDir), which
+// expects the campfire-specific directory (baseDir/campfireID/) rather than the
+// base directory (baseDir/). This function returns the correct campfire-specific dir.
+//
+// Resolution order:
+//  1. Scan beacon dirs (global default + project-local .campfire/beacons/) for a
+//     beacon matching campfireID. If found, the beacon carries the authoritative
+//     transport dir (set by the campfire creator). This handles the two-sided
+//     handshake: when the campfire was created in a different CF_HOME, the beacon
+//     advertises the creator's transport dir so joiners can locate the state.
+//  2. Fall back to localCampfireBaseDir()/campfireID — the default campfire-specific
+//     subdirectory under the local CF_HOME.
+func resolveTransportDir(campfireID string) string {
+	scanDirs := []string{beacon.DefaultBeaconDir()}
+
+	// Also check project-local .campfire/beacons/ dir if we're in a project.
+	if _, projectDir, ok := projectRoot(); ok {
+		scanDirs = append(scanDirs, filepath.Join(projectDir, ".campfire", "beacons"))
+	}
+
+	for _, dir := range scanDirs {
+		if dir == "" {
+			continue
+		}
+		beacons, err := beacon.Scan(dir)
+		if err != nil {
+			continue
+		}
+		for _, b := range beacons {
+			if b.CampfireIDHex() == campfireID {
+				if d, ok := b.Transport.Config["dir"]; ok && d != "" {
+					return d
+				}
+			}
+		}
+	}
+
+	// Default: campfire-specific subdirectory under the local CF_HOME campfires base.
+	// This is the correct path-rooted dir expected by joinFilesystem (fs.ForDir mode).
+	return filepath.Join(localCampfireBaseDir(), campfireID)
 }
 
 // applyBeaconRootTOFU applies the TOFU beacon root pinning logic.
