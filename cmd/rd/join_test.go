@@ -61,17 +61,25 @@ func TestGrantTargets(t *testing.T) {
 	targetKey := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
 	otherKey := "0000000000000000000000000000000000000000000000000000000000000001"
 
-	makeMsg := func(pubkey string) protocol.Message {
-		payload := map[string]string{"pubkey": pubkey}
+	makeMsg := func(pubkey, role string) protocol.Message {
+		payload := map[string]string{"pubkey": pubkey, "role": role}
 		data, _ := json.Marshal(payload)
 		return protocol.Message{Payload: data}
 	}
 
-	if !grantTargets(makeMsg(targetKey), targetKey) {
-		t.Error("grantTargets should match correct pubkey")
+	if !grantTargets(makeMsg(targetKey, "member"), targetKey) {
+		t.Error("grantTargets should match correct pubkey with admission role")
 	}
-	if grantTargets(makeMsg(otherKey), targetKey) {
+	if grantTargets(makeMsg(otherKey, "member"), targetKey) {
 		t.Error("grantTargets should not match wrong pubkey")
+	}
+	// Revocation grants must not be accepted as admissions.
+	if grantTargets(makeMsg(targetKey, "revoked"), targetKey) {
+		t.Error("grantTargets should reject role=revoked grants")
+	}
+	// Empty role must not be accepted.
+	if grantTargets(makeMsg(targetKey, ""), targetKey) {
+		t.Error("grantTargets should reject empty role")
 	}
 
 	// Empty payload should not match.

@@ -144,17 +144,10 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 		return fmt.Errorf("looking up item %s: %w", itemID, err)
 	}
 
-	// Extract the requester's pubkey from the item.
-	// The pubkey is in item.For (set by convention:operation args) or
-	// embedded in the item's context/description payload.
+	// Extract the requester's pubkey from item.For — set from the signed
+	// join-request payload by the convention executor. Do NOT fall back to
+	// context/description fields which can be updated post-creation.
 	pubKeyHex := item.For
-	if pubKeyHex == "" {
-		// Fall back: try to extract from item context/description as JSON.
-		pubKeyHex = extractPubkeyFromContext(item.Context)
-	}
-	if pubKeyHex == "" {
-		pubKeyHex = extractPubkeyFromContext(item.Description)
-	}
 	if pubKeyHex == "" {
 		return fmt.Errorf("could not find pubkey in join-request item %s — check item.For field", itemID)
 	}

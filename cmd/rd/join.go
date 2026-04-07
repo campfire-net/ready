@@ -228,6 +228,10 @@ func resolveName(client *protocol.Client, input string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Validate that resolution produced a 64-char hex campfire ID.
+	if len(resolved) != 64 || !isHex(resolved) {
+		return "", fmt.Errorf("name %q resolved to %q which is not a valid campfire ID (64 hex chars)", input, resolved)
+	}
 	return resolved, nil
 }
 
@@ -276,15 +280,21 @@ func containsTag(tags []string, tag string) bool {
 	return false
 }
 
-// grantTargets returns true if the message payload's pubkey field matches myPubKey.
+// grantTargets returns true if the message payload's pubkey field matches myPubKey
+// AND the role is an admission role (not a revocation).
 func grantTargets(msg protocol.Message, myPubKey string) bool {
 	var payload struct {
 		Pubkey string `json:"pubkey"`
+		Role   string `json:"role"`
 	}
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		return false
 	}
-	return payload.Pubkey == myPubKey
+	if payload.Pubkey != myPubKey {
+		return false
+	}
+	// Reject revocation grants — we're waiting for an admission, not a ban.
+	return payload.Role != "revoked" && payload.Role != ""
 }
 
 // isHex returns true if s consists entirely of hex characters.

@@ -94,6 +94,15 @@ EXAMPLES
 			return nil
 		}
 
+		// Guard against runaway retroactive revocations from a compromised key
+		// that issued thousands of grants. Cap at 500 and warn.
+		const retroactiveCap = 500
+		if len(admitted) > retroactiveCap {
+			fmt.Fprintf(os.Stderr, "warning: %d admitted members found — retroactive revocation capped at %d\n", len(admitted), retroactiveCap)
+			fmt.Fprintf(os.Stderr, "  review the full list manually with: rd list --type role-grant\n")
+			admitted = admitted[:retroactiveCap]
+		}
+
 		for _, memberKey := range admitted {
 			now2 := time.Now().UTC().Format(time.RFC3339)
 			r2, err2 := exec.Execute(ctx, decl, campfireID, map[string]any{
