@@ -1,0 +1,282 @@
+# Ready Gate/Escalation Demo — Tue Apr  7 23:47:46 UTC 2026
+# Agent hits a decision point, gates for human review.
+# Human approves or rejects. Item status updates accordingly.
+
+═══════════════════════════════════════════════════════════
+  === SECTION: setup ===
+═══════════════════════════════════════════════════════════
+
+# Initializing two identities: human (project owner) and agent
+
+$ cf init --cf-home $HUMAN_CF  (human/owner)
+Your identity campfire: a390f69f61cbc3b22589bc4b7735a08b2f9b462089dab2a1e16b3f0454d414a8. Share it like any beacon.
+
+Next: cf discover    find campfires
+      cf create      start one
+      cf join <id>   join one
+
+$ cf init --cf-home $AGENT_CF  (agent)
+Your identity campfire: d281159d4509ca5cb42bd98bb0383bdbafcf24d5897ce54dcf8e546a75fac2f3. Share it like any beacon.
+
+Next: cf discover    find campfires
+      cf create      start one
+      cf join <id>   join one
+
+$ CF_HOME=$HUMAN_CF rd init --name gate-demo --confirm  (human creates project)
+warning: campfire durability check — sync may be unreliable:
+  no durability tags declared — retention is unknown
+  operator is unverified — do not commit irreplaceable state regardless of durability claims
+  minimum requirements: max-ttl:0 + lifecycle:persistent + provenance:basic or higher
+  set RD_CAMPFIRE_TAGS and RD_PROVENANCE to configure, or pass --confirm to proceed anyway
+warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
+initialized gate-demo
+  campfire: 75895c75979e...
+  summary campfire: e9e61585fd62...
+  inbox campfire: ce7669062858...
+  encrypted: true (E2E intent set; SDK encryption enabled when available)
+  declarations: 16 operations published
+
+  sync config stored with warnings (see .ready/config.json)
+
+  home campfire: found (a390f69f61cb...)
+  run 'rd register --org <name>' to add naming
+
+Project campfire ID: 75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137
+
+Agent public key: b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9
+
+$ CF_HOME=$HUMAN_CF rd admit <agent-pubkey>  (human pre-admits agent)
+admitted b7ca7e289fb8... to main campfire (75895c75979e...)
+
+$ CF_HOME=$AGENT_CF rd join <campfire-id>  (agent joins project)
+warning: could not start in-process convention server: conventionserver: inbox campfire ce7669062858b407c08f3366c14450e6e66c4be7495ff713a228eb0810bd7ea0 not in client membership list
+joined campfire 75895c75979e... (invite-only)
+  cross-campfire deps referencing this campfire will now resolve
+
+
+═══════════════════════════════════════════════════════════
+  === SECTION: agent-claims-work ===
+═══════════════════════════════════════════════════════════
+
+# Agent creates and claims a work item
+
+$ CF_HOME=$AGENT_CF rd create --title 'Migrate auth layer...' --type task --priority p1 --json
+{
+  "campfire_id": "75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137",
+  "for": "b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9",
+  "id": "rdtestgateproj6-13d",
+  "msg_id": "20858441-18a2-4e2d-8bc9-c072de64d3e9",
+  "priority": "p1",
+  "title": "Migrate auth layer to new token format",
+  "type": "task"
+}
+
+Created item: rdtestgateproj6-13d
+
+$ CF_HOME=$AGENT_CF rd update rdtestgateproj6-13d --status active  (agent claims item)
+updated rdtestgateproj6-13d
+
+$ CF_HOME=$AGENT_CF rd show rdtestgateproj6-13d  (confirm active)
+ID:       rdtestgateproj6-13d
+Title:    Migrate auth layer to new token format
+Status:   active
+Type:     task
+Priority: p1
+For:      b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9
+ETA:      2026-04-08T03:47:47Z (3h)
+
+History:
+  [2026-04-07T23:47:47Z] inbox → inbox by b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9 — created
+  [2026-04-07T23:47:47Z] inbox → active by b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9
+
+Campfire: 75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137
+Msg ID:   20858441-18a2-4e2d-8bc9-c072de64d3e9
+
+
+═══════════════════════════════════════════════════════════
+  === SECTION: agent-gates ===
+═══════════════════════════════════════════════════════════
+
+# Agent hits a decision point: two viable approaches, needs direction.
+# Gate type 'design' signals an architectural decision is needed.
+
+$ CF_HOME=$AGENT_CF rd gate rdtestgateproj6-13d --gate-type design --description '...' --json
+{
+  "campfire_id": "75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137",
+  "gate_type": "design",
+  "id": "rdtestgateproj6-13d",
+  "msg_id": "75879647-2f93-48c3-ac1a-11d5b068356e"
+}
+
+Gate message ID: 75879647-2f93-48c3-ac1a-11d5b068356e
+
+$ CF_HOME=$AGENT_CF rd show rdtestgateproj6-13d  (item is now waiting/gate)
+ID:       rdtestgateproj6-13d
+Title:    Migrate auth layer to new token format
+Status:   waiting
+Type:     task
+Priority: p1
+For:      b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9
+ETA:      2026-04-08T03:47:47Z (3h)
+Waiting on: Two viable approaches: option A saves 2ms but breaks caching, option B is safe. Need direction. (gate)
+
+History:
+  [2026-04-07T23:47:47Z] inbox → inbox by b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9 — created
+  [2026-04-07T23:47:47Z] inbox → active by b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9
+
+Campfire: 75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137
+Msg ID:   20858441-18a2-4e2d-8bc9-c072de64d3e9
+
+
+═══════════════════════════════════════════════════════════
+  === SECTION: human-sees-gate ===
+═══════════════════════════════════════════════════════════
+
+# Human runs 'rd gates' to see pending escalations
+
+$ CF_HOME=$HUMAN_CF rd gates  (human sees pending gates)
+  rdtestgateproj6-13d  p1        Two viable approaches: option A s...  Migrate auth layer to new token format
+
+$ CF_HOME=$HUMAN_CF rd gates --json  (machine-readable)
+[
+  {
+    "id": "rdtestgateproj6-13d",
+    "msg_id": "20858441-18a2-4e2d-8bc9-c072de64d3e9",
+    "campfire_id": "75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137",
+    "title": "Migrate auth layer to new token format",
+    "type": "task",
+    "for": "b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9",
+    "priority": "p1",
+    "status": "waiting",
+    "eta": "2026-04-08T03:47:47Z",
+    "waiting_on": "Two viable approaches: option A saves 2ms but breaks caching, option B is safe. Need direction.",
+    "waiting_type": "gate",
+    "waiting_since": "2026-04-07T23:47:47Z",
+    "gate_msg_id": "75879647-2f93-48c3-ac1a-11d5b068356e",
+    "created_at": 1775605667373656630,
+    "updated_at": 1775605667446519778,
+    "history": [
+      {
+        "timestamp": "2026-04-07T23:47:47Z",
+        "from_status": "inbox",
+        "to_status": "inbox",
+        "changed_by": "b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9",
+        "note": "created"
+      },
+      {
+        "timestamp": "2026-04-07T23:47:47Z",
+        "from_status": "inbox",
+        "to_status": "active",
+        "changed_by": "b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9"
+      }
+    ]
+  }
+]
+
+
+═══════════════════════════════════════════════════════════
+  === SECTION: human-approves ===
+═══════════════════════════════════════════════════════════
+
+# Human reviews the gate and approves — go with option B (safe approach)
+
+$ CF_HOME=$HUMAN_CF rd approve rdtestgateproj6-13d --reason 'Use option B. Safety over 2ms gain.' --json
+{
+  "campfire_id": "75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137",
+  "id": "rdtestgateproj6-13d",
+  "msg_id": "172a707e-ee0b-4565-88f0-fa8c48a0b1dc",
+  "resolution": "approved"
+}
+
+
+═══════════════════════════════════════════════════════════
+  === SECTION: verify-approved ===
+═══════════════════════════════════════════════════════════
+
+# Agent checks — item should be back to active
+
+$ CF_HOME=$AGENT_CF rd show rdtestgateproj6-13d  (item is active again)
+ID:       rdtestgateproj6-13d
+Title:    Migrate auth layer to new token format
+Status:   active
+Type:     task
+Priority: p1
+For:      b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9
+ETA:      2026-04-08T03:47:47Z (3h)
+
+History:
+  [2026-04-07T23:47:47Z] inbox → inbox by b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9 — created
+  [2026-04-07T23:47:47Z] inbox → active by b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9
+
+Campfire: 75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137
+Msg ID:   20858441-18a2-4e2d-8bc9-c072de64d3e9
+
+$ CF_HOME=$AGENT_CF rd gates --json  (no pending gates)
+[]
+
+
+═══════════════════════════════════════════════════════════
+  === SECTION: reject-scenario ===
+═══════════════════════════════════════════════════════════
+
+# Second scenario: agent gates a new item, human rejects it.
+# After rejection, item stays in waiting (gate unresolved until approved).
+
+$ CF_HOME=$AGENT_CF rd create --title 'Refactor payment processor' --type task --priority p2 --json
+{
+  "campfire_id": "75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137",
+  "for": "b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9",
+  "id": "rdtestgateproj6-d4d",
+  "msg_id": "a9b31918-00c6-4931-b99e-6ffba520b381",
+  "priority": "p2",
+  "title": "Refactor payment processor",
+  "type": "task"
+}
+
+Created item: rdtestgateproj6-d4d
+
+$ CF_HOME=$AGENT_CF rd update rdtestgateproj6-d4d --status active  (agent claims item)
+updated rdtestgateproj6-d4d
+
+$ CF_HOME=$AGENT_CF rd gate rdtestgateproj6-d4d --gate-type scope --description 'Scope too broad — touches 6 modules. Needs decomposition or explicit sign-off to proceed.' --json
+{
+  "campfire_id": "75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137",
+  "gate_type": "scope",
+  "id": "rdtestgateproj6-d4d",
+  "msg_id": "0ca137ba-51cc-4f54-ba44-9bf89cca67da"
+}
+
+$ CF_HOME=$HUMAN_CF rd gates  (human sees new gate)
+  rdtestgateproj6-d4d  p2        Scope too broad — touches 6 modul...  Refactor payment processor
+
+$ CF_HOME=$HUMAN_CF rd reject rdtestgateproj6-d4d --reason 'Split into smaller items first. One module per item.' --json
+{
+  "campfire_id": "75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137",
+  "id": "rdtestgateproj6-d4d",
+  "msg_id": "d22d3011-a11a-46f7-b376-cb0530d9b1c3",
+  "resolution": "rejected"
+}
+
+$ CF_HOME=$AGENT_CF rd show rdtestgateproj6-d4d  (item stays waiting after rejection — gate unresolved)
+ID:       rdtestgateproj6-d4d
+Title:    Refactor payment processor
+Status:   waiting
+Type:     task
+Priority: p2
+For:      b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9
+ETA:      2026-04-08T23:47:47Z (23h)
+Waiting on: Scope too broad — touches 6 modules. Needs decomposition or explicit sign-off to proceed. (gate)
+
+History:
+  [2026-04-07T23:47:47Z] inbox → inbox by b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9 — created
+  [2026-04-07T23:47:47Z] inbox → active by b7ca7e289fb8bd0931f92632a6babd7718d875bdfa4029aa0c69e4ea577984e9
+
+Campfire: 75895c75979ea2a3876b532254660f025e7395893848722dd490f9e5a5ee6137
+Msg ID:   a9b31918-00c6-4931-b99e-6ffba520b381
+
+$ CF_HOME=$AGENT_CF rd gates  (rejected item still in gates list)
+  rdtestgateproj6-d4d  p2        Scope too broad — touches 6 modul...  Refactor payment processor
+
+══════════════════════════════════════════════════════════════
+  Demo complete. Transcript saved to: /home/baron/projects/ready/test/demo/output/06-gate-escalation.txt
+══════════════════════════════════════════════════════════════
