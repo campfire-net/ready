@@ -6,6 +6,40 @@
 
 ---
 
+## 0. Source Material (Design Team: Read Before Analyzing)
+
+The following collateral is directly load-bearing for this design. Reviewing it is not optional — missing it risks inventing parallel solutions to problems that are already solved, or proposing architectures that conflict with existing commitments.
+
+### Campfire Protocol
+- `projects/campfire/pkg/naming/` — naming system implementation (resolution walk, TOFU, auto-join, FSWalkRoots, join policy)
+- `projects/campfire/pkg/convention/` — convention executor, dispatcher, Tier 1/2 dispatch, metering hook
+- `projects/campfire/pkg/provenance/` — provenance levels 0–3, attestation store, transitive verification
+- `projects/campfire/pkg/projection/` — `ProjectionMiddleware`, named filter projections, lazy delta + eager on-write, classifier
+- `projects/campfire/docs/design-named-filter-projections.md` — full projection design spec (396 lines)
+- `projects/campfire/CHANGELOG.md` — v0.14–v0.16 changes (walk-up opt-in, home dir, config cascade, super-identity, agent scoping)
+
+### Campfire Hosting (Convention Server Infrastructure)
+- `projects/campfire-hosting/docs/commercial-architecture.md` — hosted service + marketplace managed app, pricing tiers, key custody model
+- `projects/campfire-hosting/docs/design-hosted-deployment.md` — Azure architecture (ACA consumption, Table Storage, operator identity, metering)
+- `projects/campfire-hosting/CLAUDE.md` — project intent and constraints
+
+### Agentic Internet (Naming Authority + Trust Model)
+- `projects/agentic-internet/docs/design/design-locality.md` — **critical**: local naming authority equals global, beacon root configuration, cross-root peering mechanisms
+- `projects/agentic-internet/docs/conventions/naming-uri.md` — `cf://` URI scheme, dot-notation spec, resolution protocol
+- `projects/agentic-internet/docs/conventions/directory-service.md` — directory campfire structure, query protocol, discovery
+- `projects/agentic-internet/docs/conventions/trust.md` — local-first trust anchor, policy-as-campfire-membership, AIETF as canonical not authoritative
+- `projects/agentic-internet/docs/governance/aietf-charter.md` — AIETF org model, working groups, convention lifecycle
+- `projects/agentic-internet/docs/conventions/sysop-provenance.md` — sysop provenance convention
+
+### Ready (Current Implementation)
+- `projects/ready/cmd/rd/` — CLI implementation (root.go, send.go, init.go, register.go, gate.go)
+- `projects/ready/pkg/state/` — state derivation (message replay, item struct)
+- `projects/ready/pkg/declarations/ops/` — all 12 convention declarations (current v0.3)
+- `projects/ready/pkg/durability/` — durability assessment
+- `projects/ready/docs/convention/work-management.md` — convention spec v0.3
+
+---
+
 ## 1. Context and Problem Statement
 
 Ready is work management built on campfire — a decentralized coordination protocol. The core model is sound: work items are convention messages on an append-only campfire log; state is derived by replaying those messages. There is no separate database, no API server. The campfire is the backend.
@@ -74,6 +108,8 @@ acme.backend      ← same name used everywhere: in commands, config, item refer
 **Naming campfires are separate from project campfires.** The `acme` campfire stores registrations for its children (`backend`, `frontend`, etc.) — it is the nameserver for the `acme` namespace. The `acme.backend` project campfire is where `work:*` messages live. These are different campfires. They may coalesce (the same campfire can serve both purposes) but the default is separation. Ready does not own or create naming campfires — those are independent infrastructure.
 
 **Resolution is campfire traversal.** Resolving `acme.backend` means: read the root campfire for `acme` → get a campfire ID → read that campfire for `backend` → get another campfire ID → that is the project campfire. Each step reads from a campfire. To read from a campfire you must be a member. Auto-join fires at each level for open-protocol naming campfires. The campfire is simultaneously the namespace, the nameserver, and the communication channel.
+
+**Naming authority is local, not hierarchical.** There is no single global root that everyone must register with. Participation in any naming root — including AIETF's root registries — is a local decision. A local naming root is just as authoritative as a global one, for the agents and sysops that choose to use it. This mirrors DNS: you can run your own authoritative nameserver. AIETF operates root registries as infrastructure, not as gatekeepers. Multiple roots can peer via cross-registration (bilateral key agreement), directory federation (child-directory registration), or relay bridging. Ready must not assume a single global root exists or is reachable. The beacon root is configurable (`CF_BEACON_ROOT` or `--beacon-root`); the default AIETF root is one option among many. See `agentic-internet/docs/design/design-locality.md` and the AIETF charter for the full locality model.
 
 **`.campfire/root` is eliminated.** The campfire ID is cached locally in `.cf/config.toml` after first resolution. Users never touch it. Config that surfaces a campfire ID to a user is a bug.
 
@@ -174,7 +210,7 @@ Agents operating on behalf of a human inherit that human's authorization scope. 
 | Naming campfires as nameservers | Separate from project campfires; ready doesn't create them |
 | `invite-only` join protocol | Default for all project campfires |
 | Signed join grant | Issued by `rd approve`, consumed by `rd join` |
-| Convention Tier 2 (HTTP handler) | Convention server worker: authorization oracle |
+| Convention Tier 2 (HTTP handler) | Convention server worker: authorization oracle — see campfire-hosting for hosted deployment |
 | Convention fulfillment/rejection | Canonical authorization signal in append-only log |
 | `min_operator_level` | Provenance gate on consequential operations |
 | Membership roles | maintainer, contributor, agent, observer |
@@ -187,6 +223,9 @@ Agents operating on behalf of a human inherit that human's authorization scope. 
 | `WithWalkUp()` | Explicit opt-in for center campfire discovery (v0.15 change) |
 | Append-only log + state derivation | Griefing-resistant: bad messages in log, correct derived state |
 | JSONL local buffer | Offline-first; pending mutations sync on reconnect |
+| Named filter projections (`ProjectionMiddleware`) | Incremental materialized views on the message log — O(delta) reads, not O(full scan) |
+| Beacon locality model | Configurable beacon root; AIETF root is one option, not a requirement |
+| Directory service convention | Discovery campfires for cross-team/cross-org lookup |
 
 ---
 
@@ -272,4 +311,6 @@ Authorization and naming are coupled — you cannot safely open naming-based dis
 
 7. **Observer role and privacy.** An observer can read all items in a campfire. Is this the right default for org-level humans who need cross-team visibility? Or should there be item-level visibility controls — private items visible only to `for` and `by` persons? What does campfire's encryption model give us here (the campfire can be E2E encrypted with CEK delivery only to non-observer members)?
 
-8. **State derivation performance at scale.** State derivation replays every message in the log. For a project with years of history this becomes expensive. Compaction is the fix but requires the convention server to post snapshot messages that state derivation can use as a starting point. What is the compaction protocol — what does a snapshot message contain, who is authorized to post one, and how does a new member bootstrap from a snapshot?
+8. **Convention server hosting model.** The campfire-hosting project (`projects/campfire-hosting`) is building hosted convention server infrastructure — hosted service (mcp.getcampfire.dev, ACA consumption) and marketplace managed app (customer's Azure subscription). The design must integrate with this existing architecture rather than invent a parallel hosting model. Specifically: how does a ready project register its convention server with the hosted offering? How does metering work for convention server fulfillments? How does the free/starter/team/scale tier model apply to ready's authorization workload? See `campfire-hosting/docs/commercial-architecture.md` and `design-hosted-deployment.md`.
+
+9. **State derivation performance.** ~~Replay performance~~ This is already solved: campfire's `ProjectionMiddleware` (`pkg/projection/`) wraps the store and maintains incremental named filter projections. Reads are O(delta since last high-water mark), not O(full log). Class 1 predicates (tag, sender, field, timestamp) support eager on-write projection; Class 3 (fulfillment queries) fall back to lazy delta. Ready's `rd ready`, `rd work`, and `rd list` views map directly to named filter predicates and will benefit automatically once ready adopts `cf view`. The open question is not performance — it is **how ready's view predicates are declared as named filters**, and whether the convention server's fulfillment index is a Class 1 or Class 3 query for authorization lookups.
