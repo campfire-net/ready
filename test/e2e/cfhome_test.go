@@ -1,0 +1,122 @@
+package e2e_test
+
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// rdWithHome runs rd with PATH and HOME set to the given homeDir,
+// explicitly NOT setting CF_HOME (so CFHome() walks the default detection).
+func rdWithHome(t *testing.T, homeDir, workDir string, args ...string) (stdout, stderr string, exitCode int) {
+	t.Helper()
+	cmd := exec.Command(rdBinary, args...)
+	cmd.Dir = workDir
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + homeDir,
+		// Intentionally no CF_HOME — testing default detection.
+	}
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+	return outBuf.String(), errBuf.String(), exitCode
+}
+
+// cfInitInHome runs cf init targeting the given cfHomePath.
+// Uses the real HOME so the cf wrapper can find its cached binary.
+func cfInitInHome(t *testing.T, cfHomePath string) {
+	t.Helper()
+	cmd := exec.Command("cf", "init", "--cf-home", cfHomePath)
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"), // real HOME for cf wrapper binary cache
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("cf init in %s failed: %v\n%s", cfHomePath, err, out)
+	}
+}
+
+// TestE2E_CFHome_NewInstall_DotCf verifies that when ~/.cf exists (new install),
+// CFHome() resolves to ~/.cf and rd commands succeed without --cf-home.
+// This is done-condition 2 (DC2) of the Wave 1 CFHome migration.
+func TestE2E_CFHome_NewInstall_DotCf(t *testing.T) {
+	// Use a dedicated fake HOME so we don't pollute the test runner's ~/.cf.
+	fakeHome := t.TempDir()
+
+	// Create ~/.cf with a campfire identity.
+	newCFHome := filepath.Join(fakeHome, ".cf")
+	if err := os.MkdirAll(newCFHome, 0700); err != nil {
+		t.Fatalf("mkdir ~/.cf: %v", err)
+	}
+	cfInitInHome(t, newCFHome)
+
+	// Create a project dir with a .ready/ directory (JSONL-only project).
+	projectDir := t.TempDir()
+	readyDir := filepath.Join(projectDir, ".ready")
+	if err := os.MkdirAll(readyDir, 0700); err != nil {
+		t.Fatalf("mkdir .ready: %v", err)
+	}
+	// Write an empty mutations.jsonl.
+	if err := os.WriteFile(filepath.Join(readyDir, "mutations.jsonl"), nil, 0600); err != nil {
+		t.Fatalf("write mutations.jsonl: %v", err)
+	}
+
+	// rd list should succeed (exit 0) using ~/.cf as CFHome without --cf-home.
+	stdout, stderr, code := rdWithHome(t, fakeHome, projectDir, "list")
+	if code != 0 {
+		t.Fatalf("rd list failed (exit %d) with new-install ~/.cf:\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+
+	// Verify there's no error about missing identity / config.
+	if strings.Contains(stderr, "loading identity") || strings.Contains(stderr, "cannot determine home") {
+		t.Errorf("unexpected error in stderr: %s", stderr)
+	}
+}
+
+// TestE2E_CFHome_Legacy_DotCampfire verifies that when ~/.campfire exists (legacy),
+// CFHome() falls back to ~/.campfire and rd commands succeed without --cf-home.
+// This is done-condition 1 (DC1) of the Wave 1 CFHome migration.
+func TestE2E_CFHome_Legacy_DotCampfire(t *testing.T) {
+	// Use a dedicated fake HOME so we don't pollute the test runner's ~/.campfire.
+	fakeHome := t.TempDir()
+
+	// Create ~/.campfire (legacy path) with a campfire identity.
+	// Deliberately do NOT create ~/.cf — the fallback logic should detect ~/.campfire.
+	legacyCFHome := filepath.Join(fakeHome, ".campfire")
+	if err := os.MkdirAll(legacyCFHome, 0700); err != nil {
+		t.Fatalf("mkdir ~/.campfire: %v", err)
+	}
+	cfInitInHome(t, legacyCFHome)
+
+	// Create a project dir with a .ready/ directory (JSONL-only project).
+	projectDir := t.TempDir()
+	readyDir := filepath.Join(projectDir, ".ready")
+	if err := os.MkdirAll(readyDir, 0700); err != nil {
+		t.Fatalf("mkdir .ready: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(readyDir, "mutations.jsonl"), nil, 0600); err != nil {
+		t.Fatalf("write mutations.jsonl: %v", err)
+	}
+
+	// rd list should succeed (exit 0) using ~/.campfire as CFHome.
+	stdout, stderr, code := rdWithHome(t, fakeHome, projectDir, "list")
+	if code != 0 {
+		t.Fatalf("rd list failed (exit %d) with legacy ~/.campfire:\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+
+	// Verify no identity errors.
+	if strings.Contains(stderr, "loading identity") || strings.Contains(stderr, "cannot determine home") {
+		t.Errorf("unexpected error in stderr: %s", stderr)
+	}
+}
