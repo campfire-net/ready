@@ -158,14 +158,11 @@ DURABILITY
 
 		// --- Register project name in beacon root if configured ---
 
-		namingRegistered := false
 		if name != filepath.Base(cwd) || positionalName != "" {
 			// Name was explicitly provided (not just defaulted from directory).
 			// Attempt beacon registration if beacon root is configured.
 			if err := registerProjectName(client, name, campfireID, beaconRoot); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: could not register project name: %v\n", err)
-			} else {
-				namingRegistered = true
 			}
 		}
 
