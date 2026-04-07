@@ -1,17 +1,24 @@
 package main
 
-// admit_test.go — unit tests for the rd admit command routing logic.
+// admit_test.go — unit tests for the rd admit command routing logic and
+// the admitMemberWithRole SDK call path.
 //
 // The done conditions tested here:
 //  - --role org-observer targets SummaryCampfireID (not CampfireID)
 //  - --role org-observer fails with a clear error when SummaryCampfireID is empty
 //  - --role member targets CampfireID
 //  - unknown roles return errors
+//  - admitMemberWithRole calls client.Admit() with correct campfire + pubkey (ready-421)
+//  - admitMemberWithRole propagates GetMembership errors (ready-421)
+//  - admitMemberWithRole propagates Admit errors (ready-421)
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/campfire-net/campfire/pkg/protocol"
+	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/rdconfig"
 )
 
@@ -162,5 +169,91 @@ func TestAdmit_OrgObserver_NotMainCampfire_Confirms_Isolation(t *testing.T) {
 	// Core isolation invariant: the two campfires must be different.
 	if memberTarget == observerTarget {
 		t.Errorf("isolation violation: member and org-observer target the same campfire %q", memberTarget)
+	}
+}
+
+// TestAdmitMemberWithRole_CallsClientAdmit verifies that admitMemberWithRole
+// calls client.Admit() with the correct campfire ID and pubkey when
+// GetMembership succeeds. This is the core SDK integration path.
+func TestAdmitMemberWithRole_CallsClientAdmit(t *testing.T) {
+	campfireID := pubkeyHex("cc")
+	pubKeyHex := pubkeyHex("dd")
+	transportDir := "/tmp/campfire-transport"
+
+	fake := &fakeAdmitClient{
+		membership: &store.Membership{
+			CampfireID:   campfireID,
+			TransportDir: transportDir,
+		},
+	}
+
+	err := admitMemberWithRole(fake, campfireID, pubKeyHex, "member", "main campfire")
+	if err != nil {
+		t.Fatalf("admitMemberWithRole: unexpected error: %v", err)
+	}
+
+	// Verify Admit was called exactly once with the right args.
+	if len(fake.admitCalls) != 1 {
+		t.Fatalf("Admit called %d times, want 1", len(fake.admitCalls))
+	}
+	req := fake.admitCalls[0]
+	if req.CampfireID != campfireID {
+		t.Errorf("Admit CampfireID = %q, want %q", req.CampfireID, campfireID)
+	}
+	if req.MemberPubKeyHex != pubKeyHex {
+		t.Errorf("Admit MemberPubKeyHex = %q, want %q", req.MemberPubKeyHex, pubKeyHex)
+	}
+	if req.Role != "member" {
+		t.Errorf("Admit Role = %q, want %q", req.Role, "member")
+	}
+	if req.Transport.(protocol.FilesystemTransport).Dir != transportDir {
+		t.Errorf("Admit Transport.Dir = %q, want %q",
+			req.Transport.(protocol.FilesystemTransport).Dir, transportDir)
+	}
+}
+
+// TestAdmitMemberWithRole_GetMembershipError verifies that admitMemberWithRole
+// returns an error without calling Admit when GetMembership fails.
+func TestAdmitMemberWithRole_GetMembershipError(t *testing.T) {
+	campfireID := pubkeyHex("cc")
+	pubKeyHex := pubkeyHex("dd")
+
+	fake := &fakeAdmitClient{
+		membershipErr: fmt.Errorf("not a member of this campfire"),
+	}
+
+	err := admitMemberWithRole(fake, campfireID, pubKeyHex, "member", "main campfire")
+	if err == nil {
+		t.Fatal("expected error from GetMembership, got nil")
+	}
+	if !strings.Contains(err.Error(), "getting main campfire membership") {
+		t.Errorf("error should mention 'getting main campfire membership', got: %v", err)
+	}
+	// Admit must NOT have been called.
+	if len(fake.admitCalls) != 0 {
+		t.Errorf("Admit should not be called on GetMembership error, got %d calls", len(fake.admitCalls))
+	}
+}
+
+// TestAdmitMemberWithRole_AdmitError verifies that admitMemberWithRole returns
+// an error when client.Admit() fails.
+func TestAdmitMemberWithRole_AdmitError(t *testing.T) {
+	campfireID := pubkeyHex("cc")
+	pubKeyHex := pubkeyHex("dd")
+
+	fake := &fakeAdmitClient{
+		membership: &store.Membership{
+			CampfireID:   campfireID,
+			TransportDir: "/tmp/campfire-transport",
+		},
+		admitErr: fmt.Errorf("permission denied"),
+	}
+
+	err := admitMemberWithRole(fake, campfireID, pubKeyHex, "member", "main campfire")
+	if err == nil {
+		t.Fatal("expected error from Admit, got nil")
+	}
+	if !strings.Contains(err.Error(), "admitting to main campfire") {
+		t.Errorf("error should mention 'admitting to main campfire', got: %v", err)
 	}
 }

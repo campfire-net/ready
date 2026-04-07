@@ -3,13 +3,16 @@ package main
 // revoke_test.go — unit tests for rd revoke helpers.
 //
 // Done conditions tested:
-//   - findMembersAdmittedBy filters by sender and excludes revocations
-//   - Payload extraction: valid JSON, missing role, revocation role all handled
+//   - findMembersAdmittedBy filters by sender and excludes revocations (payload parsing)
+//   - findMembersAdmittedBy calls real function against fake client (ready-421)
 //   - pubkey format detection: isHex used for routing
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
+
+	"github.com/campfire-net/campfire/pkg/protocol"
 )
 
 // TestFindMembersAdmittedBy_PayloadParsing verifies that the JSON payload
@@ -119,5 +122,89 @@ func TestRevoke_PubkeyDetection(t *testing.T) {
 		if isPubkey != tc.isPubkeyArg {
 			t.Errorf("input %q: isPubkey = %v, want %v", tc.input, isPubkey, tc.isPubkeyArg)
 		}
+	}
+}
+
+// TestFindMembersAdmittedBy_RealFunctionCallsClient verifies that
+// findMembersAdmittedBy calls the real production function with the fake
+// client and returns the set of admitted pubkeys (excluding revocations and
+// missing pubkeys).
+//
+// This replaces the earlier no-op test that only checked JSON parsing.
+func TestFindMembersAdmittedBy_RealFunctionCallsClient(t *testing.T) {
+	memberKey := pubkeyHex("aa")
+	agentKey := pubkeyHex("bb")
+	revokedKey := pubkeyHex("cc")
+	campfire := pubkeyHex("dd")
+	senderKey := pubkeyHex("ee")
+
+	fake := &fakeReadClient{
+		messages: []protocol.Message{
+			makeGrantMsg("msg-member", memberKey, "member"),
+			makeGrantMsg("msg-agent", agentKey, "agent"),
+			makeGrantMsg("msg-revoked", revokedKey, "revoked"), // should be excluded
+			{ID: "msg-nopubkey", Payload: []byte(`{"role":"member"}`), Tags: []string{"work:role-grant"}}, // excluded
+		},
+	}
+
+	admitted, err := findMembersAdmittedBy(fake, campfire, senderKey)
+	if err != nil {
+		t.Fatalf("findMembersAdmittedBy: unexpected error: %v", err)
+	}
+
+	// Build a set for easy lookup.
+	admittedSet := map[string]bool{}
+	for _, k := range admitted {
+		admittedSet[k] = true
+	}
+
+	if !admittedSet[memberKey] {
+		t.Errorf("member key %q...: should be in admitted list", memberKey[:12])
+	}
+	if !admittedSet[agentKey] {
+		t.Errorf("agent key %q...: should be in admitted list", agentKey[:12])
+	}
+	if admittedSet[revokedKey] {
+		t.Errorf("revoked key %q...: must NOT be in admitted list", revokedKey[:12])
+	}
+	if len(admitted) != 2 {
+		t.Errorf("admitted count = %d, want 2", len(admitted))
+	}
+}
+
+// TestFindMembersAdmittedBy_ClientError verifies that findMembersAdmittedBy
+// propagates errors from the campfire client.
+func TestFindMembersAdmittedBy_ClientError(t *testing.T) {
+	campfire := pubkeyHex("dd")
+	senderKey := pubkeyHex("ee")
+
+	fake := &fakeReadClient{err: fmt.Errorf("network error")}
+
+	_, err := findMembersAdmittedBy(fake, campfire, senderKey)
+	if err == nil {
+		t.Fatal("expected error from client, got nil")
+	}
+}
+
+// TestFindMembersAdmittedBy_Deduplication verifies that when the same pubkey
+// appears in multiple grants, it is returned only once.
+func TestFindMembersAdmittedBy_Deduplication(t *testing.T) {
+	memberKey := pubkeyHex("aa")
+	campfire := pubkeyHex("dd")
+	senderKey := pubkeyHex("ee")
+
+	fake := &fakeReadClient{
+		messages: []protocol.Message{
+			makeGrantMsg("msg-1", memberKey, "member"),
+			makeGrantMsg("msg-2", memberKey, "agent"), // same key, different role
+		},
+	}
+
+	admitted, err := findMembersAdmittedBy(fake, campfire, senderKey)
+	if err != nil {
+		t.Fatalf("findMembersAdmittedBy dedup: unexpected error: %v", err)
+	}
+	if len(admitted) != 1 {
+		t.Errorf("admitted count = %d, want 1 (deduplication)", len(admitted))
 	}
 }

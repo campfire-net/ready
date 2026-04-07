@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/protocol"
+	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
 
 	"github.com/campfire-net/ready/pkg/rdconfig"
@@ -259,14 +260,21 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 }
 
 
+// campfireAdmitter is the subset of protocol.Client used by admitMemberWithRole.
+// Defined here so tests can inject a fake.
+type campfireAdmitter interface {
+	GetMembership(campfireID string) (*store.Membership, error)
+	Admit(req protocol.AdmitRequest) error
+}
+
 // admitMember admits the given public key to the campfire identified by campfireID.
 // It looks up the transport dir from the client's membership store.
-func admitMember(client *protocol.Client, campfireID, pubKeyHex, label string) error {
+func admitMember(client campfireAdmitter, campfireID, pubKeyHex, label string) error {
 	return admitMemberWithRole(client, campfireID, pubKeyHex, "", label)
 }
 
 // admitMemberWithRole admits the given public key with the specified role.
-func admitMemberWithRole(client *protocol.Client, campfireID, pubKeyHex, role, label string) error {
+func admitMemberWithRole(client campfireAdmitter, campfireID, pubKeyHex, role, label string) error {
 	m, err := client.GetMembership(campfireID)
 	if err != nil {
 		return fmt.Errorf("getting %s membership: %w — are you a member of this campfire?", label, err)

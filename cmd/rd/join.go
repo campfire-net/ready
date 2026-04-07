@@ -274,9 +274,15 @@ func resolveName(client *protocol.Client, input string) (string, error) {
 	return resolved, nil
 }
 
+// campfireReader is the subset of protocol.Client used by pollForRoleGrant
+// and findMembersAdmittedBy. Defined here so tests can inject a fake.
+type campfireReader interface {
+	Read(req protocol.ReadRequest) (*protocol.ReadResult, error)
+}
+
 // pollForRoleGrant polls the campfire for a work:role-grant message targeting
 // myPubKey, returning the message ID when found, or an error on timeout.
-func pollForRoleGrant(client *protocol.Client, campfireID, myPubKey string, timeout time.Duration) (string, error) {
+func pollForRoleGrant(client campfireReader, campfireID, myPubKey string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	interval := 3 * time.Second
 

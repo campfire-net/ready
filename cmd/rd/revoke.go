@@ -124,7 +124,7 @@ EXAMPLES
 // findMembersAdmittedBy reads the campfire message log and returns the set of
 // pubkeys that were granted roles (via work:role-grant) by the given senderKey.
 // Only non-revocation grants are returned — this finds who the revokedKey admitted.
-func findMembersAdmittedBy(client *protocol.Client, campfireID, senderKey string) ([]string, error) {
+func findMembersAdmittedBy(client campfireReader, campfireID, senderKey string) ([]string, error) {
 	result, err := client.Read(protocol.ReadRequest{
 		CampfireID: campfireID,
 		Tags:       []string{"work:role-grant"},

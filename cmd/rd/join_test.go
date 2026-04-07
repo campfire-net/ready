@@ -6,8 +6,10 @@ package main
 //   - isHex rejects non-hex strings and accepts valid hex
 //   - containsTag finds present tags and misses absent ones
 //   - grantTargets matches correct pubkey in payload
-//   - pollForRoleGrant timeout returns error (rate-limit / no-server path)
-//   - TOFU beacon root: all five paths (ready-c3a)
+//   - pollForRoleGrant: returns msg ID when fake client returns a matching message (ready-421)
+//   - pollForRoleGrant: times out when no matching message arrives (ready-421)
+//   - resolveName: returns hex ID unchanged when input is already 64-char hex (ready-421)
+//   - TOFU beacon root: all five paths via applyBeaconRootTOFU / resetBeaconRoot (ready-c3a)
 
 import (
 	"encoding/json"
@@ -100,43 +102,110 @@ func TestGrantTargets(t *testing.T) {
 	}
 }
 
-// TestPollForRoleGrant_Timeout verifies that pollForRoleGrant returns an error
-// when no matching message is found within the timeout. This is the rate-limit
-// rejection path: caller has no campfire membership, so Read returns an error,
-// and the poller times out.
-//
-// We use a nil client and a very short timeout to ensure the timeout fires.
-// The Read call will fail (nil client), simulating the no-admission path.
-func TestPollForRoleGrant_Timeout(t *testing.T) {
-	// Use a nil client — Read will panic or error; we recover via the timeout path.
-	// Actually we need a real client for this to not panic. Instead, test via
-	// the timeout logic with a client we know won't have any messages.
-	// We rely on the time.Sleep loop structure: with a 50ms timeout and 3s interval,
-	// the interval is clipped to remaining time and the function returns after one try.
+// TestPollForRoleGrant_FoundViaTag verifies that pollForRoleGrant returns the
+// message ID immediately when the fake client returns a message tagged with
+// "work:for:<pubkey>". This exercises the containsTag path.
+func TestPollForRoleGrant_FoundViaTag(t *testing.T) {
+	myPubKey := pubkeyHex("ab")
+	campfire := pubkeyHex("cc")
+	msgID := "grant-msg-0001"
 
-	// Create a dummy test: verify the timeout error message format.
-	timeout := 50 * time.Millisecond
-	// We can't call pollForRoleGrant with a nil client safely, so we just
-	// verify that the function signature and compilation are correct.
-	// Real integration testing requires a campfire with known state.
-	_ = timeout
-	t.Log("pollForRoleGrant timeout path verified via build check")
+	fake := &fakeReadClient{
+		messages: []protocol.Message{
+			makeGrantMsgForTag(msgID, myPubKey, "member"),
+		},
+	}
+
+	got, err := pollForRoleGrant(fake, campfire, myPubKey, 5*time.Second)
+	if err != nil {
+		t.Fatalf("pollForRoleGrant: unexpected error: %v", err)
+	}
+	if got != msgID {
+		t.Errorf("pollForRoleGrant returned msg ID %q, want %q", got, msgID)
+	}
 }
 
-// TestResolveName_DirectHex verifies that resolveName returns raw hex IDs unchanged
-// (no network call) — tested by checking the code path, not the function itself
-// since it requires a client.
+// TestPollForRoleGrant_FoundViaPayload verifies that pollForRoleGrant returns
+// the message ID when the payload contains the matching pubkey and role
+// (via grantTargets), even without a "work:for:<pubkey>" tag.
+func TestPollForRoleGrant_FoundViaPayload(t *testing.T) {
+	myPubKey := pubkeyHex("ab")
+	campfire := pubkeyHex("cc")
+	msgID := "grant-msg-0002"
+
+	fake := &fakeReadClient{
+		messages: []protocol.Message{
+			makeGrantMsg(msgID, myPubKey, "member"),
+		},
+	}
+
+	got, err := pollForRoleGrant(fake, campfire, myPubKey, 5*time.Second)
+	if err != nil {
+		t.Fatalf("pollForRoleGrant via payload: unexpected error: %v", err)
+	}
+	if got != msgID {
+		t.Errorf("pollForRoleGrant returned msg ID %q, want %q", got, msgID)
+	}
+}
+
+// TestPollForRoleGrant_Timeout verifies that pollForRoleGrant returns an error
+// after the timeout when the fake client returns no matching messages.
+func TestPollForRoleGrant_Timeout(t *testing.T) {
+	myPubKey := pubkeyHex("ab")
+	campfire := pubkeyHex("cc")
+
+	// Fake returns a message for a different pubkey — never matches.
+	otherKey := pubkeyHex("11")
+	fake := &fakeReadClient{
+		messages: []protocol.Message{
+			makeGrantMsg("grant-other", otherKey, "member"),
+		},
+	}
+
+	timeout := 50 * time.Millisecond
+	_, err := pollForRoleGrant(fake, campfire, myPubKey, timeout)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("expected 'timed out' in error, got: %v", err)
+	}
+}
+
+// TestResolveName_DirectHex verifies that resolveName returns a 64-char hex
+// campfire ID unchanged — no client call is made for this path.
+//
+// We call the real resolveName function using a real (temp-dir) client so the
+// test actually exercises production code, not just code inspection.
 func TestResolveName_DirectHex(t *testing.T) {
-	// isHex + len check is the guard. Verify 64-char hex strings are passthrough.
+	// Set up a temp client dir so requireClient() / CFHome() use isolated state.
+	dir := t.TempDir()
+	origRDHome := rdHome
+	rdHome = dir
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	client, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient: %v", err)
+	}
+
 	hexID := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
-	if len(hexID) != 64 {
-		t.Fatalf("test hex ID should be 64 chars, got %d", len(hexID))
+	got, err := resolveName(client, hexID)
+	if err != nil {
+		t.Fatalf("resolveName direct hex: unexpected error: %v", err)
 	}
-	if !isHex(hexID) {
-		t.Error("test hex ID should pass isHex check")
+	if got != hexID {
+		t.Errorf("resolveName(%q) = %q, want same value", hexID, got)
 	}
-	// The resolveName function returns it unchanged — verified by code inspection.
-	t.Log("64-char hex passthrough path verified")
 }
 
 // cfHomeTempDir creates a temp dir and sets rdHome so CFHome() returns it.
