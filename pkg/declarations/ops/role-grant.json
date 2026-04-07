@@ -1,0 +1,18 @@
+{
+  "convention": "work",
+  "version": "0.3",
+  "operation": "role-grant",
+  "description": "Grant a role to an operator",
+  "args": [
+    {"name": "pubkey", "type": "string", "required": true, "max_length": 128},
+    {"name": "role", "type": "string", "required": true, "max_length": 64},
+    {"name": "granted_at", "type": "string", "required": true, "max_length": 32},
+    {"name": "expires_at", "type": "string", "max_length": 32}
+  ],
+  "produces_tags": [
+    {"tag": "work:role-grant", "cardinality": "exactly_one"}
+  ],
+  "antecedents": "none",
+  "signing": "member_key",
+  "min_operator_level": 2
+}

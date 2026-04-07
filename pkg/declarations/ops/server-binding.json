@@ -1,0 +1,19 @@
+{
+  "convention": "convention",
+  "version": "0.3",
+  "operation": "server-binding",
+  "description": "Register a server operator binding for a convention operation",
+  "args": [
+    {"name": "convention", "type": "string", "required": true, "max_length": 64, "pattern": "^[a-z]+:[a-z-]+$"},
+    {"name": "operation", "type": "string", "required": true, "max_length": 64, "pattern": "^[a-z-]+$"},
+    {"name": "server_pubkey", "type": "string", "required": true, "max_length": 128},
+    {"name": "valid_from", "type": "string", "required": true, "max_length": 32},
+    {"name": "valid_until", "type": "string", "max_length": 32}
+  ],
+  "produces_tags": [
+    {"tag": "convention:server-binding", "cardinality": "exactly_one"},
+    {"tag": "convention:server-binding/at_most_one_per_op", "cardinality": "at_most_one"}
+  ],
+  "antecedents": "none",
+  "signing": "campfire_key"
+}

@@ -13,5 +13,6 @@
     {"tag": "work:gate-type:*", "cardinality": "exactly_one"}
   ],
   "antecedents": "exactly_one(target)",
-  "signing": "member_key"
+  "signing": "member_key",
+  "min_operator_level": 1
 }
