@@ -110,7 +110,7 @@ func resolveSingle(parsed *state.CrossCampfireRef, memberMap map[string]map[stri
 	// Check membership.
 	items, isMember := memberMap[campfireID]
 	if !isMember {
-		dep.Warning = fmt.Sprintf("unresolved cross-campfire dep: %s (not a member of campfire %s)", parsed.Raw, campfireID[:12]+"...")
+		dep.Warning = fmt.Sprintf("unresolved cross-campfire dep: %s (not a member of campfire %s)", parsed.Raw, shortID(campfireID))
 		return dep
 	}
 
@@ -128,13 +128,13 @@ func resolveSingle(parsed *state.CrossCampfireRef, memberMap map[string]map[stri
 			item = matches[0]
 			ok = true
 		} else if len(matches) > 1 {
-			dep.Warning = fmt.Sprintf("ambiguous cross-campfire dep: %s (multiple matches in campfire %s)", parsed.Raw, campfireID[:12]+"...")
+			dep.Warning = fmt.Sprintf("ambiguous cross-campfire dep: %s (multiple matches in campfire %s)", parsed.Raw, shortID(campfireID))
 			return dep
 		}
 	}
 
 	if !ok {
-		dep.Warning = fmt.Sprintf("unresolved cross-campfire dep: %s (item %q not found in campfire %s)", parsed.Raw, parsed.ItemID, campfireID[:12]+"...")
+		dep.Warning = fmt.Sprintf("unresolved cross-campfire dep: %s (item %q not found in campfire %s)", parsed.Raw, parsed.ItemID, shortID(campfireID))
 		return dep
 	}
 
@@ -155,4 +155,13 @@ func extractRef(warn string) string {
 		return rest[:idx]
 	}
 	return rest
+}
+
+// shortID returns the first 12 characters of a campfire ID for display, or
+// the full string if shorter than 12 chars.
+func shortID(id string) string {
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12] + "..."
 }

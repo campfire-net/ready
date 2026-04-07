@@ -71,6 +71,11 @@ EXAMPLES
 
 // admitByPubKey admits a raw hex public key — the original Wave 2 flow.
 func admitByPubKey(pubKeyHex, role string) error {
+	// Validate pubkey format before doing anything.
+	if len(pubKeyHex) != 64 || !isHex(pubKeyHex) {
+		return fmt.Errorf("invalid pubkey %q: must be a 64-character hex string", pubKeyHex)
+	}
+
 	// Load project config.
 	projectDir, ok := readyProjectDir()
 	if !ok {

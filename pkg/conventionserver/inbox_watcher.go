@@ -52,6 +52,8 @@ func (w *inboxWatcher) run(ctx context.Context) {
 
 // poll reads new join-request messages from the inbox campfire and materializes
 // work:join-request items in the project campfire.
+// Note: protocol.Client.Read does not accept a context; cancellation relies on
+// the caller's timer loop checking ctx.Done() between polls.
 func (w *inboxWatcher) poll(_ context.Context) {
 	result, err := w.client.Read(protocol.ReadRequest{
 		CampfireID:     w.inboxCampfire,
@@ -89,6 +91,12 @@ func (w *inboxWatcher) handleJoinRequest(msg protocol.Message) error {
 	var payload JoinRequestPayload
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		return fmt.Errorf("inbox_watcher: parsing join-request payload: %w", err)
+	}
+
+	// Validate pubkey format — must be a 64-char hex string.
+	// Reject malformed pubkeys before materializing them into the project campfire.
+	if len(payload.Pubkey) != 64 || !isHexString(payload.Pubkey) {
+		return fmt.Errorf("inbox_watcher: join-request has invalid pubkey format %q (from sender %s)", payload.Pubkey, shortKey(msg.Sender))
 	}
 
 	// Materialize a work:join-request item in the project campfire.
@@ -174,5 +182,15 @@ func (r *joinRateLimiter) Allow(pubkey string) bool {
 	}
 
 	r.buckets[pubkey] = append(fresh, now)
+	return true
+}
+
+// isHexString returns true if s consists entirely of lowercase hex characters.
+func isHexString(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
 	return true
 }
