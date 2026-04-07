@@ -1,0 +1,19 @@
+{
+  "convention": "work",
+  "version": "0.3",
+  "operation": "join-request",
+  "description": "Request to join a campfire — forwarded to the maintainer's inbox for approval",
+  "min_operator_level": 0,
+  "args": [
+    {"name": "pubkey", "type": "string", "required": true, "max_length": 128},
+    {"name": "requested_role", "type": "string", "required": true, "max_length": 64},
+    {"name": "optional_attestations", "type": "string", "max_length": 4096},
+    {"name": "optional_join_conversation_campfire", "type": "string", "max_length": 128}
+  ],
+  "produces_tags": [
+    {"tag": "work:join-request", "cardinality": "exactly_one"}
+  ],
+  "antecedents": "none",
+  "signing": "member_key",
+  "rate_limit": {"max": 10, "per": "sender", "window": "1h"}
+}

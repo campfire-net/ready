@@ -162,6 +162,28 @@ DURABILITY
 			nDecls++
 		}
 
+		// --- Create the maintainer inbox campfire ---
+
+		inboxClient, err := requireClient()
+		if err != nil {
+			return fmt.Errorf("initializing client for inbox campfire: %w", err)
+		}
+		inboxCampfireID, err := createLocalCampfire(inboxClient, "", "invite-only", []string{"work:join-request"}, name+" maintainer inbox")
+		if err != nil {
+			return fmt.Errorf("creating inbox campfire: %w", err)
+		}
+
+		// --- Write join-policy.json to campfire home ---
+
+		jp := &naming.JoinPolicy{
+			JoinPolicy:      "consult",
+			ConsultCampfire: inboxCampfireID,
+			JoinRoot:        campfireID,
+		}
+		if saveErr := naming.SaveJoinPolicy(CFHome(), jp); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not write join-policy.json: %v\n", saveErr)
+		}
+
 		// --- Evaluate durability and store sync config ---
 
 		syncCfg, durabilityWarnings, err := evaluateCampfireDurability(campfireID, confirm)
@@ -186,6 +208,7 @@ DURABILITY
 		syncCfg.ProjectName = name
 		syncCfg.SummaryCampfireID = summaryCampfireID
 		syncCfg.Encrypted = true
+		syncCfg.InboxCampfireID = inboxCampfireID
 		if saveErr := rdconfig.SaveSyncConfig(cwd, syncCfg); saveErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not save sync config: %v\n", saveErr)
 		}
@@ -202,6 +225,7 @@ DURABILITY
 			out := map[string]interface{}{
 				"campfire_id":         campfireID,
 				"summary_campfire_id": summaryCampfireID,
+				"inbox_campfire_id":   inboxCampfireID,
 				"encrypted":           true,
 				"name":                name,
 				"declarations":        nDecls,
@@ -220,6 +244,7 @@ DURABILITY
 		fmt.Printf("initialized %s\n", name)
 		fmt.Printf("  campfire: %s\n", campfireID[:12]+"...")
 		fmt.Printf("  summary campfire: %s\n", summaryCampfireID[:12]+"...")
+		fmt.Printf("  inbox campfire: %s\n", inboxCampfireID[:12]+"...")
 		fmt.Printf("  encrypted: true (E2E intent set; SDK encryption enabled when available)\n")
 		fmt.Printf("  declarations: %d operations published\n", nDecls)
 		if len(durabilityWarnings) > 0 {

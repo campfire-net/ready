@@ -70,6 +70,15 @@ type Server struct {
 	// receives work:item-summary projections on every consequential operation.
 	summaryCampfireID string
 
+	// inboxCampfireID, when non-empty, is the maintainer inbox campfire that
+	// receives incoming join-request messages. The server watches this campfire
+	// and materializes work:join-request items in the project campfire.
+	inboxCampfireID string
+
+	// joinRateLimit is the max join requests per hour per source pubkey.
+	// Defaults to 10.
+	joinRateLimit int
+
 	// ephemeral signing key — generated fresh per rd invocation, not persisted.
 	pubKey  ed25519.PublicKey
 	privKey ed25519.PrivateKey
@@ -102,6 +111,19 @@ func WithSummaryCampfireID(id string) ServerOption {
 	return func(s *Server) { s.summaryCampfireID = id }
 }
 
+// WithInboxCampfireID configures the maintainer inbox campfire. When set, the
+// server watches this campfire for incoming work:join-request messages and
+// materializes them as work:join-request items in the project campfire.
+func WithInboxCampfireID(id string) ServerOption {
+	return func(s *Server) { s.inboxCampfireID = id }
+}
+
+// WithJoinRateLimit sets the maximum number of join requests per hour per
+// source pubkey. Defaults to 10.
+func WithJoinRateLimit(n int) ServerOption {
+	return func(s *Server) { s.joinRateLimit = n }
+}
+
 // New creates an in-process convention Server for the given campfire.
 // It generates an ephemeral ed25519 key pair for signing server-binding messages.
 // The key is tied to the process lifetime — each rd invocation gets a fresh key.
@@ -112,11 +134,12 @@ func New(client *protocol.Client, campfireID string, opts ...ServerOption) (*Ser
 	}
 
 	s := &Server{
-		client:       client,
-		campfireID:   campfireID,
-		pubKey:       pub,
-		privKey:      priv,
-		pollInterval: 200 * time.Millisecond,
+		client:        client,
+		campfireID:    campfireID,
+		pubKey:        pub,
+		privKey:       priv,
+		pollInterval:  200 * time.Millisecond,
+		joinRateLimit: 10,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -131,6 +154,7 @@ func (s *Server) PubKeyHex() string {
 
 // Start launches one goroutine per operation to serve incoming messages.
 // It also ensures a convention:server-binding message exists for this server.
+// If an inbox campfire is configured, starts the inbox watcher goroutine.
 // The goroutines run until ctx is cancelled.
 func (s *Server) Start(ctx context.Context) {
 	// Ensure server-binding exists before starting workers.
@@ -151,6 +175,18 @@ func (s *Server) Start(ctx context.Context) {
 				_ = err
 			}
 		}()
+	}
+
+	// Start inbox watcher if an inbox campfire is configured.
+	if s.inboxCampfireID != "" {
+		w := &inboxWatcher{
+			client:          s.client,
+			inboxCampfire:   s.inboxCampfireID,
+			projectCampfire: s.campfireID,
+			pollInterval:    30 * time.Second,
+			rateLimit:       newJoinRateLimiter(s.joinRateLimit),
+		}
+		go w.run(ctx)
 	}
 
 	// Wait for all goroutines to exit when ctx is cancelled.

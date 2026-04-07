@@ -101,6 +101,12 @@ type SyncConfig struct {
 	// depending on the SDK version; this field records the intent.
 	Encrypted bool `json:"encrypted,omitempty"`
 
+	// InboxCampfireID is the hex campfire ID of the maintainer inbox campfire.
+	// When set, the convention server watches this campfire for incoming
+	// join-request messages and materializes work:join-request items in the
+	// project campfire.
+	InboxCampfireID string `json:"inbox_campfire_id,omitempty"`
+
 	// Durability is the durability assessment at configuration time.
 	Durability *DurabilityAssessment `json:"durability,omitempty"`
 }
