@@ -40,6 +40,17 @@ var depAddCmd = &cobra.Command{
 		blockedArg := args[0]
 		blockerArg := args[1]
 
+		// Detect cross-campfire refs and reject them with a clear error.
+		// Cross-project deps (e.g. "acme.frontend.item-abc") are not supported
+		// by rd dep add/remove. Use rd join to establish cross-campfire membership
+		// and rely on cross-campfire warning resolution instead.
+		if state.IsCrossCampfireRef(blockedArg) {
+			return fmt.Errorf("cross-project deps not supported: %q looks like a cross-campfire reference (use rd join to establish membership)", blockedArg)
+		}
+		if state.IsCrossCampfireRef(blockerArg) {
+			return fmt.Errorf("cross-project deps not supported: %q looks like a cross-campfire reference (use rd join to establish membership)", blockerArg)
+		}
+
 		agentID, s, err := requireAgentAndStore()
 		if err != nil {
 			return err
