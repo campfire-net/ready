@@ -71,10 +71,11 @@ func findModuleRoot() (string, error) {
 
 // Env holds a fully isolated e2e environment per test.
 type Env struct {
-	CFHome     string // campfire home dir (identity + store)
-	CampfireID string // the project campfire ID
-	ProjectDir string // temp dir with .campfire/root
-	t          *testing.T
+	CFHome       string // campfire home dir (identity + store)
+	CampfireID   string // the project campfire ID
+	TransportDir string // filesystem transport directory for the campfire (from cf create --json)
+	ProjectDir   string // temp dir with .campfire/root
+	t            *testing.T
 }
 
 var (
@@ -112,10 +113,16 @@ func NewEnv(t *testing.T) *Env {
 		t.Fatalf("cf create failed: %v\n%s", err, out)
 	}
 
-	var result struct {
-		CampfireID string `json:"campfire_id"`
+	// cf 0.16+ prints "Wrote <path>" before the JSON object; find the first '{'.
+	jsonStart := bytes.IndexByte(out, '{')
+	if jsonStart < 0 {
+		t.Fatalf("cf create: no JSON object in output: %s", out)
 	}
-	if err := json.Unmarshal(out, &result); err != nil {
+	var result struct {
+		CampfireID   string `json:"campfire_id"`
+		TransportDir string `json:"transport_dir"`
+	}
+	if err := json.Unmarshal(out[jsonStart:], &result); err != nil {
 		t.Fatalf("cf create JSON parse failed: %v\noutput: %s", err, out)
 	}
 	if result.CampfireID == "" {
@@ -133,10 +140,11 @@ func NewEnv(t *testing.T) *Env {
 	}
 
 	return &Env{
-		CFHome:     cfHome,
-		CampfireID: result.CampfireID,
-		ProjectDir: projectDir,
-		t:          t,
+		CFHome:       cfHome,
+		CampfireID:   result.CampfireID,
+		TransportDir: result.TransportDir,
+		ProjectDir:   projectDir,
+		t:            t,
 	}
 }
 

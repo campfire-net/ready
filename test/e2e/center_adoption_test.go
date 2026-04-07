@@ -11,6 +11,7 @@ package e2e_test
 // in a different project dir (same cfHome) also succeeds when a center is present.
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -43,10 +44,15 @@ func setupCenterCampfireForTest(t *testing.T, cfHome string) string {
 		t.Fatalf("cf create (center): %v\n%s", err, out)
 	}
 
+	// cf 0.16+ prints "Wrote <path>" before the JSON object; find the first '{'.
+	jsonStart := bytes.IndexByte(out, '{')
+	if jsonStart < 0 {
+		t.Fatalf("cf create: no JSON object in output: %s", out)
+	}
 	var result struct {
 		CampfireID string `json:"campfire_id"`
 	}
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := json.Unmarshal(out[jsonStart:], &result); err != nil {
 		t.Fatalf("cf create JSON parse: %v\noutput: %s", err, out)
 	}
 	if result.CampfireID == "" {
