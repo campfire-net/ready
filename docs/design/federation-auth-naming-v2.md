@@ -351,17 +351,56 @@ Cross-campfire dependencies are valuable but require either (a) the dependent cl
 - State derivation treats unresolvable cross-campfire deps as **non-blocking** with an explicit warning in `rd show`. Items are not silently blocked nor silently unblocked; the user sees that the dependency is cross-campfire and unresolvable from their membership.
 - When the user is a member of both campfires, resolution works automatically via local replay.
 
-### 6.2 Observer Role and E2E Encryption (A10)
+### 6.2 Observer Role and E2E Encryption (A10 — revised)
 
-**v1 had observers + E2E encryption in fundamental tension.** A late-joining observer cannot decrypt historical messages encrypted under CEKs they never received.
+**Threat model being defended against:** The campfire-hosting provider (Azure ACA) can read unencrypted messages at rest. Work items may contain sensitive context — API keys, security findings, confidential specs. Membership controls who can write; encryption controls who can read, including the host. The v2 synthesis incorrectly resolved A10 as "observers win, no E2E." That resolution is rejected.
 
-**Decision: project campfires are NOT E2E encrypted by default.** Privacy of work items is enforced by membership and roles, not encryption. Observer = member with read-only role; can read everything in the log from before and after their admission.
+**What the campfire encryption model actually provides (per `pkg/crypto/encryption.go`, `docs/spec-encryption.md`):**
+- Encryption is per-campfire, flag-level. CEK is derived via `DeriveEpochCEK()`.
+- Backward secrecy is **intentional**: `spec-encryption.md §2.4` explicitly states new members receive only the current epoch key and cannot decrypt prior epochs.
+- CEK re-delivery to late-joining observers would require a new protocol message type, a `ListEpochSecrets` store API, and upstream campfire protocol changes. It is not buildable on current SDK.
 
-**Why:** The org-level visibility use case (§2.3 of v1) is the primary motivator for observers. E2E encryption with retroactive read access is incompatible with that use case. Forcing every campfire to choose between "private items" and "org visibility" is worse than choosing one and being clear about it.
+**Options evaluated and rejected:**
 
-**Future option (deferred):** Item-level visibility tags (`private:for+by`) enforced by the convention server's authorization matrix on read-projection delivery. This is a Wave 6+ feature requiring server-side filtered reads, which campfire does not currently support as a primitive.
+*Option 1 — CEK re-delivery on observer admission:* Requires upstream campfire protocol extension (not on ready's critical path). Also introduces a maintainer-online hard dependency (maintainer must be present with full key history for every observer admission), degrades for long-lived campfires with many epochs, and contradicts offline-first. Rejected as default; tracked as a future campfire protocol proposal (rd-XXX).
 
-**For projects that need E2E encryption** (regulated environments, secrets), use a separate campfire and accept that observer joinability is limited. This is a deployment choice, not a default.
+*Option 3 — Convention server as decryption proxy:* Directly contradicts the "blind relay" security story in `campfire-hosting/docs/commercial-architecture.md`. If the convention server is compromised, all campfire content is exposed. Observer offline access breaks entirely. Rejected for hosted service. Opt-in only for marketplace managed app deployments where the convention server is the customer's own infrastructure and they accept the trust model.
+
+**Decision: E2E encryption on main campfire + shadow summary campfire for org observers.**
+
+Project campfires use campfire's E2E encryption by default. The `encrypted = true` flag is set at `rd init`.
+
+Org-level observers do not join the main campfire. Instead, the convention server maintains a bound **summary campfire** — a separate, unencrypted campfire containing materialized `work:item-summary` projections. The convention server (as a full member of the main campfire) writes a summary on every consequential operation:
+
+```json
+{
+  "convention": "work:item-summary",
+  "item_id": "acme.backend.item-abc",
+  "title": "Fix login regression",
+  "status": "in_progress",
+  "priority": "p1",
+  "assignee": "baron",
+  "eta": "2026-04-08T18:00:00Z",
+  "updated_at": "2026-04-07T12:34:56Z"
+}
+```
+
+No body, no comments, no sensitive fields. `rd admit --role org-observer` routes the admitted key to the summary campfire. `rd list` and `rd ready` on an org-observer reads from the summary campfire. This is sufficient for portfolio visibility (§2.3 use case) without exposing content.
+
+**The trust statement that must be explicit:** The convention server is a **trusted intermediary**, not a blind relay. It holds a full-member key to every E2E campfire it serves in order to produce summaries. This means the convention server operator can read all campfire messages. For the hosted service (`mcp.getcampfire.dev`), users are trusting Campfire (the company). For the marketplace managed app, users run the convention server on their own infrastructure — the trust boundary stays within their control. This is the honest security story and must be stated in the hosted service's terms.
+
+**What this requires to implement (Wave 2 addition):**
+
+- `campfire:summary-bind` convention declaration: declares which summary campfire receives projections for a given project campfire.
+- Convention server acquires full-member status (not observer) during project registration.
+- Convention server subscribes to the main campfire stream; on every `work:item-*` operation, writes a `work:item-summary` to the bound summary campfire.
+- `rd admit --role org-observer <key>` admits to the summary campfire, not the main campfire.
+- Summary campfire is created by `rd init` alongside the main campfire; its ID is written to `.cf/config.toml [ready] summary_campfire = "<id>"`.
+- No new cryptographic primitives. No proxy decryption. No maintainer-online dependency.
+
+**Failure mode:** If the convention server goes offline, summaries lag. Full members keep working — their offline-first path is unchanged. Observer visibility degrades to stale, not broken. This is acceptable.
+
+**For regulated environments** where even the convention server operator must not see plaintext: use a marketplace managed app (customer's own Azure subscription, customer's own convention server). The trust boundary is then entirely within the customer's control. This is a deployment choice, documented in the hosted service's tier comparison.
 
 ### 6.3 Org/Team Namespace Management
 
@@ -451,7 +490,7 @@ Wave 5. Mechanism is a `work:role-grant` at the org-namespace level (e.g., a gra
 | A7 | Wave 1 ships without auth, larger attack surface | **RESOLVED** | Wave 1 does NOT ship naming-based join. Wave 1.5 ships local name binding only (no public discovery). Wave 2 ships authorization. Wave 3 ships join workflow. Public name-based discoverability does not exist until Wave 3, by which time auth is in place. |
 | A8 | Anteroom DoS | **RESOLVED** | Per-source-pubkey rate limit on `work:join-request` at the convention server (§Wave 3). Optional join-conversation campfire (§4.2) shifts payload cost to requester. Maintainer queue is bounded. |
 | A9 | Cross-team dependencies dangling | **DEFERRED** | Wave 5 + AIETF directory-service convention. Until then, cross-campfire deps are expressible but treated as non-blocking with a visible warning. Tracked as rd-XXX. |
-| A10 | E2E encryption + observer tension | **PERMANENT CONSTRAINT** | Default project campfires are NOT E2E encrypted. Observer use case wins. Privacy is membership-enforced. Documented explicitly so users in regulated environments choose a different deployment (separate encrypted campfire, no observers). |
+| A10 | E2E encryption + observer tension | **RESOLVED** | Project campfires are E2E encrypted by default. Org observers read a shadow summary campfire maintained by the convention server (which holds a full-member key as trusted intermediary). Backward secrecy is intentional campfire protocol design — CEK re-delivery to late joiners requires a protocol extension, deferred (rd-XXX). See §6.2. |
 | A11 | Provenance store in-memory, wiped on cold start | **EXTERNAL DEPENDENCY** | This is a campfire-hosting bug, not ready's. Tracked as a cross-project dependency. Ready's in-process convention server (§3.2) avoids this entirely for solo users. For hosted teams, ready's correctness depends on campfire-hosting persisting the attestation store. File a campfire-hosting issue. |
 
 ---
