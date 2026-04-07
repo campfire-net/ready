@@ -263,3 +263,162 @@ func TestResolveDeps_NoAlias(t *testing.T) {
 		t.Error("expected nil item when alias not found")
 	}
 }
+
+// TestResolveDeps_AmbiguousItemID verifies that when multiple items in the
+// target campfire share the same prefix, a warning is returned (no panic,
+// no silent incorrect resolution).
+func TestResolveDeps_AmbiguousItemID(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(dir + "/store.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	ts := time.Now().UnixNano()
+	joinCampfire(t, s, backendCampfire)
+	joinCampfire(t, s, frontendCampfire)
+
+	// Two items in frontend with the same prefix: "ready-abc" and "ready-abcdef".
+	for _, id := range []string{"ready-abc", "ready-abcdef"} {
+		addMsgToStore(t, s, frontendCampfire, "msg-"+id, "work:create", map[string]interface{}{
+			"id": id, "title": id, "type": "task", "for": "baron@3dl.dev", "priority": "p1",
+		}, nil, ts)
+		ts++
+	}
+
+	// Item A blocks on "ready-abc" (exact match exists, but prefix matches two).
+	addMsgToStore(t, s, backendCampfire, "msg-a01", "work:create", map[string]interface{}{
+		"id": "backend-a01", "title": "Backend item A", "type": "task", "for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts)
+	addMsgToStore(t, s, backendCampfire, "msg-block-cross", "work:block", map[string]interface{}{
+		"blocker_id": "acme.frontend.ready-abc", "blocked_id": "backend-a01",
+		"blocker_msg": "msg-ready-abc", "blocked_msg": "msg-a01",
+	}, []string{"msg-a01"}, ts+1)
+
+	backendItems, _ := state.DeriveFromStore(s, backendCampfire)
+	itemA := backendItems["backend-a01"]
+	if itemA == nil {
+		t.Fatal("backend-a01 not found")
+	}
+
+	aliasDir := t.TempDir()
+	aliases := naming.NewAliasStore(aliasDir)
+	if err := aliases.Set("acme.frontend", frontendCampfire); err != nil {
+		t.Fatalf("setting alias: %v", err)
+	}
+
+	results := crossdep.ResolveDeps(itemA, s, aliases)
+	if len(results) == 0 {
+		t.Fatal("expected resolution results")
+	}
+	// Exact match exists ("ready-abc") so it should resolve successfully.
+	dep := results[0]
+	if dep.Item == nil {
+		t.Errorf("expected exact match to resolve, got warning: %s", dep.Warning)
+	}
+}
+
+// TestResolveDeps_AmbiguousPrefixOnly verifies that when only prefix matches
+// exist (no exact match) and there are multiple, a warning is returned.
+func TestResolveDeps_AmbiguousPrefixOnly(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(dir + "/store.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	ts := time.Now().UnixNano()
+	joinCampfire(t, s, backendCampfire)
+	joinCampfire(t, s, frontendCampfire)
+
+	// Two items both prefixed by "ready-x": "ready-xabc" and "ready-xdef".
+	// Searching for "ready-x" (which has a hyphen, so it's a valid cross-campfire item ref)
+	// will match both via prefix — no exact match.
+	for i, id := range []string{"ready-xabc", "ready-xdef"} {
+		addMsgToStore(t, s, frontendCampfire, "msg-"+id, "work:create", map[string]interface{}{
+			"id": id, "title": id, "type": "task", "for": "baron@3dl.dev", "priority": "p1",
+		}, nil, ts+int64(i))
+	}
+
+	addMsgToStore(t, s, backendCampfire, "msg-a01", "work:create", map[string]interface{}{
+		"id": "backend-a01", "title": "Backend item A", "type": "task", "for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts+10)
+	addMsgToStore(t, s, backendCampfire, "msg-block-cross", "work:block", map[string]interface{}{
+		"blocker_id": "acme.frontend.ready-x", "blocked_id": "backend-a01",
+		"blocker_msg": "msg-ready-x", "blocked_msg": "msg-a01",
+	}, []string{"msg-a01"}, ts+11)
+
+	backendItems, _ := state.DeriveFromStore(s, backendCampfire)
+	itemA := backendItems["backend-a01"]
+	if itemA == nil {
+		t.Fatal("backend-a01 not found")
+	}
+
+	aliasDir := t.TempDir()
+	aliases := naming.NewAliasStore(aliasDir)
+	if err := aliases.Set("acme.frontend", frontendCampfire); err != nil {
+		t.Fatalf("setting alias: %v", err)
+	}
+
+	results := crossdep.ResolveDeps(itemA, s, aliases)
+	if len(results) == 0 {
+		t.Fatal("expected resolution results")
+	}
+	dep := results[0]
+	if dep.Item != nil {
+		t.Error("expected nil item on ambiguous prefix match, got resolved item")
+	}
+	if !strings.Contains(dep.Warning, "ambiguous") {
+		t.Errorf("expected 'ambiguous' in warning, got: %s", dep.Warning)
+	}
+}
+
+// TestResolveDeps_ItemNotFound verifies that when the referenced item does not
+// exist in the target campfire, a warning is returned.
+func TestResolveDeps_ItemNotFound(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(dir + "/store.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	ts := time.Now().UnixNano()
+	joinCampfire(t, s, backendCampfire)
+	joinCampfire(t, s, frontendCampfire)
+	// frontend campfire is empty — no items.
+
+	addMsgToStore(t, s, backendCampfire, "msg-a01", "work:create", map[string]interface{}{
+		"id": "backend-a01", "title": "Backend item A", "type": "task", "for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts)
+	addMsgToStore(t, s, backendCampfire, "msg-block-cross", "work:block", map[string]interface{}{
+		"blocker_id": "acme.frontend.nonexistent-xyz", "blocked_id": "backend-a01",
+		"blocker_msg": "msg-nonexistent", "blocked_msg": "msg-a01",
+	}, []string{"msg-a01"}, ts+1)
+
+	backendItems, _ := state.DeriveFromStore(s, backendCampfire)
+	itemA := backendItems["backend-a01"]
+	if itemA == nil {
+		t.Fatal("backend-a01 not found")
+	}
+
+	aliasDir := t.TempDir()
+	aliases := naming.NewAliasStore(aliasDir)
+	if err := aliases.Set("acme.frontend", frontendCampfire); err != nil {
+		t.Fatalf("setting alias: %v", err)
+	}
+
+	results := crossdep.ResolveDeps(itemA, s, aliases)
+	if len(results) == 0 {
+		t.Fatal("expected resolution results")
+	}
+	dep := results[0]
+	if dep.Item != nil {
+		t.Error("expected nil item when referenced item does not exist in target campfire")
+	}
+	if dep.Warning == "" {
+		t.Error("expected warning when item not found in target campfire")
+	}
+}
