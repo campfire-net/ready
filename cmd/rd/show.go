@@ -50,7 +50,7 @@ Example:
 			fmt.Printf("By:       %s\n", item.By)
 		}
 		if item.Project != "" {
-			fmt.Printf("Project:  %s\n", item.Project)
+			fmt.Printf("Project:  %s\n", formatCampfireIDForDisplay(item.Project))
 		}
 		if item.Level != "" {
 			fmt.Printf("Level:    %s\n", item.Level)
@@ -88,7 +88,7 @@ Example:
 				fmt.Printf("  [%s] %s → %s by %s%s\n", ts, h.FromStatus, h.ToStatus, actor, note)
 			}
 		}
-		fmt.Printf("\nCampfire: %s\n", item.CampfireID)
+		fmt.Printf("\nCampfire: %s\n", formatCampfireIDForDisplay(item.CampfireID))
 		fmt.Printf("Msg ID:   %s\n", item.MsgID)
 		return nil
 	},

@@ -434,6 +434,41 @@ func projectRoot() (campfireID string, projectDir string, ok bool) {
 	return "", "", false
 }
 
+// formatCampfireIDForDisplay converts a hex campfire ID to a project name for display.
+// If no project name is available or --debug is set, returns the hex ID.
+// Returns the hex ID unchanged if it's not 64 characters (fallback).
+func formatCampfireIDForDisplay(hexID string) string {
+	if debugOutput || len(hexID) != 64 {
+		return hexID
+	}
+
+	// Try to resolve the hex ID to a project name via the naming store.
+	dir, err := os.Getwd()
+	if err != nil {
+		return hexID
+	}
+
+	// Walk up the directory tree looking for a .ready/config.json.
+	for {
+		cfg, cfgErr := rdconfig.LoadSyncConfig(dir)
+		if cfgErr == nil && cfg != nil && cfg.ProjectName != "" {
+			// Try to resolve this project name and check if it matches the given hex ID.
+			aliases := naming.NewAliasStore(CFHome())
+			if resolvedID, aliasErr := aliases.Get(cfg.ProjectName); aliasErr == nil && resolvedID == hexID {
+				return cfg.ProjectName
+			}
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return hexID
+}
+
 // minInt returns the smaller of two ints.
 func minInt(a, b int) int {
 	if a < b {

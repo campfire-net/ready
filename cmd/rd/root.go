@@ -27,6 +27,7 @@ var Version = "dev"
 
 var (
 	jsonOutput     bool
+	debugOutput    bool
 	rdHome         string
 	protocolClient *protocol.Client
 )
@@ -65,6 +66,7 @@ https://ready.getcampfire.dev`,
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output as JSON")
+	rootCmd.PersistentFlags().BoolVar(&debugOutput, "debug", false, "show hex IDs for diagnostics")
 	rootCmd.PersistentFlags().StringVar(&rdHome, "cf-home", "", "campfire home directory (default: ~/.cf)")
 
 	// Wire in the in-process convention server for solo mode.
