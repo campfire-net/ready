@@ -139,7 +139,23 @@ func Verify(g *JoinGrant, sig Signature, issuerPubKey ed25519.PublicKey) VerifyR
 // IssueGrant creates a new JoinGrant with the specified subject, campfire, and role.
 // The issuer public key and nonce must be provided.
 // The grant is valid for the specified TTL duration (default 24 hours).
-func IssueGrant(subject, campfireID, role, issuerPubKey, nonce string, ttl time.Duration) *JoinGrant {
+// Returns an error if any required field is empty.
+func IssueGrant(subject, campfireID, role, issuerPubKey, nonce string, ttl time.Duration) (*JoinGrant, error) {
+	if subject == "" {
+		return nil, errors.New("subject is required")
+	}
+	if campfireID == "" {
+		return nil, errors.New("campfireID is required")
+	}
+	if role == "" {
+		return nil, errors.New("role is required")
+	}
+	if issuerPubKey == "" {
+		return nil, errors.New("issuerPubKey is required")
+	}
+	if nonce == "" {
+		return nil, errors.New("nonce is required")
+	}
 	if ttl == 0 {
 		ttl = 24 * time.Hour
 	}
@@ -153,7 +169,7 @@ func IssueGrant(subject, campfireID, role, issuerPubKey, nonce string, ttl time.
 		ExpiresAt:  now.Add(ttl).Unix(),
 		SingleUse:  true,
 		Nonce:      nonce,
-	}
+	}, nil
 }
 
 // Hash returns a SHA256 hash of the grant for debugging/logging purposes.

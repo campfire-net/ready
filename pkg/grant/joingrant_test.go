@@ -1,10 +1,11 @@
 package grant
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -168,8 +169,8 @@ func TestInvalidSignatureRejected(t *testing.T) {
 		Nonce:      nonce,
 	}
 
-	// Create a fake signature
-	fakeSignature := Signature("0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")
+	// Create a fake signature (128 hex chars = 64 bytes = Ed25519 signature size)
+	fakeSignature := Signature("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")
 
 	result := Verify(grant, fakeSignature, issuerPubKey)
 	if result.Valid {
@@ -195,7 +196,7 @@ func TestIssueGrantDefaults(t *testing.T) {
 	nonce := generateNonce()
 
 	// Issue a grant with default TTL
-	grant := IssueGrant(
+	grant, err := IssueGrant(
 		hex.EncodeToString(requesterPubKey),
 		"test-campfire-456",
 		"maintainer",
@@ -203,6 +204,9 @@ func TestIssueGrantDefaults(t *testing.T) {
 		nonce,
 		0, // Use default TTL
 	)
+	if err != nil {
+		t.Fatalf("IssueGrant failed: %v", err)
+	}
 
 	// Verify defaults
 	if grant.Subject != hex.EncodeToString(requesterPubKey) {
@@ -249,7 +253,7 @@ func TestIssueGrantCustomTTL(t *testing.T) {
 
 	// Issue a grant with 1-hour TTL
 	customTTL := 1 * time.Hour
-	grant := IssueGrant(
+	grant, err := IssueGrant(
 		hex.EncodeToString(requesterPubKey),
 		"test-campfire-789",
 		"contributor",
@@ -257,6 +261,9 @@ func TestIssueGrantCustomTTL(t *testing.T) {
 		nonce,
 		customTTL,
 	)
+	if err != nil {
+		t.Fatalf("IssueGrant failed: %v", err)
+	}
 
 	// Verify the expiration is roughly 1 hour in the future
 	now := time.Now().Unix()
@@ -367,6 +374,263 @@ func TestGrantHash(t *testing.T) {
 	if len(hash1) != 64 {
 		t.Errorf("hash length should be 64 (SHA256), got %d", len(hash1))
 	}
+}
+
+// TestIssueGrantValidation tests that IssueGrant rejects empty required fields.
+// ready-d26: input validation for IssueGrant.
+func TestIssueGrantValidation(t *testing.T) {
+	issuerPubKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate issuer keypair: %v", err)
+	}
+	requesterPubKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate requester keypair: %v", err)
+	}
+	subject := hex.EncodeToString(requesterPubKey)
+	issuer := hex.EncodeToString(issuerPubKey)
+	nonce := generateNonce()
+
+	cases := []struct {
+		name       string
+		subject    string
+		campfireID string
+		role       string
+		issuerKey  string
+		nonce      string
+	}{
+		{"empty subject", "", "cf-1", "contributor", issuer, nonce},
+		{"empty campfireID", subject, "", "contributor", issuer, nonce},
+		{"empty role", subject, "cf-1", "", issuer, nonce},
+		{"empty issuerPubKey", subject, "cf-1", "contributor", "", nonce},
+		{"empty nonce", subject, "cf-1", "contributor", issuer, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g, err := IssueGrant(tc.subject, tc.campfireID, tc.role, tc.issuerKey, tc.nonce, 0)
+			if err == nil {
+				t.Errorf("expected error for %s, got nil", tc.name)
+			}
+			if g != nil {
+				t.Errorf("expected nil grant for %s, got non-nil", tc.name)
+			}
+		})
+	}
+}
+
+// TestVerifyWrongIssuerKey tests that verification fails when a different key is used.
+// ready-976: signature was made by key A, verification attempts with key B.
+func TestVerifyWrongIssuerKey(t *testing.T) {
+	// Key A: the real issuer
+	issuerPubKeyA, issuerPrivKeyA, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate key A: %v", err)
+	}
+
+	// Key B: a different key used for attempted verification
+	issuerPubKeyB, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate key B: %v", err)
+	}
+
+	requesterPubKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate requester keypair: %v", err)
+	}
+
+	nonce := generateNonce()
+	grant := &JoinGrant{
+		Subject:    hex.EncodeToString(requesterPubKey),
+		CampfireID: "test-campfire-wrongkey",
+		Role:       "contributor",
+		IssuedBy:   hex.EncodeToString(issuerPubKeyA),
+		IssuedAt:   time.Now().Unix(),
+		ExpiresAt:  time.Now().Add(24 * time.Hour).Unix(),
+		SingleUse:  true,
+		Nonce:      nonce,
+	}
+
+	// Sign with key A
+	sig, err := grant.Sign(issuerPrivKeyA)
+	if err != nil {
+		t.Fatalf("failed to sign grant: %v", err)
+	}
+
+	// Verify with key B — must fail
+	result := Verify(grant, sig, issuerPubKeyB)
+	if result.Valid {
+		t.Errorf("expected verification to fail with wrong issuer key, but it passed")
+	}
+	if result.Error == nil {
+		t.Errorf("expected non-nil error when verifying with wrong key")
+	}
+	if result.Error.Error() != "signature verification failed" {
+		t.Errorf("expected 'signature verification failed', got: %v", result.Error)
+	}
+}
+
+// TestSigningInputStability proves that the bytes used for signing and for verification are identical.
+// ready-f4d: guard against drift if SigningInput() is ever changed mid-flight.
+// Sign and verify must use exactly the same JSON serialization.
+func TestSigningInputStability(t *testing.T) {
+	issuerPubKey, issuerPrivKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate issuer keypair: %v", err)
+	}
+	requesterPubKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate requester keypair: %v", err)
+	}
+	nonce := generateNonce()
+	grant := &JoinGrant{
+		Subject:    hex.EncodeToString(requesterPubKey),
+		CampfireID: "test-campfire-stability",
+		Role:       "contributor",
+		IssuedBy:   hex.EncodeToString(issuerPubKey),
+		IssuedAt:   1700000000,
+		ExpiresAt:  9999999999,
+		SingleUse:  true,
+		Nonce:      nonce,
+	}
+
+	// Capture signing input before signing
+	inputBefore, err := grant.SigningInput()
+	if err != nil {
+		t.Fatalf("failed to get signing input: %v", err)
+	}
+
+	// Sign
+	sig, err := grant.Sign(issuerPrivKey)
+	if err != nil {
+		t.Fatalf("failed to sign grant: %v", err)
+	}
+
+	// Capture signing input again after signing (grant struct must not have changed)
+	inputAfter, err := grant.SigningInput()
+	if err != nil {
+		t.Fatalf("failed to get signing input after sign: %v", err)
+	}
+
+	if !bytes.Equal(inputBefore, inputAfter) {
+		t.Errorf("SigningInput changed between sign and verify calls:\nbefore: %s\nafter:  %s", inputBefore, inputAfter)
+	}
+
+	// Verify uses the same serialization path — if Verify succeeds, the bytes matched
+	result := Verify(grant, sig, issuerPubKey)
+	if !result.Valid {
+		t.Errorf("verification failed after sign — signing input bytes diverged: %v", result.Error)
+	}
+}
+
+// TestExpiryBoundary tests the exact boundary conditions for grant expiration.
+// ready-610: ExpiresAt==now must fail, ExpiresAt==now+1 must pass, ExpiresAt==now-1 must fail.
+func TestExpiryBoundary(t *testing.T) {
+	issuerPubKey, issuerPrivKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate issuer keypair: %v", err)
+	}
+	requesterPubKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate requester keypair: %v", err)
+	}
+	nonce := generateNonce()
+
+	now := time.Now().Unix()
+
+	makeGrant := func(expiresAt int64) (*JoinGrant, Signature) {
+		g := &JoinGrant{
+			Subject:    hex.EncodeToString(requesterPubKey),
+			CampfireID: "test-campfire-boundary",
+			Role:       "contributor",
+			IssuedBy:   hex.EncodeToString(issuerPubKey),
+			IssuedAt:   now - 60,
+			ExpiresAt:  expiresAt,
+			SingleUse:  true,
+			Nonce:      nonce,
+		}
+		s, signErr := g.Sign(issuerPrivKey)
+		if signErr != nil {
+			t.Fatalf("failed to sign grant: %v", signErr)
+		}
+		return g, s
+	}
+
+	// ExpiresAt == now → must fail (condition: ExpiresAt <= now)
+	g1, s1 := makeGrant(now)
+	r1 := Verify(g1, s1, issuerPubKey)
+	if r1.Valid {
+		t.Errorf("ExpiresAt==now should fail (expired), but Verify returned Valid=true")
+	}
+	if r1.Error == nil || r1.Error.Error() != "grant expired" {
+		t.Errorf("expected 'grant expired', got: %v", r1.Error)
+	}
+
+	// ExpiresAt == now-1 → must fail
+	g2, s2 := makeGrant(now - 1)
+	r2 := Verify(g2, s2, issuerPubKey)
+	if r2.Valid {
+		t.Errorf("ExpiresAt==now-1 should fail, but Verify returned Valid=true")
+	}
+
+	// ExpiresAt == now+1 → must pass
+	g3, s3 := makeGrant(now + 1)
+	r3 := Verify(g3, s3, issuerPubKey)
+	if !r3.Valid {
+		t.Errorf("ExpiresAt==now+1 should pass, but Verify returned Valid=false: %v", r3.Error)
+	}
+}
+
+// TestNonceReplayIsCallerResponsibility proves that Verify() itself does not block replay.
+// ready-112: the design choice is documented — replay detection is caller responsibility.
+// Verify() is stateless; it will accept the same grant+signature combination repeatedly.
+// Callers must maintain a consumed-nonce set and check it before calling Verify.
+func TestNonceReplayIsCallerResponsibility(t *testing.T) {
+	issuerPubKey, issuerPrivKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate issuer keypair: %v", err)
+	}
+	requesterPubKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("failed to generate requester keypair: %v", err)
+	}
+
+	nonce := generateNonce()
+	grant := &JoinGrant{
+		Subject:    hex.EncodeToString(requesterPubKey),
+		CampfireID: "test-campfire-replay",
+		Role:       "contributor",
+		IssuedBy:   hex.EncodeToString(issuerPubKey),
+		IssuedAt:   time.Now().Unix(),
+		ExpiresAt:  time.Now().Add(24 * time.Hour).Unix(),
+		SingleUse:  true,
+		Nonce:      nonce,
+	}
+
+	sig, err := grant.Sign(issuerPrivKey)
+	if err != nil {
+		t.Fatalf("failed to sign grant: %v", err)
+	}
+
+	// First use: passes
+	r1 := Verify(grant, sig, issuerPubKey)
+	if !r1.Valid {
+		t.Fatalf("first verify failed unexpectedly: %v", r1.Error)
+	}
+
+	// Second use (replay): Verify() itself still returns Valid=true.
+	// This is intentional — Verify() is stateless. Replay detection is caller's responsibility
+	// via a consumed-nonce tracker checked before calling Verify.
+	r2 := Verify(grant, sig, issuerPubKey)
+	if !r2.Valid {
+		t.Errorf("design contract broken: Verify() must be stateless and not track nonces, but second call returned invalid: %v", r2.Error)
+	}
+
+	// Caller pattern for replay protection:
+	//   if consumedNonces[grant.Nonce] { return error("replay detected") }
+	//   result := Verify(grant, sig, pubKey)
+	//   if result.Valid { consumedNonces[grant.Nonce] = true }
+	t.Logf("design note: Verify() is stateless — nonce=%s accepted on both calls; callers must track consumed nonces", nonce)
 }
 
 // Helper function to generate a random nonce
