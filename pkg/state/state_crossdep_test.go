@@ -8,6 +8,7 @@ package state_test
 //   - When user is member of both campfires, status can be shown (via crossdep pkg)
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -163,4 +164,68 @@ func TestParseCrossCampfireRef(t *testing.T) {
 	if r := state.ParseCrossCampfireRef("ready-abc"); r != nil {
 		t.Errorf("expected nil for local item ID, got %+v", r)
 	}
+}
+
+// TestDerive_StrandedItemReclaim verifies that when a work:role-grant with
+// role=revoked is processed, in-progress items claimed by that pubkey are
+// flipped back to inbox (§4.5 stranded-item reclaim rule).
+func TestDerive_StrandedItemReclaim(t *testing.T) {
+	const campfireID = "aaaa0000bbbb1111cccc2222dddd3333eeee4444ffff5555aaaa0000bbbb1111"
+	const claimerKey = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+	msgs := []store.MessageRecord{
+		{
+			ID: "m1", CampfireID: campfireID, Sender: "admin",
+			Tags: []string{"work:create"},
+			Payload: mustMarshal(map[string]interface{}{
+				"id": "task-001", "title": "A task", "type": "task",
+				"for": "team@example.com", "priority": "p1",
+			}),
+			Timestamp: 1000,
+		},
+		{
+			ID: "m2", CampfireID: campfireID, Sender: claimerKey,
+			Tags: []string{"work:claim"},
+			Payload: mustMarshal(map[string]interface{}{
+				"target": "m1",
+			}),
+			Antecedents: []string{"m1"},
+			Timestamp:   2000,
+		},
+		{
+			ID: "m3", CampfireID: campfireID, Sender: "admin",
+			Tags: []string{"work:role-grant"},
+			Payload: mustMarshal(map[string]interface{}{
+				"pubkey":     claimerKey,
+				"role":       "revoked",
+				"granted_at": int64(3000),
+			}),
+			Antecedents: []string{"m2"},
+			Timestamp:   3000,
+		},
+	}
+
+	items := state.Derive(campfireID, msgs)
+
+	task := items["task-001"]
+	if task == nil {
+		t.Fatal("task-001 not found")
+	}
+
+	// After revocation, the item must be reclaimed: status=inbox, by="".
+	if task.Status != state.StatusInbox {
+		t.Errorf("expected status %q after revocation reclaim, got %q", state.StatusInbox, task.Status)
+	}
+	if task.By != "" {
+		t.Errorf("expected By='' after revocation reclaim, got %q", task.By)
+	}
+}
+
+// mustMarshal marshals v to JSON or panics.
+func mustMarshal(v interface{}) []byte {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }

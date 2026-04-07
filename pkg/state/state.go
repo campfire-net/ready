@@ -873,6 +873,24 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 		blocker.Blocks = appendUnique(blocker.Blocks, edge.blockedID)
 	}
 
+	// Pass 3: Stranded-item reclaim.
+	// For each pubkey with a current role=revoked, flip any in-progress items
+	// claimed by that pubkey back to ready so other members can pick them up.
+	// This implements §4.5 of the design: "a work:role-grant role=revoked
+	// automatically marks all in-progress items claimed by that pubkey as
+	// eligible for re-claim."
+	for pubkey, ri := range roleMap {
+		if ri.role != "revoked" {
+			continue
+		}
+		for _, item := range items {
+			if item.Status == StatusActive && item.By == pubkey {
+				item.Status = StatusInbox
+				item.By = ""
+			}
+		}
+	}
+
 	return items
 }
 
