@@ -124,29 +124,22 @@ A binding message in the project campfire log says: "for the `work-management` c
 
 **Bootstrap:** The first binding for a project is posted by the campfire owner at project creation time, in the same atomic step that deploys (or registers) the convention server. For solo workflow this is a no-op — see §3.2 bypass mode.
 
-### 3.2 Convention Server: HTTP vs Policy Campfire (C1 Evaluation)
+### 3.2 Convention Server: Hosting Model
 
-**Trade-off:**
+**Two tiers, no batteries included:**
 
-| | HTTP Tier 2 (v1 brief) | Policy Campfire (C1) |
+| | Solo | Team |
 |---|---|---|
-| Discovery | Hardcoded URL or DNS | Campfire address (cf:// URI, name-resolvable) |
-| Auth state visibility | Black-box service | First-class campfire log, `cf read` inspectable |
-| Federation | Per-tenant URL | Single policy campfire serves many projects |
-| Latency | One HTTP RTT | Two campfire round-trips (write request, read fulfillment) |
-| Hosting | Requires HTTP service infra (campfire-hosting ACA) | Requires only a campfire (anywhere) |
-| Solo workflow | Needs local HTTP server | Needs only a local in-process loop |
-| Implementation cost | Existing dispatcher.go path | New "policy campfire" pattern, untested in SDK |
-| Cold start | ACA scale-from-zero | None (campfire is always-on storage) |
+| Convention server | In-process goroutine inside `rd` | cf-mcp deployment (self-hosted or getcampfire.dev) |
+| Hosting | None | User's responsibility — cf-mcp is free, run it anywhere |
+| Config | None (bypass mode, see below) | `[ready] convention_server = "acme.auth"` in `.cf/config.toml` |
+| Key stability | Ephemeral (rd process identity) | Stable (cf-mcp deployment's identity key) |
 
-**Decision: ship Tier 1 in-process enforcement in Wave 2; defer policy campfire to Wave 5+ as a possible federation option.**
+**Ready ships no sidecar and manages no hosting.** For teams, the convention server is a cf-mcp deployment that the team runs — on a home server, a VPS, a container, or the hosted service at getcampfire.dev. Ready only needs its campfire name. The `convention:server-binding` declaration (§3.1) maps the name to the server's pubkey; ready doesn't care where the process runs.
 
-Reasoning:
-- The HTTP Tier 2 model has a hard external dependency on campfire-hosting infrastructure that is not on ready's critical path. Adopting it forces ready to wait for ACA.
-- The policy campfire model is architecturally elegant but is an unproven pattern. Building it for Wave 2 would block ready on a campfire SDK feature that doesn't yet exist.
-- **In-process Tier 1** — the convention server is a goroutine inside the `rd` process for solo work, and the same code can be packaged as a sidecar for team work — is the only model that ships in Wave 2 without external dependencies. It still produces signed `fulfills` messages in the campfire log. The signing key is the rd process's identity. The server-binding declaration (§3.1) names that identity as authoritative.
-- For multi-machine teams, the convention server runs on one designated machine (typically the maintainer's), addressed by name (`acme.auth`) via Wave 1.5 naming. The fact that it speaks campfire-write-and-fulfill rather than HTTP is incidental.
-- A future migration to policy-campfire-as-service is non-breaking: the binding declaration already abstracts the server's pubkey, and the campfire log is the same in either case.
+**The in-process server (solo) produces real fulfillments.** It is not a stub. It runs the same authorization matrix code as a cf-mcp deployment, signs fulfillments with the rd process's identity key, and posts a server-binding on first use. The only difference from a team deployment is that the key is ephemeral (tied to the rd process) and the server is not network-accessible.
+
+**Policy campfire (C1) deferred to Wave 5+.** Architecturally cleaner for federation but requires an unproven campfire SDK pattern. The server-binding abstraction in §3.1 makes migration non-breaking when the time comes.
 
 **Bypass mode (mandatory for Wave 2 ship):** If no `convention:server-binding` is present in a project campfire, state derivation accepts all messages from members (Wave 1 behavior). This is the solo path: no convention server, no binding, no enforcement. The moment a binding is posted, enforcement engages. This solves Adversary A3's pessimistic-halt failure for solo users.
 
