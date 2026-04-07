@@ -1,0 +1,16 @@
+{
+  "convention": "campfire",
+  "version": "0.1",
+  "operation": "summary-bind",
+  "description": "Declares which summary campfire receives work:item-summary projections for a given project campfire",
+  "args": [
+    {"name": "project_campfire", "type": "string", "required": true, "max_length": 64, "pattern": "^[0-9a-f]{64}$"},
+    {"name": "summary_campfire", "type": "string", "required": true, "max_length": 64, "pattern": "^[0-9a-f]{64}$"}
+  ],
+  "produces_tags": [
+    {"tag": "campfire:summary-bind", "cardinality": "exactly_one"}
+  ],
+  "antecedents": "none",
+  "signing": "member_key",
+  "rate_limit": {"max": 10, "per": "sender", "window": "1h"}
+}

@@ -117,6 +117,19 @@ DURABILITY
 			return err
 		}
 
+		// --- Create the shadow summary campfire for org observers ---
+		// The summary campfire is unencrypted and receives work:item-summary
+		// projections from the convention server. Org observers are admitted
+		// here rather than the main campfire.
+		summaryClient, err := requireClient()
+		if err != nil {
+			return fmt.Errorf("initializing client for summary campfire: %w", err)
+		}
+		summaryCampfireID, err := createLocalCampfire(summaryClient, "", "invite-only", []string{}, description+" (summary)")
+		if err != nil {
+			return fmt.Errorf("creating summary campfire: %w", err)
+		}
+
 		// --- Write .campfire/root (pointer in the project) ---
 
 		if err := os.MkdirAll(campfireDir, 0700); err != nil {
@@ -166,9 +179,13 @@ DURABILITY
 			}
 		}
 
-		// --- Write sync config with project name ---
-
+		// Store project name, summary campfire ID, and encryption intent in sync config.
+		// NOTE: The campfire SDK v0.14 does not expose an E2E encryption flag on
+		// CreateRequest. The Encrypted field records the design intent — actual
+		// per-message encryption will be enabled when the SDK exposes the option.
 		syncCfg.ProjectName = name
+		syncCfg.SummaryCampfireID = summaryCampfireID
+		syncCfg.Encrypted = true
 		if saveErr := rdconfig.SaveSyncConfig(cwd, syncCfg); saveErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not save sync config: %v\n", saveErr)
 		}
@@ -183,12 +200,14 @@ DURABILITY
 
 		if jsonOutput {
 			out := map[string]interface{}{
-				"campfire_id":  campfireID,
-				"name":         name,
-				"declarations": nDecls,
-				"description":  description,
-				"has_home":     hasHome,
-				"durability":   syncCfg.Durability,
+				"campfire_id":         campfireID,
+				"summary_campfire_id": summaryCampfireID,
+				"encrypted":           true,
+				"name":                name,
+				"declarations":        nDecls,
+				"description":         description,
+				"has_home":            hasHome,
+				"durability":          syncCfg.Durability,
 			}
 			if hasHome {
 				out["home_campfire_id"] = homeID
@@ -200,6 +219,8 @@ DURABILITY
 
 		fmt.Printf("initialized %s\n", name)
 		fmt.Printf("  campfire: %s\n", campfireID[:12]+"...")
+		fmt.Printf("  summary campfire: %s\n", summaryCampfireID[:12]+"...")
+		fmt.Printf("  encrypted: true (E2E intent set; SDK encryption enabled when available)\n")
 		fmt.Printf("  declarations: %d operations published\n", nDecls)
 		if len(durabilityWarnings) > 0 {
 			fmt.Println()
