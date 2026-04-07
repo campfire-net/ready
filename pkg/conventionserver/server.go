@@ -200,7 +200,7 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 
 		w := &inboxWatcher{
-			client:          s.client,
+			reader:          s.client,
 			inboxCampfire:   s.inboxCampfireID,
 			projectCampfire: s.campfireID,
 			pollInterval:    30 * time.Second,

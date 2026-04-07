@@ -7,8 +7,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/campfire-net/campfire/pkg/message"
 	"github.com/campfire-net/campfire/pkg/protocol"
 )
+
+// inboxWatcherReader is the interface the inbox watcher uses to read from
+// the inbox campfire and send to the project campfire. *protocol.Client satisfies
+// this interface; tests inject a fake.
+type inboxWatcherReader interface {
+	Read(req protocol.ReadRequest) (*protocol.ReadResult, error)
+	Send(req protocol.SendRequest) (*message.Message, error)
+}
 
 // JoinRequestPayload is the payload of an incoming work:join-request message
 // received on the inbox campfire.
@@ -22,7 +31,7 @@ type JoinRequestPayload struct {
 // inboxWatcher watches the inbox campfire for work:join-request messages and
 // materializes them as work:join-request items in the project campfire.
 type inboxWatcher struct {
-	client          *protocol.Client
+	reader          inboxWatcherReader
 	inboxCampfire   string
 	projectCampfire string
 	pollInterval    time.Duration
@@ -59,7 +68,7 @@ func (w *inboxWatcher) run(ctx context.Context) {
 // Note: protocol.Client.Read does not accept a context; cancellation relies on
 // the caller's timer loop checking ctx.Done() between polls.
 func (w *inboxWatcher) poll(_ context.Context) {
-	result, err := w.client.Read(protocol.ReadRequest{
+	result, err := w.reader.Read(protocol.ReadRequest{
 		CampfireID:     w.inboxCampfire,
 		Tags:           []string{"work:join-request"},
 		AfterTimestamp: w.cursor,
@@ -130,7 +139,7 @@ func (w *inboxWatcher) handleJoinRequest(msg protocol.Message) error {
 		return fmt.Errorf("inbox_watcher: encoding item payload: %w", err)
 	}
 
-	_, err = w.client.Send(protocol.SendRequest{
+	_, err = w.reader.Send(protocol.SendRequest{
 		CampfireID: w.projectCampfire,
 		Payload:    payloadBytes,
 		Tags:       []string{"work:join-request"},

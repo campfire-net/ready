@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/campfire-net/campfire/pkg/message"
 	"github.com/campfire-net/campfire/pkg/protocol"
 )
 
@@ -109,13 +110,7 @@ func TestJoinRateLimiter_ConcurrentSafe(t *testing.T) {
 
 // --- Inbox watcher materialization tests ---
 
-// inboxWatcherReader is the interface the watcher uses, extracted for testing.
-type inboxWatcherReader interface {
-	Read(req protocol.ReadRequest) (*protocol.ReadResult, error)
-	Send(req protocol.SendRequest) (*protocol.Message, error)
-}
-
-// fakeInboxClient implements inboxWatcherReader.
+// fakeInboxClient implements inboxWatcherReader (defined in production code).
 type fakeInboxClient struct {
 	mu      sync.Mutex
 	sent    []protocol.SendRequest
@@ -135,77 +130,14 @@ func (f *fakeInboxClient) Read(_ protocol.ReadRequest) (*protocol.ReadResult, er
 	return &protocol.ReadResult{Messages: msgs}, nil
 }
 
-func (f *fakeInboxClient) Send(req protocol.SendRequest) (*protocol.Message, error) {
+func (f *fakeInboxClient) Send(req protocol.SendRequest) (*message.Message, error) {
 	if f.sendErr != nil {
 		return nil, f.sendErr
 	}
 	f.mu.Lock()
 	f.sent = append(f.sent, req)
 	f.mu.Unlock()
-	return &protocol.Message{ID: "test-msg-id"}, nil
-}
-
-// testableInboxWatcher is a variant of inboxWatcher that accepts the interface
-// instead of *protocol.Client, allowing fake injection in tests.
-type testableInboxWatcher struct {
-	reader          inboxWatcherReader
-	inboxCampfire   string
-	projectCampfire string
-	rateLimit       *joinRateLimiter
-	cursor          int64
-}
-
-func (w *testableInboxWatcher) poll(_ context.Context) {
-	result, err := w.reader.Read(protocol.ReadRequest{
-		CampfireID:     w.inboxCampfire,
-		Tags:           []string{"work:join-request"},
-		AfterTimestamp: w.cursor,
-	})
-	if err != nil {
-		return
-	}
-
-	for _, msg := range result.Messages {
-		_ = w.handleJoinRequest(msg)
-	}
-
-	if result.MaxTimestamp > w.cursor {
-		w.cursor = result.MaxTimestamp
-	}
-}
-
-func (w *testableInboxWatcher) handleJoinRequest(msg protocol.Message) error {
-	if !w.rateLimit.Allow(msg.Sender) {
-		return nil // rate limited — silently drop
-	}
-
-	var payload JoinRequestPayload
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		return err
-	}
-
-	itemPayload := map[string]any{
-		"pubkey":         payload.Pubkey,
-		"requested_role": payload.RequestedRole,
-	}
-	if payload.OptionalAttestations != "" {
-		itemPayload["optional_attestations"] = payload.OptionalAttestations
-	}
-	if payload.OptionalJoinConversationCampfire != "" {
-		itemPayload["optional_join_conversation_campfire"] = payload.OptionalJoinConversationCampfire
-	}
-
-	payloadBytes, err := json.Marshal(itemPayload)
-	if err != nil {
-		return err
-	}
-
-	_, err = w.reader.Send(protocol.SendRequest{
-		CampfireID: w.projectCampfire,
-		Payload:    payloadBytes,
-		Tags:       []string{"work:join-request"},
-	})
-	return err
+	return &message.Message{ID: "test-msg-id"}, nil
 }
 
 // TestJoinRateLimiter_DeletesBucketKeyWhenEmptyAfterEviction verifies that when
@@ -261,8 +193,11 @@ func TestInboxWatcher_MaterializesJoinRequest(t *testing.T) {
 	const inboxID = "inbox-campfire-id"
 	const projectID = "project-campfire-id"
 
+	// pubkey must be a valid 64-char lowercase hex string.
+	const validPubkey = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
 	payload := JoinRequestPayload{
-		Pubkey:        "abcdef1234567890",
+		Pubkey:        validPubkey,
 		RequestedRole: "member",
 	}
 	payloadBytes, _ := json.Marshal(payload)
@@ -278,7 +213,7 @@ func TestInboxWatcher_MaterializesJoinRequest(t *testing.T) {
 		},
 	}
 
-	w := &testableInboxWatcher{
+	w := &inboxWatcher{
 		reader:          fake,
 		inboxCampfire:   inboxID,
 		projectCampfire: projectID,
@@ -314,8 +249,8 @@ func TestInboxWatcher_MaterializesJoinRequest(t *testing.T) {
 	if err := json.Unmarshal(sent[0].Payload, &materialized); err != nil {
 		t.Fatalf("parsing materialized payload: %v", err)
 	}
-	if materialized["pubkey"] != payload.Pubkey {
-		t.Errorf("pubkey mismatch: got %v, want %v", materialized["pubkey"], payload.Pubkey)
+	if materialized["pubkey"] != validPubkey {
+		t.Errorf("pubkey mismatch: got %v, want %v", materialized["pubkey"], validPubkey)
 	}
 	if materialized["requested_role"] != payload.RequestedRole {
 		t.Errorf("requested_role mismatch: got %v, want %v", materialized["requested_role"], payload.RequestedRole)
@@ -325,10 +260,13 @@ func TestInboxWatcher_MaterializesJoinRequest(t *testing.T) {
 func TestInboxWatcher_RateLimitsEleventhRequest(t *testing.T) {
 	const inboxID = "inbox-campfire-id"
 	const projectID = "project-campfire-id"
+	// senderPubkey is used as msg.Sender (rate limit key); payload pubkey must be
+	// a valid 64-char lowercase hex string.
 	const senderPubkey = "spammer-pubkey"
+	const validPubkey = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
 
 	payload := JoinRequestPayload{
-		Pubkey:        senderPubkey,
+		Pubkey:        validPubkey,
 		RequestedRole: "member",
 	}
 	payloadBytes, _ := json.Marshal(payload)
@@ -346,7 +284,7 @@ func TestInboxWatcher_RateLimitsEleventhRequest(t *testing.T) {
 
 	fake := &fakeInboxClient{msgs: msgs}
 
-	w := &testableInboxWatcher{
+	w := &inboxWatcher{
 		reader:          fake,
 		inboxCampfire:   inboxID,
 		projectCampfire: projectID,
@@ -386,9 +324,9 @@ func TestInboxWatcher_InvalidPubkeyRejected(t *testing.T) {
 			}
 			payloadBytes, _ := json.Marshal(payload)
 
-			// client is nil — production code must not reach client.Send.
+			// reader is nil — production code must not reach reader.Send.
 			w := &inboxWatcher{
-				client:    nil,
+				reader:    nil,
 				rateLimit: newJoinRateLimiter(10),
 			}
 			msg := protocol.Message{
@@ -410,7 +348,7 @@ func TestInboxWatcher_OptionalFieldsPassedThrough(t *testing.T) {
 	const projectID = "project-campfire-id"
 
 	payload := JoinRequestPayload{
-		Pubkey:                           "abcdef",
+		Pubkey:                           "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
 		RequestedRole:                    "admin",
 		OptionalAttestations:             "some-attestation",
 		OptionalJoinConversationCampfire: "conversation-campfire-id",
@@ -423,7 +361,7 @@ func TestInboxWatcher_OptionalFieldsPassedThrough(t *testing.T) {
 		},
 	}
 
-	w := &testableInboxWatcher{
+	w := &inboxWatcher{
 		reader:          fake,
 		inboxCampfire:   inboxID,
 		projectCampfire: projectID,
