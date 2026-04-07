@@ -2,6 +2,7 @@ package captoken
 
 import (
 	"crypto/ed25519"
+	"encoding/hex"
 	"testing"
 	"time"
 )
@@ -22,7 +23,7 @@ func TestTokenSignAndVerify(t *testing.T) {
 
 	// Create a token
 	token := &Token{
-		Subject:      clientPubKey.String(),
+		Subject:      hex.EncodeToString(clientPubKey),
 		CampfireID:   "test-campfire-123",
 		Role:         "contributor",
 		Operations:   []string{"work:create", "work:claim", "work:update"},
@@ -38,7 +39,7 @@ func TestTokenSignAndVerify(t *testing.T) {
 	}
 
 	// Verify the token offline
-	result := Verify(token, sig, serverPubKey, "work:create", clientPubKey.String())
+	result := Verify(token, sig, serverPubKey, "work:create", hex.EncodeToString(clientPubKey))
 	if !result.Valid {
 		t.Errorf("token verification failed: %v", result.Message)
 	}
@@ -59,7 +60,7 @@ func TestExpiredTokenRejected(t *testing.T) {
 	// Create an already-expired token
 	now := time.Now().Unix()
 	token := &Token{
-		Subject:      clientPubKey.String(),
+		Subject:      hex.EncodeToString(clientPubKey),
 		CampfireID:   "test-campfire-123",
 		Role:         "contributor",
 		Operations:   []string{"work:create"},
@@ -73,7 +74,7 @@ func TestExpiredTokenRejected(t *testing.T) {
 		t.Fatalf("failed to sign token: %v", err)
 	}
 
-	result := Verify(token, sig, serverPubKey, "work:create", clientPubKey.String())
+	result := Verify(token, sig, serverPubKey, "work:create", hex.EncodeToString(clientPubKey))
 	if result.Valid {
 		t.Errorf("expected expired token to be rejected")
 	}
@@ -96,7 +97,7 @@ func TestWrongOperationRejected(t *testing.T) {
 
 	// Create a token that only allows work:create
 	token := &Token{
-		Subject:      clientPubKey.String(),
+		Subject:      hex.EncodeToString(clientPubKey),
 		CampfireID:   "test-campfire-123",
 		Role:         "contributor",
 		Operations:   []string{"work:create"}, // Only work:create
@@ -111,7 +112,7 @@ func TestWrongOperationRejected(t *testing.T) {
 	}
 
 	// Try to use work:close, which is not allowed
-	result := Verify(token, sig, serverPubKey, "work:close", clientPubKey.String())
+	result := Verify(token, sig, serverPubKey, "work:close", hex.EncodeToString(clientPubKey))
 	if result.Valid {
 		t.Errorf("expected operation not in token to be rejected")
 	}
@@ -139,7 +140,7 @@ func TestMismatchedSubjectRejected(t *testing.T) {
 
 	// Create a token for clientPubKey
 	token := &Token{
-		Subject:      clientPubKey.String(),
+		Subject:      hex.EncodeToString(clientPubKey),
 		CampfireID:   "test-campfire-123",
 		Role:         "contributor",
 		Operations:   []string{"work:create"},
@@ -154,7 +155,7 @@ func TestMismatchedSubjectRejected(t *testing.T) {
 	}
 
 	// Try to verify with a different sender
-	result := Verify(token, sig, serverPubKey, "work:create", otherPubKey.String())
+	result := Verify(token, sig, serverPubKey, "work:create", hex.EncodeToString(otherPubKey))
 	if result.Valid {
 		t.Errorf("expected mismatched subject to be rejected")
 	}
@@ -165,7 +166,7 @@ func TestMismatchedSubjectRejected(t *testing.T) {
 
 // TestWrongServerKeyRejected tests that a token with the wrong server key fails verification.
 func TestWrongServerKeyRejected(t *testing.T) {
-	serverPubKey, serverPrivKey, err := ed25519.GenerateKey(nil)
+	_, serverPrivKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatalf("failed to generate server keypair: %v", err)
 	}
@@ -182,7 +183,7 @@ func TestWrongServerKeyRejected(t *testing.T) {
 
 	// Create and sign token with correct key
 	token := &Token{
-		Subject:      clientPubKey.String(),
+		Subject:      hex.EncodeToString(clientPubKey),
 		CampfireID:   "test-campfire-123",
 		Role:         "contributor",
 		Operations:   []string{"work:create"},
@@ -197,7 +198,7 @@ func TestWrongServerKeyRejected(t *testing.T) {
 	}
 
 	// Try to verify with wrong server key
-	result := Verify(token, sig, wrongPubKey, "work:create", clientPubKey.String())
+	result := Verify(token, sig, wrongPubKey, "work:create", hex.EncodeToString(clientPubKey))
 	if result.Valid {
 		t.Errorf("expected wrong server key to fail verification")
 	}
@@ -236,10 +237,10 @@ func TestIssueToken(t *testing.T) {
 	clientPubKey, _, _ := ed25519.GenerateKey(nil)
 	operations := []string{"work:create", "work:claim"}
 
-	token := IssueToken(clientPubKey.String(), "test-cf", "contributor", "binding-123", operations)
+	token := IssueToken(hex.EncodeToString(clientPubKey), "test-cf", "contributor", "binding-123", operations)
 
-	if token.Subject != clientPubKey.String() {
-		t.Errorf("subject mismatch: expected %q, got %q", clientPubKey.String(), token.Subject)
+	if token.Subject != hex.EncodeToString(clientPubKey) {
+		t.Errorf("subject mismatch: expected %q, got %q", hex.EncodeToString(clientPubKey), token.Subject)
 	}
 	if token.CampfireID != "test-cf" {
 		t.Errorf("campfire ID mismatch: expected %q, got %q", "test-cf", token.CampfireID)
@@ -296,7 +297,7 @@ func TestMultipleOperations(t *testing.T) {
 	clientPubKey, _, _ := ed25519.GenerateKey(nil)
 
 	token := &Token{
-		Subject:      clientPubKey.String(),
+		Subject:      hex.EncodeToString(clientPubKey),
 		CampfireID:   "test-campfire-123",
 		Role:         "contributor",
 		Operations:   []string{"work:create", "work:claim", "work:update"},
@@ -309,14 +310,14 @@ func TestMultipleOperations(t *testing.T) {
 
 	// Test each operation
 	for _, op := range []string{"work:create", "work:claim", "work:update"} {
-		result := Verify(token, sig, serverPubKey, op, clientPubKey.String())
+		result := Verify(token, sig, serverPubKey, op, hex.EncodeToString(clientPubKey))
 		if !result.Valid {
 			t.Errorf("operation %q should be valid: %v", op, result.Message)
 		}
 	}
 
 	// Test an operation not in the token
-	result := Verify(token, sig, serverPubKey, "work:close", clientPubKey.String())
+	result := Verify(token, sig, serverPubKey, "work:close", hex.EncodeToString(clientPubKey))
 	if result.Valid {
 		t.Errorf("operation work:close should be rejected")
 	}

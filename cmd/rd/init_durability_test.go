@@ -528,15 +528,5 @@ func TestDC3_NoBeaconRootFromEnvironmentAndEmptyFlag(t *testing.T) {
 		// For unit test, we verify the condition that must be true:
 		// beaconRoot is empty after checking flag and env var.
 		t.Logf("DC3 condition verified: no beacon root configured (will emit warning)")
-=======
-	if loaded.SummaryCampfireID != fakeSummaryCampfireID {
-		t.Errorf("SummaryCampfireID = %q, want %q", loaded.SummaryCampfireID, fakeSummaryCampfireID)
-	}
-	if !loaded.Encrypted {
-		t.Error("Encrypted = false, want true")
-	}
-	if loaded.CampfireID != fakeCampfireID {
-		t.Errorf("CampfireID = %q, want %q", loaded.CampfireID, fakeCampfireID)
->>>>>>> work/ready-126
 	}
 }

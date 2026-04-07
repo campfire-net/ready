@@ -134,12 +134,9 @@ func TestRequireClient_IdentityMatchesRequireAgentAndStore(t *testing.T) {
 
 // TestRequireClient_PicksUpCFHomeEnv verifies that requireClient() resolves
 // the config dir from CF_HOME environment variable, not from the rdHome flag.
-// This test directly verifies that InitWithConfig(WithConfigDir(CFHome())) +
-// CFHome()'s env resolution works without relying on the flag.
-//
 // The test does NOT set rdHome. It sets CF_HOME to a temp directory, then
-// calls requireClient(). This proves WithConfigDir(CFHome()) threads the env-resolved
-// path into the protocol client initialization.
+// calls requireClient(). This proves CFHome()'s env resolution threads the
+// correct path into protocol.Init.
 func TestRequireClient_PicksUpCFHomeEnv(t *testing.T) {
 	dir := t.TempDir()
 
@@ -201,11 +198,10 @@ func TestRequireClient_PicksUpCFHomeEnv(t *testing.T) {
 //
 // Sets HOME to a temp directory with a .cf/ subdirectory present (no identity.json yet),
 // clears both rdHome and CF_HOME, then calls requireClient(). This proves CFHome()
-// can find .cf/ via walk-up and WithConfigDir(CFHome()) threads it to InitWithConfig().
-// The test also implicitly verifies that WithWalkUp() is present in the InitWithConfig()
-// call (walk-up behavior is available when initialized).
+// can find .cf/ via filesystem detection and CFHome() threads it to protocol.Init().
+// Walk-up is enabled by default in protocol.Init (v0.14).
 //
-// TODO: WithWalkUp() should be tested more thoroughly in ready-589's e2e test,
+// TODO: walk-up behavior should be tested more thoroughly in ready-589's e2e test,
 // which will have a real campfire hierarchy to verify walk-up against.
 func TestRequireClient_PicksUpConfigDirViaFilesystemDetection(t *testing.T) {
 	// Create a temporary HOME with .cf/ subdirectory.
