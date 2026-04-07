@@ -85,6 +85,18 @@ type SyncConfig struct {
 	// CampfireID is the hex campfire ID this project syncs to.
 	CampfireID string `json:"campfire_id,omitempty"`
 
+	// SummaryCampfireID is the hex campfire ID of the shadow summary campfire.
+	// The convention server writes work:item-summary projections here on every
+	// consequential operation (create, close, claim). Org observers are admitted
+	// to this campfire (not the main campfire) via 'rd admit --role org-observer'.
+	// Created by 'rd init' alongside the main campfire.
+	SummaryCampfireID string `json:"summary_campfire_id,omitempty"`
+
+	// Encrypted, when true, indicates the main campfire was created with E2E
+	// encryption enabled. The campfire SDK's encryption support may be stubbed
+	// depending on the SDK version; this field records the intent.
+	Encrypted bool `json:"encrypted,omitempty"`
+
 	// Durability is the durability assessment at configuration time.
 	Durability *DurabilityAssessment `json:"durability,omitempty"`
 }

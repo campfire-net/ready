@@ -258,6 +258,55 @@ func TestSaveSyncConfig_Overwrite(t *testing.T) {
 	}
 }
 
+// TestSyncConfig_SummaryCampfireID_RoundTrip verifies that SummaryCampfireID and
+// Encrypted fields round-trip correctly through SaveSyncConfig / LoadSyncConfig.
+// This covers the Wave 2 E2E + shadow summary campfire config fields.
+func TestSyncConfig_SummaryCampfireID_RoundTrip(t *testing.T) {
+	projectDir := t.TempDir()
+	original := &rdconfig.SyncConfig{
+		CampfireID:        "aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa1111bbbb2222",
+		SummaryCampfireID: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+		Encrypted:         true,
+	}
+	if err := rdconfig.SaveSyncConfig(projectDir, original); err != nil {
+		t.Fatalf("SaveSyncConfig: %v", err)
+	}
+	loaded, err := rdconfig.LoadSyncConfig(projectDir)
+	if err != nil {
+		t.Fatalf("LoadSyncConfig: %v", err)
+	}
+	if loaded.CampfireID != original.CampfireID {
+		t.Errorf("CampfireID: got %q, want %q", loaded.CampfireID, original.CampfireID)
+	}
+	if loaded.SummaryCampfireID != original.SummaryCampfireID {
+		t.Errorf("SummaryCampfireID: got %q, want %q", loaded.SummaryCampfireID, original.SummaryCampfireID)
+	}
+	if loaded.Encrypted != original.Encrypted {
+		t.Errorf("Encrypted: got %v, want %v", loaded.Encrypted, original.Encrypted)
+	}
+}
+
+// TestSyncConfig_SummaryCampfireID_OmitEmpty verifies that an empty
+// SummaryCampfireID is omitted from the JSON output (omitempty).
+func TestSyncConfig_SummaryCampfireID_OmitEmpty(t *testing.T) {
+	projectDir := t.TempDir()
+	c := &rdconfig.SyncConfig{CampfireID: "aabbccdd"}
+	if err := rdconfig.SaveSyncConfig(projectDir, c); err != nil {
+		t.Fatalf("SaveSyncConfig: %v", err)
+	}
+	data, err := os.ReadFile(rdconfig.SyncConfigPath(projectDir))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	content := string(data)
+	if containsSubstr(content, "summary_campfire_id") {
+		t.Errorf("empty SummaryCampfireID should be omitted, got: %s", content)
+	}
+	if containsSubstr(content, "encrypted") {
+		t.Errorf("false Encrypted should be omitted (omitempty), got: %s", content)
+	}
+}
+
 // containsSubstr is a simple substring check used by tests in this package.
 func containsSubstr(s, sub string) bool {
 	if len(sub) == 0 {
