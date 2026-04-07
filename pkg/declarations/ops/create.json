@@ -28,5 +28,6 @@
   ],
   "antecedents": "none",
   "signing": "member_key",
-  "rate_limit": {"max": 50, "per": "sender", "window": "1h"}
+  "rate_limit": {"max": 50, "per": "sender", "window": "1h"},
+  "min_operator_level": 1
 }

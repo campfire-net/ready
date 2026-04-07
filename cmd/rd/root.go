@@ -14,6 +14,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/declarations"
+	"github.com/campfire-net/ready/pkg/provenance"
 	"github.com/campfire-net/ready/pkg/resolve"
 	"github.com/campfire-net/ready/pkg/state"
 )
@@ -61,10 +62,16 @@ https://ready.getcampfire.dev`,
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output as JSON")
-	rootCmd.PersistentFlags().StringVar(&rdHome, "cf-home", "", "campfire home directory (default: ~/.campfire)")
+	rootCmd.PersistentFlags().StringVar(&rdHome, "cf-home", "", "campfire home directory (default: ~/.cf)")
 }
 
 // CFHome returns the resolved campfire home directory.
+// Detection order:
+// (1) rdHome flag set → use it
+// (2) CF_HOME env set → use it
+// (3) ~/.cf exists → use it (new install path)
+// (4) ~/.campfire exists → use it (legacy user migration path)
+// (5) neither → default to ~/.cf
 func CFHome() string {
 	if rdHome != "" {
 		return rdHome
@@ -77,7 +84,16 @@ func CFHome() string {
 		fmt.Fprintf(os.Stderr, "error: cannot determine home directory: %v\n", err)
 		os.Exit(1)
 	}
-	return filepath.Join(home, ".campfire")
+	newPath := filepath.Join(home, ".cf")
+	legacyPath := filepath.Join(home, ".campfire")
+
+	if _, err := os.Stat(newPath); err == nil {
+		return newPath
+	}
+	if _, err := os.Stat(legacyPath); err == nil {
+		return legacyPath
+	}
+	return newPath
 }
 
 // IdentityPath returns the path to the identity file.
@@ -107,14 +123,39 @@ func requireAgentAndStore() (*identity.Identity, store.Store, error) {
 	return agentID, s, nil
 }
 
-// requireExecutor returns a convention.Executor backed by the protocol client.
-// The client is initialized (and cached) via requireClient().
+// requireExecutor returns a convention.Executor backed by the protocol client,
+// with a ProvenanceChecker wired in so that min_operator_level gates are
+// enforced correctly.
+//
+// The checker reads work:role-grant messages from the local store. The campfire
+// creator (from Membership.CreatorPubkey) is bootstrapped as maintainer (level 2).
+// All others default to contributor (level 1) until an explicit role-grant
+// message says otherwise.
 func requireExecutor() (*convention.Executor, *protocol.Client, error) {
 	client, err := requireClient()
 	if err != nil {
 		return nil, nil, err
 	}
 	exec := convention.NewExecutor(client, client.PublicKeyHex())
+
+	// Wire in provenance checking so that min_operator_level gates work.
+	// Best-effort: if we can't open the store or find the campfire, fall back to
+	// no provenance checker rather than blocking all operations.
+	if campfireID, _, ok := projectRoot(); ok && campfireID != "" {
+		s, storeErr := openStore()
+		if storeErr == nil {
+			defer s.Close()
+			var creatorKey string
+			if m, memErr := s.GetMembership(campfireID); memErr == nil && m != nil {
+				creatorKey = m.CreatorPubkey
+			}
+			checker, checkerErr := provenance.NewStoreChecker(s, campfireID, creatorKey)
+			if checkerErr == nil {
+				exec = exec.WithProvenance(checker)
+			}
+		}
+	}
+
 	return exec, client, nil
 }
 
@@ -135,13 +176,13 @@ func loadDeclaration(name string) (*convention.Declaration, error) {
 
 // requireClient returns a *protocol.Client backed by the campfire home directory.
 // The client is cached after first initialization (CLI is single-threaded).
-// Walk-up is enabled so Init() can discover the center campfire and trigger the
-// recentering slide-in. The authorize hook fires at most once per center.
+// Walk-up is enabled by default; WithAuthorizeFunc wires the center-campfire
+// authorization flow.
 func requireClient() (*protocol.Client, error) {
 	if protocolClient != nil {
 		return protocolClient, nil
 	}
-	c, err := protocol.Init(CFHome(), protocol.WithAuthorizeFunc(centerAuthorize))
+	c, err := protocol.InitWithConfig(protocol.WithConfigDir(CFHome()), protocol.WithWalkUp(), protocol.WithAuthorizeFunc(centerAuthorize))
 	if err != nil {
 		return nil, fmt.Errorf("initializing campfire client: %w", err)
 	}

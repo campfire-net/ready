@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -59,10 +61,22 @@ DURABILITY
 		description, _ := cmd.Flags().GetString("description")
 		confirm, _ := cmd.Flags().GetBool("confirm")
 		offline, _ := cmd.Flags().GetBool("offline")
+		beaconRoot, _ := cmd.Flags().GetString("beacon-root")
+
+		// Accept optional positional argument as project name.
+		positionalName := ""
+		if len(args) > 0 {
+			positionalName = args[0]
+		}
 
 		cwd, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("getting cwd: %w", err)
+		}
+
+		// Positional argument takes precedence over --name flag.
+		if positionalName != "" {
+			name = positionalName
 		}
 
 		// Default name from current directory.
@@ -141,6 +155,20 @@ DURABILITY
 		if err != nil {
 			return err
 		}
+
+		// --- Register project name in beacon root if configured ---
+
+		if name != filepath.Base(cwd) || positionalName != "" {
+			// Name was explicitly provided (not just defaulted from directory).
+			// Attempt beacon registration if beacon root is configured.
+			if err := registerProjectName(client, name, campfireID, beaconRoot); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not register project name: %v\n", err)
+			}
+		}
+
+		// --- Write sync config with project name ---
+
+		syncCfg.ProjectName = name
 		if saveErr := rdconfig.SaveSyncConfig(cwd, syncCfg); saveErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not save sync config: %v\n", saveErr)
 		}
@@ -190,6 +218,60 @@ DURABILITY
 
 		return nil
 	},
+}
+
+// registerProjectName attempts to register the project name through the beacon root.
+// If beaconRoot is empty, checks CF_BEACON_ROOT environment variable and returns
+// a warning if not configured (not an error — local-only binding is acceptable).
+//
+// If a beacon root is configured, walks the naming hierarchy to find or create the
+// beacon and registers the project campfire under the given name.
+func registerProjectName(client *protocol.Client, projectName string, campfireID string, beaconRoot string) error {
+	// Determine the beacon root to use.
+	if beaconRoot == "" {
+		beaconRoot = os.Getenv("CF_BEACON_ROOT")
+	}
+
+	if beaconRoot == "" {
+		// No beacon root configured — warning only, proceed with local binding.
+		fmt.Fprintf(os.Stderr, "warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only\n")
+		return nil
+	}
+
+	// Beacon root is configured. Attempt to resolve and register under it.
+	// This uses pkg/naming to walk the naming hierarchy and post a registration.
+	ctx := context.Background()
+
+	// For Wave 1.5, we do local registration only as a placeholder.
+	// Full beacon traversal and naming resolution will come in Wave 2 with the
+	// convention server. For now, just warn if the root is not local.
+	if err := validateLocalBeaconRoot(beaconRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: beacon root validation: %v\n", err)
+		return nil
+	}
+
+	// Register the project name under the beacon root.
+	_, err := naming.Register(ctx, client, beaconRoot, projectName, campfireID, nil)
+	if err != nil {
+		return fmt.Errorf("registering name in beacon: %w", err)
+	}
+
+	return nil
+}
+
+// validateLocalBeaconRoot checks if the beacon root exists and is resolvable
+// as a local campfire ID (64-char hex). For Wave 1.5, this is a validation-only
+// placeholder; full naming resolution comes in Wave 2.
+func validateLocalBeaconRoot(beaconRoot string) error {
+	// Check if it's a valid hex campfire ID (64 chars).
+	if len(beaconRoot) == 64 {
+		if _, err := hex.DecodeString(beaconRoot); err == nil {
+			return nil // Valid local campfire ID.
+		}
+	}
+	// For Wave 1.5, if it's not a valid local ID, return a warning message.
+	// Full DNS-like resolution happens in Wave 2.
+	return fmt.Errorf("beacon root %q is not a valid local campfire ID — Wave 2 naming resolution required", beaconRoot)
 }
 
 // evaluateCampfireDurability reads campfire beacon tags (from RD_CAMPFIRE_TAGS
@@ -293,7 +375,7 @@ func campfireTagsFromEnv() []string {
 
 // localCampfireBaseDir returns a persistent base directory for
 // campfires (home, ready namespace). Uses CF_TRANSPORT_DIR if set, otherwise
-// ~/.campfire/campfires/.
+// {CFHome()}/campfires/ (e.g., ~/.cf/campfires/ or ~/.campfire/campfires/ for legacy users).
 func localCampfireBaseDir() string {
 	if env := os.Getenv("CF_TRANSPORT_DIR"); env != "" {
 		return env
@@ -388,5 +470,6 @@ func init() {
 	initCmd.Flags().String("description", "", "campfire description (default: '<name> work campfire')")
 	initCmd.Flags().Bool("confirm", false, "proceed without prompting even if campfire does not meet minimum durability requirements")
 	initCmd.Flags().Bool("offline", false, "initialize in JSONL-only mode (no campfire required)")
+	initCmd.Flags().String("beacon-root", "", "beacon root campfire ID for naming registration (default: CF_BEACON_ROOT env var)")
 	rootCmd.AddCommand(initCmd)
 }

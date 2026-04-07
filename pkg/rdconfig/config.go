@@ -85,6 +85,10 @@ type SyncConfig struct {
 	// CampfireID is the hex campfire ID this project syncs to.
 	CampfireID string `json:"campfire_id,omitempty"`
 
+	// ProjectName is the human-readable name of the project used to resolve the
+	// campfire via the naming authority (e.g., "acme.ready" convention).
+	ProjectName string `json:"project_name,omitempty"`
+
 	// Durability is the durability assessment at configuration time.
 	Durability *DurabilityAssessment `json:"durability,omitempty"`
 }
