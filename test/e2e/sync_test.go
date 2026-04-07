@@ -3,7 +3,6 @@ package e2e_test
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -88,15 +87,10 @@ func TestE2E_SyncStatus_PendingCountAfterBuffering(t *testing.T) {
 	}
 
 	// Sabotage the campfire transport by removing the transport directory.
-	// cf create puts state in /tmp/campfire/<id> (DefaultBaseDir).
-	campfireTransportDir := filepath.Join("/tmp/campfire", e.CampfireID)
+	// e.TransportDir is the authoritative path returned by cf create --json.
+	campfireTransportDir := e.TransportDir
 	if _, err := os.Stat(campfireTransportDir); err != nil {
-		// Fall back to cfHome location.
-		campfireTransportDir = filepath.Join(e.CFHome, "campfires", e.CampfireID)
-		if _, err := os.Stat(campfireTransportDir); err != nil {
-			t.Fatalf("cannot locate campfire transport dir in /tmp/campfire/%s or %s/campfires/%s",
-				e.CampfireID, e.CFHome, e.CampfireID)
-		}
+		t.Fatalf("cannot locate campfire transport dir at %s: %v", campfireTransportDir, err)
 	}
 	if err := os.RemoveAll(campfireTransportDir); err != nil {
 		t.Fatalf("removing transport dir: %v", err)

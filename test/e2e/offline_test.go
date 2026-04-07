@@ -224,16 +224,11 @@ func TestE2E_Offline_PendingAccumulatesOnCampfireFailure(t *testing.T) {
 	}
 
 	// Sabotage the campfire transport by removing the transport directory.
-	// cf create puts state in /tmp/campfire/<id> (DefaultBaseDir).
-	// The membership still points to it, so sends will fail.
-	campfireTransportDir := filepath.Join("/tmp/campfire", e.CampfireID)
+	// e.TransportDir is the authoritative path returned by cf create --json.
+	campfireTransportDir := e.TransportDir
 	if _, err := os.Stat(campfireTransportDir); err != nil {
-		// Fall back to cfHome location (CF_TRANSPORT_DIR override or future default change).
-		campfireTransportDir = filepath.Join(e.CFHome, "campfires", e.CampfireID)
-		if _, err := os.Stat(campfireTransportDir); err != nil {
-			t.Fatalf("cannot locate campfire transport dir in /tmp/campfire/%s or %s/campfires/%s — test environment broken",
-				e.CampfireID, e.CFHome, e.CampfireID)
-		}
+		t.Fatalf("cannot locate campfire transport dir at %s — test environment broken: %v",
+			campfireTransportDir, err)
 	}
 
 	// Remove the transport directory so future sends fail.

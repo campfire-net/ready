@@ -23,8 +23,8 @@ func TestE2E_Recovery_MislocatedTransport(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	// Verify the membership points to /tmp.
-	tmpDir := filepath.Join("/tmp/campfire", e.CampfireID)
+	// Verify the transport dir has campfire state.
+	tmpDir := e.TransportDir
 	if _, err := os.Stat(filepath.Join(tmpDir, "campfire.cbor")); err != nil {
 		t.Fatalf("expected campfire state in %s: %v", tmpDir, err)
 	}
@@ -71,8 +71,8 @@ func TestE2E_Recovery_TransportLost(t *testing.T) {
 		t.Fatalf("item %s not found after creation", item.ID)
 	}
 
-	// Nuke the /tmp transport (simulate reboot).
-	tmpDir := filepath.Join("/tmp/campfire", e.CampfireID)
+	// Nuke the transport directory (simulate reboot/wipe).
+	tmpDir := e.TransportDir
 	if err := os.RemoveAll(tmpDir); err != nil {
 		t.Fatalf("removing transport: %v", err)
 	}
@@ -142,10 +142,10 @@ func TestE2E_Recovery_MigrationFromTmp(t *testing.T) {
 		t.Fatalf("create 2: %v", err)
 	}
 
-	// Verify state is in /tmp.
-	tmpDir := filepath.Join("/tmp/campfire", e.CampfireID)
+	// Verify state is in the campfire transport directory.
+	tmpDir := e.TransportDir
 	if _, err := os.Stat(filepath.Join(tmpDir, "campfire.cbor")); err != nil {
-		t.Fatalf("expected state in /tmp: %v", err)
+		t.Fatalf("expected state in %s: %v", tmpDir, err)
 	}
 
 	// Create another item — this should trigger migration.
