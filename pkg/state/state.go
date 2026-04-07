@@ -328,6 +328,40 @@ func findActiveServerBinding(msgs []store.MessageRecord, convention, operation s
 	return active
 }
 
+// findFirstServerBinding finds the earliest server-binding declaration for the
+// specified convention and operation, without filtering by timestamp. Returns the
+// binding with the smallest non-zero validFrom, or nil if none exists.
+func findFirstServerBinding(msgs []store.MessageRecord, convention, operation string) *serverBinding {
+	var first *serverBinding
+	for _, m := range msgs {
+		if !hasTag(m.Tags, "convention:server-binding") {
+			continue
+		}
+		var p serverBindingPayload
+		if err := json.Unmarshal(m.Payload, &p); err != nil {
+			continue
+		}
+		if p.Convention != convention || p.Operation != operation {
+			continue
+		}
+		validFrom := parseTimestamp(p.ValidFrom)
+		if validFrom == 0 {
+			// No valid_from — skip; can't determine pre-binding boundary.
+			continue
+		}
+		if first == nil || validFrom < first.validFrom {
+			validUntil := parseTimestamp(p.ValidUntil)
+			first = &serverBinding{
+				serverPubkey: p.ServerPubkey,
+				validFrom:    validFrom,
+				validUntil:   validUntil,
+				msgID:        m.ID,
+			}
+		}
+	}
+	return first
+}
+
 // findFulfillmentForOperation finds a fulfillment message that matches the given
 // target message, sent by the specified sender pubkey.
 func findFulfillmentForOperation(msgs []store.MessageRecord, targetMsgID string, senderPubkey string) *store.MessageRecord {
@@ -356,29 +390,36 @@ func findFulfillmentForOperation(msgs []store.MessageRecord, targetMsgID string,
 // - Otherwise: reject (drop from derived state)
 //
 // roleMap is reserved for Wave 3+ role-based authorization (currently unused here).
-func isOperationAuthorized(msgs []store.MessageRecord, op *store.MessageRecord, convention, operation string, _ map[string]roleInfo) bool {
-	// Find the active server-binding at the time of this operation.
-	binding := findActiveServerBinding(msgs, convention, operation, op.Timestamp)
+func isOperationAuthorized(msgs []store.MessageRecord, op store.MessageRecord, convention, operation string, _ map[string]roleInfo) bool {
+	// Find the earliest server-binding ever declared for this operation.
+	firstBinding := findFirstServerBinding(msgs, convention, operation)
 
-	// Bypass mode: if no binding exists, accept all (Wave 1 behavior).
-	if binding == nil {
+	// Bypass mode: no binding has ever been declared for this operation (Wave 1 behavior).
+	if firstBinding == nil {
 		return true
 	}
 
-	// Binding exists. Check for valid fulfillment or capability token.
+	// 1. Pre-binding: operation was issued before the first binding became valid.
+	// These operations were submitted when no authorization requirement existed yet.
+	if op.Timestamp < firstBinding.validFrom {
+		return true
+	}
 
-	// 1. Check for a fulfillment message from the bound server.
+	// Find the active server-binding at the time of this operation.
+	binding := findActiveServerBinding(msgs, convention, operation, op.Timestamp)
+	if binding == nil {
+		// A binding has been declared but is not active at this timestamp
+		// (e.g. op falls in a gap or after expiry). Reject.
+		return false
+	}
+
+	// 2. Check for a fulfillment message from the bound server.
 	if findFulfillmentForOperation(msgs, op.ID, binding.serverPubkey) != nil {
 		return true
 	}
 
-	// 2. Check for a valid capability token in the operation payload.
-	if hasValidCapabilityToken(op, binding.serverPubkey) {
-		return true
-	}
-
-	// 3. Check if this operation was issued before the binding became valid (pre-binding items).
-	if op.Timestamp < binding.validFrom {
+	// 3. Check for a valid capability token in the operation payload.
+	if hasValidCapabilityToken(&op, binding.serverPubkey) {
 		return true
 	}
 

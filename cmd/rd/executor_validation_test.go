@@ -39,7 +39,8 @@ func TestExecutorValidates_BadType(t *testing.T) {
 		t.Fatalf("loadDeclaration(create): %v", err)
 	}
 
-	exec := convention.NewExecutorForTest(&noopBackend{}, "test-key-hex")
+	exec := convention.NewExecutorForTest(&noopBackend{}, "test-key-hex").
+		WithProvenance(&staticProvenanceChecker{levels: map[string]int{"test-key-hex": 2}})
 
 	argsMap := map[string]any{
 		"id":       "ready-test-bad",
@@ -67,7 +68,8 @@ func TestExecutorValidates_BadPriority(t *testing.T) {
 		t.Fatalf("loadDeclaration(create): %v", err)
 	}
 
-	exec := convention.NewExecutorForTest(&noopBackend{}, "test-key-hex")
+	exec := convention.NewExecutorForTest(&noopBackend{}, "test-key-hex").
+		WithProvenance(&staticProvenanceChecker{levels: map[string]int{"test-key-hex": 2}})
 
 	argsMap := map[string]any{
 		"id":       "ready-test-bad",
@@ -94,7 +96,8 @@ func TestExecutorValidates_ValidTypeAndPriority(t *testing.T) {
 		t.Fatalf("loadDeclaration(create): %v", err)
 	}
 
-	exec := convention.NewExecutorForTest(&noopBackend{}, "test-key-hex")
+	exec := convention.NewExecutorForTest(&noopBackend{}, "test-key-hex").
+		WithProvenance(&staticProvenanceChecker{levels: map[string]int{"test-key-hex": 2}})
 
 	argsMap := map[string]any{
 		"id":       "ready-test-valid",

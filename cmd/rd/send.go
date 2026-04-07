@@ -15,11 +15,13 @@ import (
 	cfencoding "github.com/campfire-net/campfire/pkg/encoding"
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/message"
+	"github.com/campfire-net/campfire/pkg/naming"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/campfire/pkg/transport/fs"
 
 	"github.com/campfire-net/ready/pkg/jsonl"
+	"github.com/campfire-net/ready/pkg/rdconfig"
 	rdSync "github.com/campfire-net/ready/pkg/sync"
 )
 
@@ -404,6 +406,16 @@ func projectRoot() (campfireID string, projectDir string, ok bool) {
 		return "", "", false
 	}
 	for {
+		// Priority 1: .ready/config.json with project_name resolved via naming.
+		cfg, cfgErr := rdconfig.LoadSyncConfig(dir)
+		if cfgErr == nil && cfg != nil && cfg.ProjectName != "" {
+			aliases := naming.NewAliasStore(CFHome())
+			if resolvedID, aliasErr := aliases.Get(cfg.ProjectName); aliasErr == nil && len(resolvedID) == 64 {
+				return resolvedID, dir, true
+			}
+		}
+
+		// Priority 2: .campfire/root legacy path.
 		rootFile := filepath.Join(dir, ".campfire", "root")
 		data, err := os.ReadFile(rootFile)
 		if err == nil {
@@ -412,6 +424,7 @@ func projectRoot() (campfireID string, projectDir string, ok bool) {
 				return id, dir, true
 			}
 		}
+
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break

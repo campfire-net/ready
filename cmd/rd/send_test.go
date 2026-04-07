@@ -445,7 +445,8 @@ func TestExecuteConventionOp_D6_ReturnedIDMatchesCampfire(t *testing.T) {
 	const knownID = "0000d6test0000000000000000000000000000000000000000000000000cafebabe"
 
 	backend := &knownIDBackendFull{returnID: knownID}
-	exec := convention.NewExecutorForTest(backend, id.PublicKeyHex())
+	exec := convention.NewExecutorForTest(backend, id.PublicKeyHex()).
+		WithProvenance(&staticProvenanceChecker{levels: map[string]int{id.PublicKeyHex(): 2}})
 
 	decl, err := loadDeclaration("create")
 	if err != nil {
@@ -501,7 +502,8 @@ func TestExecuteConventionOp_D6_JSONLIDMatchesCampfire(t *testing.T) {
 	const knownID = "0000d6jsonl000000000000000000000000000000000000000000000cafebabe00"
 
 	backend := &knownIDBackendFull{returnID: knownID}
-	exec := convention.NewExecutorForTest(backend, id.PublicKeyHex())
+	exec := convention.NewExecutorForTest(backend, id.PublicKeyHex()).
+		WithProvenance(&staticProvenanceChecker{levels: map[string]int{id.PublicKeyHex(): 2}})
 
 	decl, err := loadDeclaration("create")
 	if err != nil {
@@ -578,7 +580,8 @@ func TestExecuteConventionOpToCampfire_D6_ReturnedIDMatchesCampfire(t *testing.T
 	const knownID = "0000d6tocampfire00000000000000000000000000000000000000000cafebabe0"
 
 	backend := &knownIDBackendFull{returnID: knownID}
-	exec := convention.NewExecutorForTest(backend, id.PublicKeyHex())
+	exec := convention.NewExecutorForTest(backend, id.PublicKeyHex()).
+		WithProvenance(&staticProvenanceChecker{levels: map[string]int{id.PublicKeyHex(): 2}})
 
 	decl, err := loadDeclaration("unblock")
 	if err != nil {

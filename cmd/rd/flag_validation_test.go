@@ -330,9 +330,11 @@ func TestGate_WithGateType_Accepted(t *testing.T) {
 // --- helpers ---
 
 // newNoopExecutor returns a convention.Executor backed by noopBackend (defined in
-// executor_validation_test.go).
+// executor_validation_test.go). It uses a level-2 provenance checker so that
+// min_operator_level checks do not interfere with argument validation tests.
 func newNoopExecutor() *convention.Executor {
-	return convention.NewExecutorForTest(&noopBackend{}, "test-key-hex")
+	return convention.NewExecutorForTest(&noopBackend{}, "test-key-hex").
+		WithProvenance(&staticProvenanceChecker{levels: map[string]int{"test-key-hex": 2}})
 }
 
 // buildUpdateValidationCmd constructs a minimal cobra command that mirrors the

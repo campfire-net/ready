@@ -11,8 +11,7 @@
     {"name": "valid_until", "type": "string", "max_length": 32}
   ],
   "produces_tags": [
-    {"tag": "convention:server-binding", "cardinality": "exactly_one"},
-    {"tag": "convention:server-binding/at_most_one_per_op", "cardinality": "at_most_one"}
+    {"tag": "convention:server-binding", "cardinality": "at_most_one"}
   ],
   "antecedents": "none",
   "signing": "campfire_key"

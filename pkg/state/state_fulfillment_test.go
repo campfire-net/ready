@@ -1,7 +1,7 @@
 package state_test
 
 import (
-	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -29,7 +29,7 @@ func TestDerive_FulfillmentWithValidServerBinding(t *testing.T) {
 			"convention":   "work",
 			"operation":    "close",
 			"server_pubkey": boundServerPubkey,
-			"valid_from":   ts / int64(time.Second), // Unix seconds
+			"valid_from":   fmt.Sprintf("%d", ts/int64(time.Second)), // Unix seconds
 		}, nil, bindingTime),
 		// Issue the close operation
 		makeMsg("msg-close-1", []string{"work:close"}, map[string]interface{}{
@@ -75,7 +75,7 @@ func TestDerive_FulfillmentRejectedWrongSender(t *testing.T) {
 			"convention":   "work",
 			"operation":    "close",
 			"server_pubkey": boundServerPubkey,
-			"valid_from":   ts / int64(time.Second),
+			"valid_from":   fmt.Sprintf("%d", ts/int64(time.Second)),
 		}, nil, bindingTime),
 		// Close issued
 		makeMsg("msg-close-1", []string{"work:close"}, map[string]interface{}{
@@ -132,27 +132,32 @@ func TestDerive_BypassModeNoServerBinding(t *testing.T) {
 // TestDerive_PreBindingItemsAccepted verifies that operations issued before
 // a server-binding is declared are implicitly authorized.
 func TestDerive_PreBindingItemsAccepted(t *testing.T) {
-	ts := now()
-	closeTime := ts + 500   // Close issued early
-	bindingTime := ts + 1000 // Binding posted later
+	// Use a fixed base time so second-level granularity is controlled.
+	// T1 (close) is 10 seconds before T2 (binding valid_from).
+	baseNs := now()
+	createTime := baseNs
+	closeTime := baseNs + 5*int64(time.Second)  // T1: close at base+5s (nanoseconds)
+	bindingTime := baseNs + 15*int64(time.Second) // binding message posted at base+15s
+	// valid_from is T2 = base+10s in Unix seconds — after closeTime but before bindingTime post
+	bindingValidFrom := (baseNs + 10*int64(time.Second)) / int64(time.Second) // Unix seconds
 
 	msgs := []store.MessageRecord{
 		makeMsg("msg-create-1", []string{"work:create"}, map[string]interface{}{
 			"id": "ready-t01", "title": "Test", "type": "task",
 			"for": "baron@3dl.dev", "priority": "p1",
-		}, nil, ts),
-		// Close issued before binding
+		}, nil, createTime),
+		// Close issued at T1, before binding valid_from T2
 		makeMsg("msg-close-1", []string{"work:close"}, map[string]interface{}{
 			"target":     "msg-create-1",
 			"resolution": "done",
 			"reason":     "Completed",
 		}, []string{"msg-create-1"}, closeTime),
-		// Binding posted after close
+		// Binding posted later with valid_from=T2 > T1
 		makeMsg("msg-binding-1", []string{"convention:server-binding"}, map[string]interface{}{
 			"convention":   "work",
 			"operation":    "close",
 			"server_pubkey": "server-key-hex",
-			"valid_from":   (ts + 1000) / int64(time.Second),
+			"valid_from":   fmt.Sprintf("%d", bindingValidFrom),
 		}, nil, bindingTime),
 	}
 
@@ -185,7 +190,7 @@ func TestDerive_DelegateWithServerBinding(t *testing.T) {
 			"convention":   "work",
 			"operation":    "delegate",
 			"server_pubkey": boundServerPubkey,
-			"valid_from":   ts / int64(time.Second),
+			"valid_from":   fmt.Sprintf("%d", ts/int64(time.Second)),
 		}, nil, bindingTime),
 		// Delegate operation
 		makeMsg("msg-delegate-1", []string{"work:delegate"}, map[string]interface{}{
@@ -235,7 +240,7 @@ func TestDerive_GateResolveWithServerBinding(t *testing.T) {
 			"convention":   "work",
 			"operation":    "gate-resolve",
 			"server_pubkey": boundServerPubkey,
-			"valid_from":   (ts + 2000) / int64(time.Second),
+			"valid_from":   fmt.Sprintf("%d", (ts+2000)/int64(time.Second)),
 		}, nil, bindingTime),
 		// Resolve the gate
 		makeMsg("msg-resolve-1", []string{"work:gate-resolve"}, map[string]interface{}{

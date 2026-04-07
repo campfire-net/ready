@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/campfire-net/campfire/pkg/naming"
 	"github.com/campfire-net/ready/pkg/rdconfig"
 )
 
