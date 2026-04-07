@@ -7,13 +7,18 @@ package main
 //   - containsTag finds present tags and misses absent ones
 //   - grantTargets matches correct pubkey in payload
 //   - pollForRoleGrant timeout returns error (rate-limit / no-server path)
+//   - TOFU beacon root: all five paths (ready-c3a)
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/protocol"
+	"github.com/campfire-net/ready/pkg/rdconfig"
 )
 
 // TestIsHex verifies isHex correctly identifies hex strings.
@@ -132,4 +137,184 @@ func TestResolveName_DirectHex(t *testing.T) {
 	}
 	// The resolveName function returns it unchanged — verified by code inspection.
 	t.Log("64-char hex passthrough path verified")
+}
+
+// cfHomeTempDir creates a temp dir and sets rdHome so CFHome() returns it.
+// Cleans up on test completion.
+func cfHomeTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	origRDHome := rdHome
+	rdHome = dir
+	t.Cleanup(func() { rdHome = origRDHome })
+	return dir
+}
+
+// sampleRoot is a 64-char hex string used as a fake beacon root in TOFU tests.
+const sampleRoot = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+
+// sampleRoot2 is a different 64-char hex string for mismatch tests.
+const sampleRoot2 = "1122334455667788990011223344556677889900112233445566778899001122"
+
+// TestBeaconRoot_FirstUse_NonInteractive verifies path 1:
+// First use (no pin) in a non-interactive context (tests always run non-interactive).
+// Expected: pin is saved to config, no error.
+func TestBeaconRoot_FirstUse_NonInteractive(t *testing.T) {
+	cfHome := cfHomeTempDir(t)
+
+	cfg := &rdconfig.Config{} // no pin yet
+	err := applyBeaconRootTOFU(cfHome, cfg, sampleRoot, false /* confirm */)
+	if err != nil {
+		t.Fatalf("applyBeaconRootTOFU first use: unexpected error: %v", err)
+	}
+
+	// Pin must be set in cfg in-place.
+	if cfg.BeaconRoot != sampleRoot {
+		t.Errorf("cfg.BeaconRoot = %q, want %q", cfg.BeaconRoot, sampleRoot)
+	}
+
+	// Pin must be persisted to disk.
+	saved, err := rdconfig.Load(cfHome)
+	if err != nil {
+		t.Fatalf("rdconfig.Load after pin: %v", err)
+	}
+	if saved.BeaconRoot != sampleRoot {
+		t.Errorf("saved BeaconRoot = %q, want %q", saved.BeaconRoot, sampleRoot)
+	}
+}
+
+// TestBeaconRoot_FirstUse_WithConfirmFlag verifies path 2:
+// First use (no pin) with --confirm=true bypasses any prompt and pins.
+// Expected: pin saved, no error, same as non-interactive path.
+func TestBeaconRoot_FirstUse_WithConfirmFlag(t *testing.T) {
+	cfHome := cfHomeTempDir(t)
+
+	cfg := &rdconfig.Config{}
+	err := applyBeaconRootTOFU(cfHome, cfg, sampleRoot, true /* confirm */)
+	if err != nil {
+		t.Fatalf("applyBeaconRootTOFU with --confirm: unexpected error: %v", err)
+	}
+	if cfg.BeaconRoot != sampleRoot {
+		t.Errorf("cfg.BeaconRoot = %q, want %q", cfg.BeaconRoot, sampleRoot)
+	}
+
+	saved, err := rdconfig.Load(cfHome)
+	if err != nil {
+		t.Fatalf("rdconfig.Load: %v", err)
+	}
+	if saved.BeaconRoot != sampleRoot {
+		t.Errorf("persisted BeaconRoot = %q, want %q", saved.BeaconRoot, sampleRoot)
+	}
+}
+
+// TestBeaconRoot_PinExistsAndMatches verifies path 3:
+// Pin is already set, requested root matches. No error, no prompt.
+func TestBeaconRoot_PinExistsAndMatches(t *testing.T) {
+	cfHome := cfHomeTempDir(t)
+
+	cfg := &rdconfig.Config{BeaconRoot: sampleRoot}
+	err := applyBeaconRootTOFU(cfHome, cfg, sampleRoot, false /* confirm */)
+	if err != nil {
+		t.Fatalf("applyBeaconRootTOFU pin matches: unexpected error: %v", err)
+	}
+
+	// Config must be unchanged on disk — write an initial state and verify no save.
+	if err := rdconfig.Save(cfHome, &rdconfig.Config{BeaconRoot: sampleRoot}); err != nil {
+		t.Fatalf("setup Save: %v", err)
+	}
+	// Run again with matching root; should be a no-op.
+	cfg2 := &rdconfig.Config{BeaconRoot: sampleRoot}
+	err = applyBeaconRootTOFU(cfHome, cfg2, sampleRoot, false)
+	if err != nil {
+		t.Errorf("applyBeaconRootTOFU matching pin: unexpected error: %v", err)
+	}
+}
+
+// TestBeaconRoot_PinMismatch_NoConfirm verifies path 4:
+// Pin exists, requested root is different, --confirm not passed.
+// Expected: error containing "does not match pinned root".
+func TestBeaconRoot_PinMismatch_NoConfirm(t *testing.T) {
+	cfHome := cfHomeTempDir(t)
+
+	cfg := &rdconfig.Config{BeaconRoot: sampleRoot}
+	err := applyBeaconRootTOFU(cfHome, cfg, sampleRoot2, false /* confirm */)
+	if err == nil {
+		t.Fatal("expected error on beacon root mismatch without --confirm, got nil")
+	}
+	if !strings.Contains(err.Error(), "does not match pinned root") {
+		t.Errorf("error should mention 'does not match pinned root', got: %v", err)
+	}
+}
+
+// TestBeaconRoot_PinMismatch_WithConfirm verifies that --confirm allows proceeding
+// even when the requested root differs from the pinned root.
+func TestBeaconRoot_PinMismatch_WithConfirm(t *testing.T) {
+	cfHome := cfHomeTempDir(t)
+
+	cfg := &rdconfig.Config{BeaconRoot: sampleRoot}
+	err := applyBeaconRootTOFU(cfHome, cfg, sampleRoot2, true /* confirm */)
+	if err != nil {
+		t.Fatalf("applyBeaconRootTOFU with --confirm on mismatch: unexpected error: %v", err)
+	}
+}
+
+// TestBeaconRoot_Reset verifies path 5:
+// --reset-beacon-root clears the pin from config and returns the previous value.
+func TestBeaconRoot_Reset(t *testing.T) {
+	cfHome := cfHomeTempDir(t)
+
+	// Write a config with a beacon root pinned.
+	if err := rdconfig.Save(cfHome, &rdconfig.Config{BeaconRoot: sampleRoot}); err != nil {
+		t.Fatalf("setup Save: %v", err)
+	}
+
+	prev, err := resetBeaconRoot(cfHome)
+	if err != nil {
+		t.Fatalf("resetBeaconRoot: unexpected error: %v", err)
+	}
+	if prev != sampleRoot {
+		t.Errorf("resetBeaconRoot prev = %q, want %q", prev, sampleRoot)
+	}
+
+	// Config must now have no pin.
+	saved, err := rdconfig.Load(cfHome)
+	if err != nil {
+		t.Fatalf("rdconfig.Load after reset: %v", err)
+	}
+	if saved.BeaconRoot != "" {
+		t.Errorf("BeaconRoot after reset = %q, want empty", saved.BeaconRoot)
+	}
+}
+
+// TestBeaconRoot_Reset_NoPinned verifies resetBeaconRoot returns empty string
+// when no root is pinned (idempotent).
+func TestBeaconRoot_Reset_NoPinned(t *testing.T) {
+	cfHome := cfHomeTempDir(t)
+
+	// No config file written — Load returns zero Config.
+	prev, err := resetBeaconRoot(cfHome)
+	if err != nil {
+		t.Fatalf("resetBeaconRoot on empty config: unexpected error: %v", err)
+	}
+	if prev != "" {
+		t.Errorf("expected empty prev, got %q", prev)
+	}
+}
+
+// TestBeaconRoot_EmptyRoot_NoOp verifies that calling applyBeaconRootTOFU with
+// an empty root is a no-op (no save, no error).
+func TestBeaconRoot_EmptyRoot_NoOp(t *testing.T) {
+	cfHome := cfHomeTempDir(t)
+
+	cfg := &rdconfig.Config{}
+	err := applyBeaconRootTOFU(cfHome, cfg, "" /* beaconRoot */, false)
+	if err != nil {
+		t.Fatalf("empty beacon root should be no-op, got error: %v", err)
+	}
+
+	// No config file should have been written.
+	configPath := filepath.Join(cfHome, "rd.json")
+	if _, statErr := os.Stat(configPath); statErr == nil {
+		t.Error("applyBeaconRootTOFU with empty root must not write config file")
+	}
 }

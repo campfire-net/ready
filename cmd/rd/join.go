@@ -62,14 +62,13 @@ EXAMPLES
 
 		// Handle --reset-beacon-root.
 		if resetRoot {
-			if cfg.BeaconRoot == "" {
+			prev, saveErr := resetBeaconRoot(CFHome())
+			if saveErr != nil {
+				return saveErr
+			}
+			if prev == "" {
 				fmt.Println("no beacon root pinned")
 				return nil
-			}
-			prev := cfg.BeaconRoot
-			cfg.BeaconRoot = ""
-			if err := rdconfig.Save(CFHome(), cfg); err != nil {
-				return fmt.Errorf("saving config: %w", err)
 			}
 			fmt.Printf("beacon root pin cleared (was: %s...)\n", prev[:minInt(12, len(prev))])
 			return nil
@@ -82,42 +81,8 @@ EXAMPLES
 		nameOrID := args[0]
 
 		// TOFU pinning: check beacon root before resolving.
-		if beaconRootFlag != defaultBeaconRoot && beaconRootFlag != "" {
-			if cfg.BeaconRoot == "" {
-				// First use of a non-default beacon root — warn and pin (TOFU).
-				fmt.Fprintf(os.Stderr, "warning: first use of non-default beacon root %s...\n", beaconRootFlag[:minInt(12, len(beaconRootFlag))])
-				fmt.Fprintf(os.Stderr, "  this root will be pinned (TOFU) in the config\n")
-				fmt.Fprintf(os.Stderr, "  future joins using a different root will require --confirm\n")
-
-				if !confirm {
-					if !isInteractive() {
-						fmt.Fprintf(os.Stderr, "  non-interactive: pinning beacon root automatically\n")
-					} else {
-						fmt.Fprint(os.Stderr, "pin this beacon root? [Y/n] ")
-						scanner := bufio.NewScanner(os.Stdin)
-						if scanner.Scan() {
-							answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
-							if answer == "n" || answer == "no" {
-								return fmt.Errorf("aborted: beacon root not pinned")
-							}
-						}
-					}
-				}
-				cfg.BeaconRoot = beaconRootFlag
-				if err := rdconfig.Save(CFHome(), cfg); err != nil {
-					fmt.Fprintf(os.Stderr, "warning: could not pin beacon root: %v\n", err)
-				} else {
-					fmt.Fprintf(os.Stderr, "  pinned beacon root: %s...\n", beaconRootFlag[:minInt(12, len(beaconRootFlag))])
-				}
-			} else if cfg.BeaconRoot != beaconRootFlag {
-				// Deviation from pinned root — warn, require confirmation.
-				fmt.Fprintf(os.Stderr, "warning: beacon root mismatch\n")
-				fmt.Fprintf(os.Stderr, "  pinned:    %s...\n", cfg.BeaconRoot[:minInt(12, len(cfg.BeaconRoot))])
-				fmt.Fprintf(os.Stderr, "  requested: %s...\n", beaconRootFlag[:minInt(12, len(beaconRootFlag))])
-				if !confirm {
-					return fmt.Errorf("beacon root does not match pinned root — pass --confirm to proceed or use 'rd join --reset-beacon-root' to re-pin")
-				}
-			}
+		if err := applyBeaconRootTOFU(CFHome(), cfg, beaconRootFlag, confirm); err != nil {
+			return err
 		}
 
 		client, err := requireClient()
@@ -203,6 +168,80 @@ EXAMPLES
 		fmt.Fprintf(os.Stdout, "joined campfire %s (%s)\n", displayID, result3.JoinProtocol)
 		return nil
 	},
+}
+
+// applyBeaconRootTOFU applies the TOFU beacon root pinning logic.
+// cfg is read and updated in-place; if a pin is saved, cfHome is used for rdconfig.Save.
+// Returns an error if the user aborts or the root mismatches without --confirm.
+//
+// Paths:
+//   - beaconRoot empty: no-op
+//   - cfg.BeaconRoot empty (first use): warn, prompt if interactive and !confirm, pin
+//   - cfg.BeaconRoot matches beaconRoot: no-op
+//   - cfg.BeaconRoot mismatches beaconRoot + !confirm: error
+//   - cfg.BeaconRoot mismatches beaconRoot + confirm: proceed (no error)
+func applyBeaconRootTOFU(cfHome string, cfg *rdconfig.Config, beaconRoot string, confirm bool) error {
+	if beaconRoot == "" {
+		return nil
+	}
+
+	if cfg.BeaconRoot == "" {
+		// First use of a non-default beacon root — warn and pin (TOFU).
+		fmt.Fprintf(os.Stderr, "warning: first use of non-default beacon root %s...\n", beaconRoot[:minInt(12, len(beaconRoot))])
+		fmt.Fprintf(os.Stderr, "  this root will be pinned (TOFU) in the config\n")
+		fmt.Fprintf(os.Stderr, "  future joins using a different root will require --confirm\n")
+
+		if !confirm {
+			if !isInteractive() {
+				fmt.Fprintf(os.Stderr, "  non-interactive: pinning beacon root automatically\n")
+			} else {
+				fmt.Fprint(os.Stderr, "pin this beacon root? [Y/n] ")
+				scanner := bufio.NewScanner(os.Stdin)
+				if scanner.Scan() {
+					answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+					if answer == "n" || answer == "no" {
+						return fmt.Errorf("aborted: beacon root not pinned")
+					}
+				}
+			}
+		}
+		cfg.BeaconRoot = beaconRoot
+		if err := rdconfig.Save(cfHome, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not pin beacon root: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "  pinned beacon root: %s...\n", beaconRoot[:minInt(12, len(beaconRoot))])
+		}
+		return nil
+	}
+
+	if cfg.BeaconRoot != beaconRoot {
+		// Deviation from pinned root — warn, require confirmation.
+		fmt.Fprintf(os.Stderr, "warning: beacon root mismatch\n")
+		fmt.Fprintf(os.Stderr, "  pinned:    %s...\n", cfg.BeaconRoot[:minInt(12, len(cfg.BeaconRoot))])
+		fmt.Fprintf(os.Stderr, "  requested: %s...\n", beaconRoot[:minInt(12, len(beaconRoot))])
+		if !confirm {
+			return fmt.Errorf("beacon root does not match pinned root — pass --confirm to proceed or use 'rd join --reset-beacon-root' to re-pin")
+		}
+	}
+	return nil
+}
+
+// resetBeaconRoot clears the pinned beacon root from the config at cfHome.
+// Returns the previous value (empty string if nothing was pinned).
+func resetBeaconRoot(cfHome string) (prev string, err error) {
+	cfg, err := rdconfig.Load(cfHome)
+	if err != nil {
+		return "", fmt.Errorf("loading config: %w", err)
+	}
+	if cfg.BeaconRoot == "" {
+		return "", nil
+	}
+	prev = cfg.BeaconRoot
+	cfg.BeaconRoot = ""
+	if err := rdconfig.Save(cfHome, cfg); err != nil {
+		return "", fmt.Errorf("saving config: %w", err)
+	}
+	return prev, nil
 }
 
 // resolveName resolves a name (cf:// URI, short name, or raw campfire ID) to a
