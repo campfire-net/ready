@@ -418,3 +418,130 @@ rd create "Quarterly review" --priority p2 --eta "2026-04-15T09:00"
 - Convention spec: `docs/convention/work-management.md` — full operation declarations, field validation, compaction policy
 - Named view predicates: `pkg/views/` — S-expression predicates for each built-in view
 - Campfire protocol: https://getcampfire.dev/docs
+
+---
+
+## Real transcripts
+
+The following excerpts are captured from `test/demo/` scripts that run the actual `rd` binary against real campfire sessions. No fabricated output.
+
+### Use case 1 — Solo developer
+
+```
+$ rd init --name myproject --confirm
+initialized myproject
+  campfire: 6ef132115eed...
+  declarations: 16 operations published
+
+$ rd create --title "Ship login page" --priority p1 --type task --json
+{"id":"rdtestsoloprojf0-45e","title":"Ship login page","priority":"p1","type":"task",...}
+
+$ rd ready
+  rdtestsoloprojf0-45e  p1        inbox       3h          Ship login page
+
+$ rd claim rdtestsoloprojf0-45e
+claimed rdtestsoloprojf0-45e
+
+$ rd progress rdtestsoloprojf0-45e --notes "Wired up auth middleware"
+updated rdtestsoloprojf0-45e
+
+$ rd done rdtestsoloprojf0-45e --reason "Login page ships with JWT auth"
+closed rdtestsoloprojf0-45e (done)
+```
+
+Full transcript: `test/demo/output/01-solo.txt`
+
+### Use case 2 — Team (admit + join)
+
+```
+# Owner admits member by pubkey
+$ CF_HOME=$OWNER_CF rd admit <member-pubkey>
+admitted <member-pubkey>
+
+# Member joins the project campfire
+$ CF_HOME=$MEMBER_CF rd join <campfire-id>
+joined <campfire-id>
+
+# Owner delegates item to member
+$ CF_HOME=$OWNER_CF rd delegate rdtestteamprojoz-db5 --to <member-pubkey>
+
+# Member sees their work
+$ CF_HOME=$MEMBER_CF rd ready --view my-work
+  rdtestteamprojoz-db5  p1  inbox  3h  Build API
+
+# Member completes it
+$ CF_HOME=$MEMBER_CF rd done rdtestteamprojoz-db5 --reason "API complete"
+closed rdtestteamprojoz-db5 (done)
+```
+
+Full transcript: `test/demo/output/02-team.txt`
+
+### Use case 3 — Multi-project deps
+
+Cross-project deps are not yet supported (`rd dep add` returns `cross-project deps not supported`). Within a project, deps work:
+
+```
+$ rd dep add frontend-003 frontend-002
+added dependency: frontend-003 blocked by frontend-002
+
+$ rd dep tree frontend-003
+frontend-003 [blocked]
+  └── frontend-002 [inbox]
+
+$ rd ready
+  frontend-002  p1  inbox  3h  Build backend API
+  # frontend-003 is blocked — not shown
+
+$ rd done frontend-002 --reason "Backend shipped"
+closed frontend-002 (done)
+
+$ rd ready
+  frontend-003  p1  inbox  3h  Wire frontend to API
+  # unblocked
+```
+
+Full transcript: `test/demo/output/03-multiproject.txt`
+
+### Use case 5 — Agent workflow (programmatic)
+
+```
+# Agent queries its queue via JSON
+$ CF_HOME=$AGENT_CF rd ready --view my-work --json
+[{"id":"rdtestagentprojbr4-e70","title":"Reindex search corpus",...}]
+
+# Agent claims and posts progress
+$ CF_HOME=$AGENT_CF rd claim rdtestagentprojbr4-e70 --reason "Starting batch reindex job"
+claimed rdtestagentprojbr4-e70
+
+$ CF_HOME=$AGENT_CF rd progress rdtestagentprojbr4-e70 --notes "Processed 142 records"
+updated rdtestagentprojbr4-e70
+
+$ CF_HOME=$AGENT_CF rd done rdtestagentprojbr4-e70 --reason "Batch complete: 142 records processed, 0 errors"
+closed rdtestagentprojbr4-e70 (done)
+```
+
+Full transcript: `test/demo/output/05-agent-workflow.txt`
+
+### Use case 6 — Gate escalation
+
+```
+# Agent gates an item for human review
+$ CF_HOME=$AGENT_CF rd gate rdtestgateproj6-13d \
+    --gate-type design \
+    --description "Two approaches: option A saves 2ms but breaks caching, option B is safe"
+{"id":"rdtestgateproj6-13d","gate_type":"design","status":"waiting","msg_id":"..."}
+
+# Human sees pending escalations
+$ CF_HOME=$HUMAN_CF rd gates
+  rdtestgateproj6-13d  p1  Two viable approaches...  Migrate auth layer
+
+# Human approves
+$ CF_HOME=$HUMAN_CF rd approve rdtestgateproj6-13d --reason "Use option B. Safety over 2ms gain."
+{"id":"rdtestgateproj6-13d","status":"active",...}
+
+# Item returns to active — agent continues
+$ CF_HOME=$AGENT_CF rd gates
+(empty — gate resolved)
+```
+
+Full transcript: `test/demo/output/06-gate-escalation.txt`

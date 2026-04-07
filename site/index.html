@@ -90,20 +90,20 @@
 
       <div class="demo-block">
         <div class="ds-code-block"><span class="comment"># Create a work item</span>
-<span class="cmd">rd create --title "Auth returns 403 on valid tokens" --type task --priority p0</span>
-<span class="output">created myproject-a1b</span>
+<span class="cmd">rd create --title "Ship login page" --priority p1 --type task</span>
+<span class="output">{"id":"myproject-45e","title":"Ship login page","priority":"p1","type":"task",...}</span>
 
 <span class="comment"># What needs attention right now?</span>
 <span class="cmd">rd ready</span>
-<span class="output">  myproject-a1b   p0   inbox   2m   Auth returns 403 on valid tokens</span>
+<span class="output">  myproject-45e  p1        inbox       3h          Ship login page</span>
 
 <span class="comment"># Claim it — you're now the performer</span>
-<span class="cmd">rd claim myproject-a1b</span>
-<span class="output">claimed myproject-a1b</span>
+<span class="cmd">rd claim myproject-45e</span>
+<span class="output">claimed myproject-45e</span>
 
 <span class="comment"># Close with a reason — the audit trail records why</span>
-<span class="cmd">rd close myproject-a1b --reason "Was checking issuer, not audience"</span>
-<span class="output">closed myproject-a1b</span></div>
+<span class="cmd">rd done myproject-45e --reason "Login page ships with JWT auth"</span>
+<span class="output">closed myproject-45e (done)</span></div>
       </div>
 
       <div class="two-col" style="margin-top: var(--ds-space-xl);">
@@ -138,7 +138,7 @@
               <tr><td><code>rd show &lt;id&gt;</code></td><td>Item details + audit trail</td></tr>
               <tr><td><code>rd claim &lt;id&gt;</code></td><td>Accept work, become the performer</td></tr>
               <tr><td><code>rd delegate &lt;id&gt; --to &lt;identity&gt;</code></td><td>Assign to a person, agent, or automaton</td></tr>
-              <tr><td><code>rd close &lt;id&gt; --reason "..."</code></td><td>Close with reason (done, cancelled, or failed)</td></tr>
+              <tr><td><code>rd done &lt;id&gt; --reason "..."</code></td><td>Close with reason — records to the audit trail</td></tr>
               <tr><td><code>rd update &lt;id&gt; --status &lt;status&gt;</code></td><td>Change status, priority, ETA, or context</td></tr>
             </tbody>
           </table>
@@ -231,10 +231,17 @@ This project uses `rd` for work management.
             <li>Named views &amp; attention engine</li>
             <li>JSONL audit trail</li>
           </ul>
-          <div class="ds-code-block tier-code"><span class="cmd">cd ~/myproject</span>
-<span class="cmd">rd init --name myproject</span>
-<span class="cmd">rd create "Ship the feature" --priority p0</span>
-<span class="cmd">rd ready</span></div>
+          <div class="ds-code-block tier-code"><span class="cmd">rd init --name myproject --confirm</span>
+<span class="output">initialized myproject</span>
+<span class="output">  campfire: 6ef132115eed...</span>
+<span class="output">  declarations: 16 operations published</span>
+
+<span class="cmd">rd create --title "Ship login page" --priority p1 --type task</span>
+<span class="cmd">rd ready</span>
+<span class="output">  myproject-45e  p1  inbox  3h  Ship login page</span>
+<span class="cmd">rd claim myproject-45e && rd done myproject-45e --reason "..."</span>
+<span class="output">claimed myproject-45e</span>
+<span class="output">closed myproject-45e (done)</span></div>
           <p class="tier-note">No account. No server. Just <code>rd init</code> and go.</p>
         </div>
 
@@ -313,12 +320,14 @@ This project uses `rd` for work management.
 <span class="cmd">rd register --org acme</span>
 
 <span class="comment"># Agent hits a decision point — escalates</span>
-<span class="cmd">rd gate myapp-d4e --type design \
-  --reason "PKCE vs device flow"</span>
+<span class="cmd">rd gate myapp-d4e --gate-type design \
+  --description "PKCE vs device flow"</span>
+<span class="output">{"id":"myapp-d4e","gate_type":"design","status":"waiting"}</span>
 
-<span class="comment"># Operator resolves from anywhere</span>
-<span class="cmd">rd approve myapp-d4e \
-  --reason "PKCE, we need browser redirect"</span>
+<span class="comment"># Human sees it, approves from anywhere</span>
+<span class="cmd">rd gates</span>
+<span class="output">  myapp-d4e  p1  PKCE vs device flow  Migrate auth layer</span>
+<span class="cmd">rd approve myapp-d4e --reason "PKCE, need browser redirect"</span>
 
 <span class="comment"># Full audit trail survives compaction</span>
 <span class="cmd">rd show myapp-d4e</span></div>
