@@ -1,0 +1,140 @@
+# Ready Team Demo — Tue Apr  7 23:45:24 UTC 2026
+# Two identities: owner and member
+
+═══════════════════════════════════════════════════════════
+  1. Initialize identities
+═══════════════════════════════════════════════════════════
+
+$ cf init --cf-home $OWNER_CF  (owner)
+Your identity campfire: a9c5547a0994f99a2ceeceb7b829a4b45952504baa77cea12e679c5a0b652704. Share it like any beacon.
+
+Next: cf discover    find campfires
+      cf create      start one
+      cf join <id>   join one
+
+$ cf init --cf-home $MEMBER_CF  (member)
+Your identity campfire: 4740f2ab7bf55b249ef9579351b0e4d9ea3e5ecca3deb02466a0ae6d9c1503b9. Share it like any beacon.
+
+Next: cf discover    find campfires
+      cf create      start one
+      cf join <id>   join one
+
+
+═══════════════════════════════════════════════════════════
+  2. Owner initializes project
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$OWNER_CF rd init --name teamproject --confirm  (in $PROJECT)
+warning: campfire durability check — sync may be unreliable:
+  no durability tags declared — retention is unknown
+  operator is unverified — do not commit irreplaceable state regardless of durability claims
+  minimum requirements: max-ttl:0 + lifecycle:persistent + provenance:basic or higher
+  set RD_CAMPFIRE_TAGS and RD_PROVENANCE to configure, or pass --confirm to proceed anyway
+warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
+initialized teamproject
+  campfire: 1cdf2d284c4c...
+  summary campfire: f226e657d0b2...
+  inbox campfire: 68e3612d5eec...
+  encrypted: true (E2E intent set; SDK encryption enabled when available)
+  declarations: 16 operations published
+
+  sync config stored with warnings (see .ready/config.json)
+
+  home campfire: found (a9c5547a0994...)
+  run 'rd register --org <name>' to add naming
+
+Project campfire ID: 1cdf2d284c4c132cd108a0fdbf1d57c21004408332dcabbb80eeda25401554ed
+
+
+═══════════════════════════════════════════════════════════
+  3. Capture member public key
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$MEMBER_CF cf id --json  (member pubkey)
+{
+  "public_key": "a492b92b9c0420cb7d9ad8548317782b0724731ced1044af0b521c9b296c618d"
+}
+
+Member pubkey: a492b92b9c0420cb7d9ad8548317782b0724731ced1044af0b521c9b296c618d
+
+
+═══════════════════════════════════════════════════════════
+  4. Owner admits member
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$OWNER_CF rd admit <member-pubkey>
+admitted a492b92b9c04... to main campfire (1cdf2d284c4c...)
+
+
+═══════════════════════════════════════════════════════════
+  5. Member joins project campfire
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$MEMBER_CF rd join <campfire-id>
+warning: could not start in-process convention server: conventionserver: inbox campfire 68e3612d5eece6bf2a29cace8cb901db2f0f16772cde640e6ace4f5cd1a77de1 not in client membership list
+joined campfire 1cdf2d284c4c... (invite-only)
+  cross-campfire deps referencing this campfire will now resolve
+
+
+═══════════════════════════════════════════════════════════
+  6. Owner creates work item
+═══════════════════════════════════════════════════════════
+
+{
+  "campfire_id": "1cdf2d284c4c132cd108a0fdbf1d57c21004408332dcabbb80eeda25401554ed",
+  "for": "c69eaae07e0007ee77ece9bc0cea31c7a16ab5b48864b73123323ed71a1a901e",
+  "id": "rdtestteamprojoz-db5",
+  "msg_id": "7cb44e89-b2d1-4fef-bf3e-9bc8ac784bd6",
+  "priority": "p1",
+  "title": "Build API",
+  "type": "task"
+}
+
+Created item: rdtestteamprojoz-db5
+
+
+═══════════════════════════════════════════════════════════
+  7. Owner delegates item to member
+═══════════════════════════════════════════════════════════
+
+Delegating to member identity: a492b92b9c0420cb7d9ad8548317782b0724731ced1044af0b521c9b296c618d
+
+$ CF_HOME=$OWNER_CF rd delegate rdtestteamprojoz-db5 --to <member-identity>
+delegated rdtestteamprojoz-db5 to a492b92b9c0420cb7d9ad8548317782b0724731ced1044af0b521c9b296c618d
+
+
+═══════════════════════════════════════════════════════════
+  8. Member views ready items
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$MEMBER_CF rd ready
+nothing ready
+
+
+═══════════════════════════════════════════════════════════
+  9. Member claims item (sets active)
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$MEMBER_CF rd update rdtestteamprojoz-db5 --status active
+updated rdtestteamprojoz-db5
+
+
+═══════════════════════════════════════════════════════════
+  10. Member completes item
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$MEMBER_CF rd done rdtestteamprojoz-db5 --reason 'API complete'
+warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
+closed rdtestteamprojoz-db5 (done)
+
+
+═══════════════════════════════════════════════════════════
+  11. Owner verifies — list all items
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$OWNER_CF rd list --all
+  rdtestteamprojoz-db5  p1        done        3h          Build API
+
+══════════════════════════════════════════════════════════════
+  Demo complete. Transcript saved to: /home/baron/projects/ready/test/demo/output/02-team.txt
+══════════════════════════════════════════════════════════════
