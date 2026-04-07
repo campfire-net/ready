@@ -220,6 +220,45 @@ func TestSaveSyncConfig_LoadSyncConfig_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestSaveSyncConfig_LoadSyncConfig_ProjectName verifies that ProjectName is
+// persisted and round-trips correctly.
+func TestSaveSyncConfig_LoadSyncConfig_ProjectName(t *testing.T) {
+	projectDir := t.TempDir()
+	original := &rdconfig.SyncConfig{
+		CampfireID:  "deadbeef1234",
+		ProjectName: "acme.backend",
+	}
+	if err := rdconfig.SaveSyncConfig(projectDir, original); err != nil {
+		t.Fatalf("SaveSyncConfig: %v", err)
+	}
+	loaded, err := rdconfig.LoadSyncConfig(projectDir)
+	if err != nil {
+		t.Fatalf("LoadSyncConfig: %v", err)
+	}
+	if loaded.ProjectName != original.ProjectName {
+		t.Errorf("ProjectName: got %q, want %q", loaded.ProjectName, original.ProjectName)
+	}
+}
+
+// TestSaveSyncConfig_ProjectName_OmitEmpty verifies that empty ProjectName is
+// omitted from JSON output.
+func TestSaveSyncConfig_ProjectName_OmitEmpty(t *testing.T) {
+	projectDir := t.TempDir()
+	c := &rdconfig.SyncConfig{CampfireID: "cafe"}
+	// ProjectName is not set (empty string).
+	if err := rdconfig.SaveSyncConfig(projectDir, c); err != nil {
+		t.Fatalf("SaveSyncConfig: %v", err)
+	}
+	data, err := os.ReadFile(rdconfig.SyncConfigPath(projectDir))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	content := string(data)
+	if containsSubstr(content, "project_name") {
+		t.Errorf("empty ProjectName should be omitted from JSON, got: %s", content)
+	}
+}
+
 // TestSaveSyncConfig_NilDurability verifies that a SyncConfig with nil Durability
 // round-trips correctly — the Durability field stays nil after load.
 func TestSaveSyncConfig_NilDurability(t *testing.T) {
