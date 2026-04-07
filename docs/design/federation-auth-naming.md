@@ -101,8 +101,7 @@ Campfire IDs are an implementation detail. They are never shown to users. Every 
 **Naming is dot-notation, root-first:**
 ```
 acme              ← org namespace campfire
-acme.backend      ← backend project campfire
-acme.backend      ← same name used everywhere: in commands, config, item references
+acme.backend      ← backend project campfire — name used everywhere: commands, config, item refs
 ```
 
 **Naming campfires are separate from project campfires.** The `acme` campfire stores registrations for its children (`backend`, `frontend`, etc.) — it is the nameserver for the `acme` namespace. The `acme.backend` project campfire is where `work:*` messages live. These are different campfires. They may coalesce (the same campfire can serve both purposes) but the default is separation. Ready does not own or create naming campfires — those are independent infrastructure.
@@ -127,6 +126,8 @@ acme.backend      ← same name used everywhere: in commands, config, item refer
 - `rd join acme.backend` resolves an existing named project, traverses the naming hierarchy, and joins the project campfire.
 
 They happen to use a name as an argument in the named case, but they are fundamentally different acts: create vs. discover.
+
+**`rd` is the only CLI users ever touch.** `cf` is an implementation dependency, not a user-facing prerequisite. `rd init` must bootstrap campfire identity silently if it doesn't exist — generating the Ed25519 keypair, creating the identity file, and initializing the local store — without asking the user to run `cf init` first. Any design that requires users to run a `cf` command directly is a bug in the abstraction.
 
 ### 3.3 Authorization Model
 
@@ -168,6 +169,8 @@ The join workflow is a work management workflow. It is not an out-of-band ceremo
 **Join request flow:**
 
 The naming campfire for a project (e.g., the `acme` campfire that holds the `acme.backend` registration) accepts a `work:join-request` convention message from non-members. This is the anteroom — publicly writable for this one operation, nothing else.
+
+The convention server for the project campfire (`acme.backend`) monitors the naming campfire (`acme`) for `work:join-request` messages targeting that project. When one arrives, it creates a derived `work:create` in the project campfire, making the request visible to project members. **This bridging is an open design question** — the mechanism by which a message in a naming campfire triggers an item in a project campfire needs to be specified. Options include: convention server polling the naming campfire, the requester posting to both campfires, or a relay convention.
 
 A join request surfaces in the project maintainer's `rd ready` as an item:
 ```
