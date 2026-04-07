@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/campfire-net/campfire/pkg/naming"
+	"github.com/campfire-net/ready/pkg/crossdep"
 	"github.com/spf13/cobra"
 )
 
@@ -33,10 +35,55 @@ Example:
 			return err
 		}
 
+		// Resolve cross-campfire deps when we have a store.
+		aliases := naming.NewAliasStore(CFHome())
+		crossDeps := crossdep.ResolveDeps(item, s, aliases)
+
 		if jsonOutput {
+			// Augment item with resolved cross-campfire dep info.
+			type crossDepJSON struct {
+				Ref          string      `json:"ref"`
+				CampfireName string      `json:"campfire_name,omitempty"`
+				ItemID       string      `json:"item_id,omitempty"`
+				Status       string      `json:"status,omitempty"`
+				Warning      string      `json:"warning,omitempty"`
+			}
+			var crossDepsOut []crossDepJSON
+			for _, cd := range crossDeps {
+				cdj := crossDepJSON{
+					Ref:          cd.Ref,
+					CampfireName: cd.CampfireName,
+					ItemID:       cd.ItemID,
+				}
+				if cd.Item != nil {
+					cdj.Status = cd.Item.Status
+				}
+				if cd.Warning != "" {
+					cdj.Warning = cd.Warning
+				}
+				crossDepsOut = append(crossDepsOut, cdj)
+			}
+			type itemWithCross struct {
+				*crossDepJSON
+			}
+			_ = itemWithCross{}
+
+			// Build augmented output map.
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
-			return enc.Encode(item)
+			// Encode item first, then add cross_campfire_deps.
+			itemBytes, err2 := json.Marshal(item)
+			if err2 != nil {
+				return enc.Encode(item)
+			}
+			var itemMap map[string]interface{}
+			if err2 = json.Unmarshal(itemBytes, &itemMap); err2 != nil {
+				return enc.Encode(item)
+			}
+			if len(crossDepsOut) > 0 {
+				itemMap["cross_campfire_deps"] = crossDepsOut
+			}
+			return enc.Encode(itemMap)
 		}
 
 		// Human-readable output.
@@ -72,6 +119,14 @@ Example:
 		}
 		if item.WaitingOn != "" {
 			fmt.Printf("Waiting on: %s (%s)\n", item.WaitingOn, item.WaitingType)
+		}
+		// Cross-campfire dep display: resolved and unresolved.
+		for _, cd := range crossDeps {
+			if cd.Item != nil {
+				fmt.Printf("Cross-dep: %s → %s [%s]\n", cd.Ref, cd.ItemID, cd.Item.Status)
+			} else {
+				fmt.Fprintf(os.Stderr, "warning: %s\n", cd.Warning)
+			}
 		}
 		if item.Context != "" {
 			fmt.Printf("\nContext:\n%s\n", item.Context)

@@ -1,16 +1,24 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/naming"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/spf13/cobra"
+
+	"github.com/campfire-net/ready/pkg/rdconfig"
 )
+
+// defaultBeaconRoot is the compiled-in default beacon root ID.
+// Empty string means no default is compiled in — any first use is a TOFU event.
+const defaultBeaconRoot = ""
 
 var joinCmd = &cobra.Command{
 	Use:   "join <name-or-campfire-id>",
@@ -22,17 +30,94 @@ For open campfires, joins immediately.
 For invite-only campfires, posts a work:join-request and polls for a
 work:role-grant (admission grant) targeting your public key.
 
+TOFU PINNING
+  The first time you join using a non-default beacon root (--root), rd warns
+  you and pins the beacon root in the config. On subsequent joins, any
+  deviation from the pinned root requires --confirm.
+
+  To reset the pinned root:
+    rd join --reset-beacon-root
+
 EXAMPLES
   rd join myorg.ready/myproject
   rd join cf://myorg.ready/myproject
-  rd join abcdef1234...             # join by campfire ID directly`,
-	Args: cobra.ExactArgs(1),
+  rd join abcdef1234...               # join by campfire ID directly
+  rd join <id> --root <beacon-root>   # join with explicit beacon root (TOFU)
+  rd join --reset-beacon-root         # clear the pinned beacon root`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		nameOrID := args[0]
+		resetRoot, _ := cmd.Flags().GetBool("reset-beacon-root")
+		beaconRootFlag, _ := cmd.Flags().GetString("root")
+		confirm, _ := cmd.Flags().GetBool("confirm")
 		timeout, _ := cmd.Flags().GetDuration("timeout")
 		role, _ := cmd.Flags().GetString("role")
 		if role == "" {
 			role = "member"
+		}
+
+		cfg, err := rdconfig.Load(CFHome())
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		// Handle --reset-beacon-root.
+		if resetRoot {
+			if cfg.BeaconRoot == "" {
+				fmt.Println("no beacon root pinned")
+				return nil
+			}
+			prev := cfg.BeaconRoot
+			cfg.BeaconRoot = ""
+			if err := rdconfig.Save(CFHome(), cfg); err != nil {
+				return fmt.Errorf("saving config: %w", err)
+			}
+			fmt.Printf("beacon root pin cleared (was: %s...)\n", prev[:minInt(12, len(prev))])
+			return nil
+		}
+
+		if len(args) == 0 {
+			return fmt.Errorf("name-or-campfire-id required (use --reset-beacon-root to clear the pinned beacon root)")
+		}
+
+		nameOrID := args[0]
+
+		// TOFU pinning: check beacon root before resolving.
+		if beaconRootFlag != defaultBeaconRoot && beaconRootFlag != "" {
+			if cfg.BeaconRoot == "" {
+				// First use of a non-default beacon root — warn and pin (TOFU).
+				fmt.Fprintf(os.Stderr, "warning: first use of non-default beacon root %s...\n", beaconRootFlag[:minInt(12, len(beaconRootFlag))])
+				fmt.Fprintf(os.Stderr, "  this root will be pinned (TOFU) in the config\n")
+				fmt.Fprintf(os.Stderr, "  future joins using a different root will require --confirm\n")
+
+				if !confirm {
+					if !isInteractive() {
+						fmt.Fprintf(os.Stderr, "  non-interactive: pinning beacon root automatically\n")
+					} else {
+						fmt.Fprint(os.Stderr, "pin this beacon root? [Y/n] ")
+						scanner := bufio.NewScanner(os.Stdin)
+						if scanner.Scan() {
+							answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+							if answer == "n" || answer == "no" {
+								return fmt.Errorf("aborted: beacon root not pinned")
+							}
+						}
+					}
+				}
+				cfg.BeaconRoot = beaconRootFlag
+				if err := rdconfig.Save(CFHome(), cfg); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: could not pin beacon root: %v\n", err)
+				} else {
+					fmt.Fprintf(os.Stderr, "  pinned beacon root: %s...\n", beaconRootFlag[:minInt(12, len(beaconRootFlag))])
+				}
+			} else if cfg.BeaconRoot != beaconRootFlag {
+				// Deviation from pinned root — warn, require confirmation.
+				fmt.Fprintf(os.Stderr, "warning: beacon root mismatch\n")
+				fmt.Fprintf(os.Stderr, "  pinned:    %s...\n", cfg.BeaconRoot[:minInt(12, len(cfg.BeaconRoot))])
+				fmt.Fprintf(os.Stderr, "  requested: %s...\n", beaconRootFlag[:minInt(12, len(beaconRootFlag))])
+				if !confirm {
+					return fmt.Errorf("beacon root does not match pinned root — pass --confirm to proceed or use 'rd join --reset-beacon-root' to re-pin")
+				}
+			}
 		}
 
 		client, err := requireClient()
@@ -49,27 +134,21 @@ EXAMPLES
 		// Attempt to join.
 		result, err := client.Join(protocol.JoinRequest{
 			CampfireID: campfireID,
-			Transport:  protocol.FilesystemTransport{},
+			Transport:  protocol.FilesystemTransport{Dir: localCampfireBaseDir()},
 		})
 		if err == nil {
-			// Joined successfully.
 			displayID := campfireID
 			if len(displayID) > 12 {
 				displayID = displayID[:12] + "..."
 			}
 			fmt.Fprintf(os.Stdout, "joined campfire %s (%s)\n", displayID, result.JoinProtocol)
+			fmt.Println("  cross-campfire deps referencing this campfire will now resolve")
 			return nil
 		}
 
 		// Join failed. If this is an invite-only campfire, post a join-request.
-		// We detect invite-only by checking the error message — the protocol
-		// returns an error when the campfire is invite-only and we haven't been
-		// pre-admitted.
 		fmt.Fprintf(os.Stderr, "rd: campfire is invite-only — posting join request\n")
 
-		// We need to be a member to send a message. For invite-only campfires
-		// where we have no membership yet, we post via the center campfire's
-		// convention transport (the join-request operation uses min_operator_level: 0).
 		exec, _, execErr := requireExecutor()
 		if execErr != nil {
 			return fmt.Errorf("initializing executor: %w", execErr)
@@ -111,7 +190,7 @@ EXAMPLES
 		// Now join with the pre-admission in place.
 		result3, joinErr := client.Join(protocol.JoinRequest{
 			CampfireID: campfireID,
-			Transport:  protocol.FilesystemTransport{},
+			Transport:  protocol.FilesystemTransport{Dir: localCampfireBaseDir()},
 		})
 		if joinErr != nil {
 			return fmt.Errorf("joining after admission: %w", joinErr)
@@ -135,7 +214,6 @@ func resolveName(client *protocol.Client, input string) (string, error) {
 	}
 
 	// Use the naming resolver with the client.
-	// We use the operator root as the naming root if available.
 	root, err := naming.LoadOperatorRoot(CFHome())
 	rootID := ""
 	if err == nil && root != nil {
@@ -166,11 +244,9 @@ func pollForRoleGrant(client *protocol.Client, campfireID, myPubKey string, time
 		})
 		if err == nil {
 			for _, msg := range result.Messages {
-				// Check that this grant targets our pubkey.
 				if containsTag(msg.Tags, "work:for:"+myPubKey) {
 					return msg.ID, nil
 				}
-				// Also check payload for pubkey field.
 				if grantTargets(msg, myPubKey) {
 					return msg.ID, nil
 				}
@@ -221,8 +297,20 @@ func isHex(s string) bool {
 	return true
 }
 
+// isInteractive reports whether stdin is a terminal.
+func isInteractive() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
 func init() {
 	joinCmd.Flags().Duration("timeout", 5*time.Minute, "how long to wait for admission grant")
 	joinCmd.Flags().String("role", "member", "role to request: member or agent")
+	joinCmd.Flags().String("root", "", "beacon root campfire ID to use for TOFU pinning")
+	joinCmd.Flags().Bool("reset-beacon-root", false, "clear the pinned beacon root")
+	joinCmd.Flags().Bool("confirm", false, "confirm beacon root deviation without prompting")
 	rootCmd.AddCommand(joinCmd)
 }

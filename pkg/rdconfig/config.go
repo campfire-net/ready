@@ -21,6 +21,11 @@ type Config struct {
 
 	// ReadyCampfireID is the hex campfire ID of the cf://<org>.ready namespace campfire.
 	ReadyCampfireID string `json:"ready_campfire_id,omitempty"`
+
+	// BeaconRoot is the TOFU-pinned beacon root campfire ID. Set on first use of
+	// a non-default beacon root via "rd join". Once pinned, deviations require
+	// explicit user confirmation.
+	BeaconRoot string `json:"beacon_root,omitempty"`
 }
 
 // Path returns the config file path within the given campfire home directory.
