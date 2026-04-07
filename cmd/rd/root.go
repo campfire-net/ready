@@ -182,7 +182,7 @@ func requireClient() (*protocol.Client, error) {
 	if protocolClient != nil {
 		return protocolClient, nil
 	}
-	c, err := protocol.Init(CFHome(), protocol.WithAuthorizeFunc(centerAuthorize))
+	c, err := protocol.InitWithConfig(protocol.WithConfigDir(CFHome()), protocol.WithWalkUp(), protocol.WithAuthorizeFunc(centerAuthorize))
 	if err != nil {
 		return nil, fmt.Errorf("initializing campfire client: %w", err)
 	}
