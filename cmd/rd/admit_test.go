@@ -9,6 +9,7 @@ package main
 //  - unknown roles return errors
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/campfire-net/ready/pkg/rdconfig"
@@ -109,6 +110,33 @@ func TestAdmit_UnknownRole_ReturnsError(t *testing.T) {
 	_, err := admitRoleTarget("superadmin", syncCfg)
 	if err == nil {
 		t.Fatal("expected error for unknown role, got nil")
+	}
+}
+
+// TestAdmitByPubKey_InvalidPubkeyRejected verifies that admitByPubKey returns an
+// error before performing any I/O when the pubkey is not a valid 64-char hex string.
+func TestAdmitByPubKey_InvalidPubkeyRejected(t *testing.T) {
+	cases := []struct {
+		name   string
+		pubkey string
+	}{
+		{"too short", "abcdef1234"},
+		{"too long", "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ff"},
+		{"uppercase hex", "ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890AB"},
+		{"non-hex chars", "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"},
+		{"empty string", ""},
+		{"63 chars", "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890a"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := admitByPubKey(tc.pubkey, "member")
+			if err == nil {
+				t.Fatalf("expected error for invalid pubkey %q, got nil", tc.pubkey)
+			}
+			if !strings.Contains(err.Error(), "must be a 64-character hex string") {
+				t.Errorf("expected 'must be a 64-character hex string' in error, got: %v", err)
+			}
+		})
 	}
 }
 

@@ -229,3 +229,59 @@ func mustMarshal(v interface{}) []byte {
 	}
 	return data
 }
+
+// TestDerive_StrandedItemReclaim_IgnoresUnclaimedActive verifies that Pass 3
+// does NOT reclaim active items with empty By — only items explicitly claimed
+// by the revoked pubkey should be reclaimed.
+func TestDerive_StrandedItemReclaim_IgnoresUnclaimedActive(t *testing.T) {
+	const campfireID = "bbbb0000cccc1111dddd2222eeee3333ffff4444aaaa5555bbbb0000cccc1111"
+	const someKey = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+
+	msgs := []store.MessageRecord{
+		{
+			ID: "m1", CampfireID: campfireID, Sender: "admin",
+			Tags: []string{"work:create"},
+			Payload: mustMarshal(map[string]interface{}{
+				"id": "task-002", "title": "Unclaimed active task", "type": "task",
+				"for": "team@example.com", "priority": "p1",
+			}),
+			Timestamp: 1000,
+		},
+		// Set active via work:status without a claim — By remains empty.
+		{
+			ID: "m2", CampfireID: campfireID, Sender: "admin",
+			Tags: []string{"work:status"},
+			Payload: mustMarshal(map[string]interface{}{
+				"target": "m1",
+				"to":     "active",
+			}),
+			Antecedents: []string{"m1"},
+			Timestamp:   1500,
+		},
+		// Revoke someKey — which never claimed this item.
+		{
+			ID: "m3", CampfireID: campfireID, Sender: "admin",
+			Tags: []string{"work:role-grant"},
+			Payload: mustMarshal(map[string]interface{}{
+				"pubkey":     someKey,
+				"role":       "revoked",
+				"granted_at": int64(2000),
+			}),
+			Timestamp: 2000,
+		},
+	}
+
+	items := state.Derive(campfireID, msgs)
+	task := items["task-002"]
+	if task == nil {
+		t.Fatal("task-002 not found")
+	}
+
+	// Item has no claimer — Pass 3 must NOT touch it.
+	if task.Status != state.StatusActive {
+		t.Errorf("unclaimed active item should remain active after unrelated revocation, got %q", task.Status)
+	}
+	if task.By != "" {
+		t.Errorf("By should remain empty, got %q", task.By)
+	}
+}

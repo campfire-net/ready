@@ -315,6 +315,47 @@ func TestInboxWatcher_RateLimitsEleventhRequest(t *testing.T) {
 	}
 }
 
+// TestInboxWatcher_InvalidPubkeyRejected verifies that handleJoinRequest on the
+// production inboxWatcher returns an error (and does NOT attempt to materialize the
+// message) when the payload pubkey is not a valid 64-char hex string.
+// The client is left nil because validation returns before any client call.
+func TestInboxWatcher_InvalidPubkeyRejected(t *testing.T) {
+	cases := []struct {
+		name   string
+		pubkey string
+	}{
+		{"too short", "abcdef1234"},
+		{"non-hex chars", "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"},
+		{"uppercase", "ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890AB"},
+		{"empty pubkey", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := JoinRequestPayload{
+				Pubkey:        tc.pubkey,
+				RequestedRole: "member",
+			}
+			payloadBytes, _ := json.Marshal(payload)
+
+			// client is nil — production code must not reach client.Send.
+			w := &inboxWatcher{
+				client:    nil,
+				rateLimit: newJoinRateLimiter(10),
+			}
+			msg := protocol.Message{
+				ID:      "msg-bad",
+				Sender:  "sender-key",
+				Payload: payloadBytes,
+				Tags:    []string{"work:join-request"},
+			}
+			err := w.handleJoinRequest(msg)
+			if err == nil {
+				t.Fatalf("expected error for invalid pubkey %q, got nil", tc.pubkey)
+			}
+		})
+	}
+}
+
 func TestInboxWatcher_OptionalFieldsPassedThrough(t *testing.T) {
 	const inboxID = "inbox-campfire-id"
 	const projectID = "project-campfire-id"

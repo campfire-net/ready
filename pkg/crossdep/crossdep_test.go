@@ -422,3 +422,24 @@ func TestResolveDeps_ItemNotFound(t *testing.T) {
 		t.Error("expected warning when item not found in target campfire")
 	}
 }
+
+// TestShortID verifies that shortID returns the full string for short IDs
+// and truncates to 12 chars with "..." for longer ones.
+func TestShortID(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"abc", "abc"},
+		{"1234567890ab", "1234567890ab"},  // exactly 12 — no truncation
+		{"1234567890abc", "1234567890ab..."}, // 13 chars — truncate
+		{"", ""},
+		{backendCampfire, backendCampfire[:12] + "..."},
+	}
+	for _, c := range cases {
+		got := crossdep.ShortIDForTest(c.input)
+		if got != c.want {
+			t.Errorf("shortID(%q) = %q, want %q", c.input, got, c.want)
+		}
+	}
+}
