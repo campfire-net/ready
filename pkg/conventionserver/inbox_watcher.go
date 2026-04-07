@@ -176,8 +176,13 @@ func (r *joinRateLimiter) Allow(pubkey string) bool {
 		}
 	}
 
-	if len(fresh) >= r.max {
+	if len(fresh) == 0 {
+		delete(r.buckets, pubkey)
+	} else {
 		r.buckets[pubkey] = fresh
+	}
+
+	if len(fresh) >= r.max {
 		return false
 	}
 

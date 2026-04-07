@@ -208,6 +208,55 @@ func (w *testableInboxWatcher) handleJoinRequest(msg protocol.Message) error {
 	return err
 }
 
+// TestJoinRateLimiter_DeletesBucketKeyWhenEmptyAfterEviction verifies that when
+// all timestamps in a bucket expire and the next Allow() call is for a pubkey
+// that is now over the limit (max=0 forces the deny path with an empty fresh
+// slice), the map key is deleted rather than retained with a zero-length slice.
+// This is the memory-leak regression: unique senders whose buckets are fully
+// expired should not linger in the map indefinitely.
+func TestJoinRateLimiter_DeletesBucketKeyWhenEmptyAfterEviction(t *testing.T) {
+	// max=0 means every request is denied; the bucket is always empty after
+	// eviction because no timestamps are ever appended.
+	rl := &joinRateLimiter{
+		max:     0,
+		window:  time.Hour,
+		buckets: make(map[string][]time.Time),
+	}
+	pubkey := "testpubkey"
+
+	// Manually seed the bucket with an expired timestamp so that on the first
+	// Allow() call there is something to evict.
+	past := time.Now().Add(-2 * time.Hour)
+	rl.nowFunc = func() time.Time { return time.Now() }
+	rl.mu.Lock()
+	rl.buckets[pubkey] = []time.Time{past}
+	rl.mu.Unlock()
+
+	// Key must exist before Allow().
+	rl.mu.Lock()
+	_, exists := rl.buckets[pubkey]
+	rl.mu.Unlock()
+	if !exists {
+		t.Fatal("precondition: bucket key should exist before Allow()")
+	}
+
+	// Allow() evicts the expired timestamp → fresh is empty → key should be
+	// deleted. max=0 so it also returns false (denied), exercising the deny
+	// branch with an empty fresh slice.
+	result := rl.Allow(pubkey)
+	if result {
+		t.Fatal("Allow() should return false when max=0")
+	}
+
+	rl.mu.Lock()
+	_, stillPresent := rl.buckets[pubkey]
+	rl.mu.Unlock()
+
+	if stillPresent {
+		t.Error("bucket key still present after all entries evicted — memory leak not fixed")
+	}
+}
+
 func TestInboxWatcher_MaterializesJoinRequest(t *testing.T) {
 	const inboxID = "inbox-campfire-id"
 	const projectID = "project-campfire-id"
