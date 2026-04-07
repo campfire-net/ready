@@ -316,7 +316,7 @@ func pendingPath() string {
 func allItemsFromJSONLOrStore(s store.Store) ([]*state.Item, error) {
 	if path := jsonlPath(); path != "" {
 		// campfireID may be empty for JSONL-only projects; DeriveFromJSONL handles that.
-		_, campfireID, _ := projectRoot()
+		campfireID, _, _ := projectRoot()
 		return resolve.AllItemsFromJSONL(path, campfireID)
 	}
 	return resolve.AllItems(s)
@@ -326,7 +326,7 @@ func allItemsFromJSONLOrStore(s store.Store) ([]*state.Item, error) {
 func byIDFromJSONLOrStore(s store.Store, itemID string) (*state.Item, error) {
 	if path := jsonlPath(); path != "" {
 		// campfireID may be empty for JSONL-only projects.
-		_, campfireID, _ := projectRoot()
+		campfireID, _, _ := projectRoot()
 		return resolve.ByIDFromJSONL(path, campfireID, itemID)
 	}
 	return resolve.ByID(s, itemID)

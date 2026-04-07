@@ -145,26 +145,118 @@ func TestFormatCampfireIDForDisplay_ResolveProjectName(t *testing.T) {
 	}
 }
 
-// TestShowCommandDisplay tests that the show command does not output
-// 64-char hex strings in normal mode (without --debug).
+// TestShowCommandDisplay_NoHexWithoutDebug verifies that rd show output
+// contains the project name — not a raw 64-char hex — when project_name is
+// configured and the alias store has a matching entry.
 func TestShowCommandDisplay_NoHexWithoutDebug(t *testing.T) {
-	// This test verifies the display logic is called.
-	// We can't easily test the full command output without a full fixture.
-	// But we can verify the formatCampfireIDForDisplay function works correctly.
-	originalDebug := debugOutput
-	defer func() { debugOutput = originalDebug }()
-
+	origDebug := debugOutput
+	defer func() { debugOutput = origDebug }()
 	debugOutput = false
 
-	hexID := strings.Repeat("12", 32) // 64-char hex ID
-	result := formatCampfireIDForDisplay(hexID)
+	origJSON := jsonOutput
+	defer func() { jsonOutput = origJSON }()
+	jsonOutput = false
 
-	// With --debug=false and no matching config, should return hex as fallback
-	// (since we can't set up a real naming authority in a unit test)
-	if len(result) == 64 && isValidHex(result) {
-		// Hex was returned unchanged — this is acceptable fallback behavior
-		// when the naming authority can't be reached
-		t.Logf("result is hex (fallback): %s", result)
+	tmpDir, err := os.MkdirTemp("", "test-show-nohex")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	hexID := strings.Repeat("ab", 32) // 64-char hex campfire ID
+
+	// Point CF_HOME at tmpDir so openStore() and naming.AliasStore both use it.
+	origCFHome := os.Getenv("CF_HOME")
+	os.Setenv("CF_HOME", tmpDir)
+	defer func() {
+		if origCFHome != "" {
+			os.Setenv("CF_HOME", origCFHome)
+		} else {
+			os.Unsetenv("CF_HOME")
+		}
+	}()
+	origRDHome := rdHome
+	rdHome = ""
+	defer func() { rdHome = origRDHome }()
+
+	// Write alias store: "showproject" → hexID.
+	aliasContent := `{"showproject":"` + hexID + `"}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "aliases.json"), []byte(aliasContent), 0600); err != nil {
+		t.Fatalf("WriteFile aliases.json: %v", err)
+	}
+
+	// Write .ready/config.json with project_name.
+	readyDir := filepath.Join(tmpDir, ".ready")
+	if err := os.MkdirAll(readyDir, 0700); err != nil {
+		t.Fatalf("MkdirAll .ready: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(readyDir, "config.json"), []byte(`{"project_name":"showproject"}`), 0600); err != nil {
+		t.Fatalf("WriteFile config.json: %v", err)
+	}
+
+	// Write a minimal mutations.jsonl so byIDFromJSONLOrStore uses JSONL (no store needed).
+	// campfire_id is the hex we expect to be hidden from output.
+	createPayload := `{"id":"ready-show1","title":"Show Test Item","type":"task","for":"agent@test","priority":"p2"}`
+	mutation := `{"msg_id":"test-msg-show1","campfire_id":"` + hexID + `","timestamp":1000000000000000000,"operation":"work:create","payload":` + createPayload + `,"tags":["work:create"],"sender":"testsender"}`
+	jsonlPath := filepath.Join(readyDir, "mutations.jsonl")
+	if err := os.WriteFile(jsonlPath, []byte(mutation+"\n"), 0600); err != nil {
+		t.Fatalf("WriteFile mutations.jsonl: %v", err)
+	}
+
+	// Chdir to tmpDir so readyProjectDir() walks up and finds .ready/.
+	origCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origCwd)
+
+	// Capture os.Stdout by replacing it with a pipe.
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+
+	runErr := showCmd.RunE(showCmd, []string{"ready-show1"})
+
+	w.Close()
+	os.Stdout = origStdout
+
+	var buf strings.Builder
+	outBuf := make([]byte, 4096)
+	for {
+		n, readErr := r.Read(outBuf)
+		if n > 0 {
+			buf.Write(outBuf[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	r.Close()
+
+	if runErr != nil {
+		t.Fatalf("showCmd.RunE error: %v", runErr)
+	}
+
+	output := buf.String()
+
+	// The Campfire line must show the project name, not the raw hex.
+	if !strings.Contains(output, "showproject") {
+		t.Errorf("show output does not contain project name %q; output:\n%s", "showproject", output)
+	}
+
+	// No 64-char hex token should appear anywhere in the output.
+	for _, line := range strings.Split(output, "\n") {
+		for _, tok := range strings.Fields(line) {
+			if len(tok) == 64 && isValidHex(tok) {
+				t.Errorf("show output contains raw 64-char hex %q on line: %q", tok, line)
+			}
+		}
 	}
 }
 
