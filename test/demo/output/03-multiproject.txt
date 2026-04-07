@@ -1,0 +1,151 @@
+=== SECTION: setup ===
+$ cf init --cf-home "/tmp/rdtest-multi-PpkF"
+Your identity campfire: 60d796199b00921d7bd692e91db155254f293e4890f5412819062e7edcf72bf7. Share it like any beacon.
+
+Next: cf discover    find campfires
+      cf create      start one
+      cf join <id>   join one
+
+=== SECTION: init-frontend ===
+$ cd FRONTEND && rd init --name "frontend" --confirm
+warning: campfire durability check — sync may be unreliable:
+  no durability tags declared — retention is unknown
+  operator is unverified — do not commit irreplaceable state regardless of durability claims
+  minimum requirements: max-ttl:0 + lifecycle:persistent + provenance:basic or higher
+  set RD_CAMPFIRE_TAGS and RD_PROVENANCE to configure, or pass --confirm to proceed anyway
+warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
+initialized frontend
+  campfire: c5df13555c12...
+  summary campfire: 49bc6d51a551...
+  inbox campfire: 21792d99d6a1...
+  encrypted: true (E2E intent set; SDK encryption enabled when available)
+  declarations: 16 operations published
+
+  sync config stored with warnings (see .ready/config.json)
+
+  home campfire: found (60d796199b00...)
+  run 'rd register --org <name>' to add naming
+
+=== SECTION: init-backend ===
+$ cd BACKEND && rd init --name "backend" --confirm
+warning: campfire durability check — sync may be unreliable:
+  no durability tags declared — retention is unknown
+  operator is unverified — do not commit irreplaceable state regardless of durability claims
+  minimum requirements: max-ttl:0 + lifecycle:persistent + provenance:basic or higher
+  set RD_CAMPFIRE_TAGS and RD_PROVENANCE to configure, or pass --confirm to proceed anyway
+warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
+initialized backend
+  campfire: 17e6db6525c0...
+  summary campfire: 9ee7f9aa31ed...
+  inbox campfire: defdff32d6a5...
+  encrypted: true (E2E intent set; SDK encryption enabled when available)
+  declarations: 16 operations published
+
+  sync config stored with warnings (see .ready/config.json)
+
+  home campfire: found (60d796199b00...)
+  run 'rd register --org <name>' to add naming
+
+=== SECTION: create-items ===
+$ cd BACKEND && rd create --title "Expose /api/v1/users endpoint" --priority p1 --type task --json
+{
+  "campfire_id": "17e6db6525c0e4acee4b9f04021fdf7127d2fabacf41fca00428238a647b8db1",
+  "for": "6ecbfe133652d4663551b54478149e327d785f0a9b6b10c5dbb91bdba62e0fab",
+  "id": "rdtestbackendp-56c",
+  "msg_id": "2e4b991d-dfa7-4706-9700-e3580fbc0119",
+  "priority": "p1",
+  "title": "Expose /api/v1/users endpoint",
+  "type": "task"
+}
+# backend item ID: rdtestbackendp-56c
+
+$ cd FRONTEND && rd create --title "Build user list page" --priority p1 --type task --json
+{
+  "campfire_id": "c5df13555c122ed29da3052bef8f539e35282166c40bc54308963def35462509",
+  "for": "6ecbfe133652d4663551b54478149e327d785f0a9b6b10c5dbb91bdba62e0fab",
+  "id": "rdtestfrontendhki-355",
+  "msg_id": "b2fd670a-09d2-4d7e-a9ba-d1b0d53a969d",
+  "priority": "p1",
+  "title": "Build user list page",
+  "type": "task"
+}
+# frontend item ID: rdtestfrontendhki-355
+
+=== SECTION: wire-dep ===
+# Cross-project dep attempt 1: dotted syntax (project.item-id)
+$ rd dep add rdtestfrontendhki-355 backend.rdtestbackendp-56c
+Error: cross-project deps not supported: "backend.rdtestbackendp-56c" looks like a cross-campfire reference (use rd join to establish membership)
+Usage:
+  rd dep add <blocked-id> <blocker-id> [flags]
+
+Flags:
+  -h, --help   help for add
+
+Global Flags:
+      --cf-home string   campfire home directory (default: ~/.cf)
+      --debug            show hex IDs for diagnostics
+      --json             output as JSON
+
+cross-project deps not supported: "backend.rdtestbackendp-56c" looks like a cross-campfire reference (use rd join to establish membership)
+
+# Cross-project dep attempt 2: plain IDs across project dirs
+# (items from different campfires are not visible to each other)
+$ cd FRONTEND && rd dep add rdtestfrontendhki-355 rdtestbackendp-56c
+Error: resolving blocker item "rdtestbackendp-56c": item "rdtestbackendp-56c" not found
+Usage:
+  rd dep add <blocked-id> <blocker-id> [flags]
+
+Flags:
+  -h, --help   help for add
+
+Global Flags:
+      --cf-home string   campfire home directory (default: ~/.cf)
+      --debug            show hex IDs for diagnostics
+      --json             output as JSON
+
+resolving blocker item "rdtestbackendp-56c": item "rdtestbackendp-56c" not found
+
+# NOTE: Cross-project deps are not supported.
+# rd dep operates within a single project's campfire.
+# Wire dependencies within one project, or track cross-project
+# coordination manually (e.g. item notes or campfire messages).
+
+# --- Within-project dep wiring (supported) ---
+# Create a local placeholder tracking the backend dependency:
+$ cd FRONTEND && rd create --title "[backend] API endpoint ready" --type task --priority p1 --json
+{
+  "campfire_id": "c5df13555c122ed29da3052bef8f539e35282166c40bc54308963def35462509",
+  "for": "6ecbfe133652d4663551b54478149e327d785f0a9b6b10c5dbb91bdba62e0fab",
+  "id": "rdtestfrontendhki-a6c",
+  "msg_id": "767034ec-4c70-43ea-a4fe-c7cf6a4f278a",
+  "priority": "p1",
+  "title": "[backend] API endpoint ready",
+  "type": "task"
+}
+# placeholder item ID: rdtestfrontendhki-a6c
+
+=== SECTION: show-blocked ===
+$ cd FRONTEND && rd dep add rdtestfrontendhki-355 rdtestfrontendhki-a6c
+blocked: rdtestfrontendhki-355 is now blocked by rdtestfrontendhki-a6c
+
+$ rd dep tree rdtestfrontendhki-355
+rdtestfrontendhki-355  [blocked]  Build user list page  (blocked by: rdtestfrontendhki-a6c)
+
+$ rd ready
+  rdtestfrontendhki-a6c  p1        inbox       3h          [backend] API endpoint ready
+# (frontend item is blocked by placeholder — not shown in ready)
+
+=== SECTION: close-blocker ===
+# Backend team ships the endpoint; mark the placeholder done:
+$ rd done rdtestfrontendhki-a6c --reason "Backend confirmed /api/v1/users deployed"
+closed rdtestfrontendhki-a6c (done)
+
+=== SECTION: verify-unblocked ===
+$ rd ready
+  rdtestfrontendhki-355  p1        inbox       3h          Build user list page
+# frontend item is now unblocked and ready
+
+$ rd dep tree rdtestfrontendhki-355
+rdtestfrontendhki-355  [inbox]  Build user list page
+
+# Demo complete. Transcript written to: /home/baron/projects/ready/test/demo/output/03-multiproject.txt
