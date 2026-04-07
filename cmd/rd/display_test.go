@@ -85,19 +85,46 @@ func TestFormatCampfireIDForDisplay_ResolveProjectName(t *testing.T) {
 
 	debugOutput = false
 
-	// Create a temporary directory with .ready/config.json
+	// Create a temporary directory to serve as both CF_HOME and project root.
 	tmpDir, err := os.MkdirTemp("", "test-with-config")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
+	hexID := strings.Repeat("ef", 32) // 64-char hex ID
+	const projectName = "myproject"
+
+	// Populate the alias store so naming.AliasStore.Get("myproject") == hexID.
+	origCFHome := os.Getenv("CF_HOME")
+	os.Setenv("CF_HOME", tmpDir)
+	defer func() {
+		if origCFHome != "" {
+			os.Setenv("CF_HOME", origCFHome)
+		} else {
+			os.Unsetenv("CF_HOME")
+		}
+	}()
+	origRDHome := rdHome
+	rdHome = ""
+	defer func() { rdHome = origRDHome }()
+
+	aliasContent := `{"` + projectName + `":"` + hexID + `"}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "aliases.json"), []byte(aliasContent), 0600); err != nil {
+		t.Fatalf("failed to write aliases.json: %v", err)
+	}
+
+	// Create .ready/config.json with project_name pointing to the alias above.
 	readyDir := filepath.Join(tmpDir, ".ready")
 	if err := os.MkdirAll(readyDir, 0700); err != nil {
 		t.Fatalf("failed to create .ready dir: %v", err)
 	}
+	configContent := `{"project_name": "` + projectName + `"}`
+	if err := os.WriteFile(filepath.Join(readyDir, "config.json"), []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
 
-	// Change to the temp directory
+	// Change to the temp directory so the walk-up finds .ready/config.json.
 	originalCwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get cwd: %v", err)
@@ -107,24 +134,14 @@ func TestFormatCampfireIDForDisplay_ResolveProjectName(t *testing.T) {
 	}
 	defer os.Chdir(originalCwd)
 
-	// Create a minimal config.json with ProjectName
-	configPath := filepath.Join(readyDir, "config.json")
-	configContent := `{"project_name": "test.project"}`
-	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
-
-	// Note: In a real scenario, the naming.AliasStore would resolve test.project
-	// to a hex ID. Since we can't mock that here without complex setup,
-	// this test verifies that the function at least tries to resolve.
-	// The actual resolution would require a populated alias store.
-
-	hexID := strings.Repeat("ef", 32) // 64-char hex ID
 	result := formatCampfireIDForDisplay(hexID)
 
-	// With no matching alias, should fall back to hex
-	if result != hexID {
-		t.Errorf("with unmatched project name, expected hex fallback, got %q", result)
+	// Must return the project name, not the raw hex.
+	if result == hexID {
+		t.Errorf("formatCampfireIDForDisplay returned raw hex %q, want project name %q", result, projectName)
+	}
+	if result != projectName {
+		t.Errorf("formatCampfireIDForDisplay = %q, want %q", result, projectName)
 	}
 }
 
