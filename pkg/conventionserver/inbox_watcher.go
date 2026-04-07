@@ -28,6 +28,10 @@ type inboxWatcher struct {
 	pollInterval    time.Duration
 	rateLimit       *joinRateLimiter
 
+	// errCh receives non-fatal errors from poll and handleJoinRequest.
+	// May be nil; sends are always non-blocking.
+	errCh chan<- error
+
 	// cursor is the last-seen message timestamp; only messages after this are
 	// processed on subsequent polls.
 	cursor int64
@@ -61,21 +65,31 @@ func (w *inboxWatcher) poll(_ context.Context) {
 		AfterTimestamp: w.cursor,
 	})
 	if err != nil {
-		// Non-fatal — log and continue on next tick.
-		_ = err
+		w.sendErr(fmt.Errorf("inbox_watcher: reading inbox campfire: %w", err))
 		return
 	}
 
 	for _, msg := range result.Messages {
 		if err := w.handleJoinRequest(msg); err != nil {
-			// Non-fatal: log, but do not halt the watcher.
-			_ = err
+			w.sendErr(err)
 		}
 	}
 
 	// Advance cursor to skip processed messages on next poll.
 	if result.MaxTimestamp > w.cursor {
 		w.cursor = result.MaxTimestamp
+	}
+}
+
+// sendErr sends err to errCh without blocking. If the channel is nil or full,
+// the error is silently dropped.
+func (w *inboxWatcher) sendErr(err error) {
+	if w.errCh == nil {
+		return
+	}
+	select {
+	case w.errCh <- err:
+	default:
 	}
 }
 

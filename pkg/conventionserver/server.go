@@ -89,6 +89,16 @@ type Server struct {
 
 	// pollInterval controls how often each Server instance polls for messages.
 	pollInterval time.Duration
+
+	// errCh receives non-fatal errors from serveOperation goroutines and the
+	// inbox watcher. Buffered; sends are non-blocking. Callers opt in via Errors().
+	errCh chan error
+
+	// done is closed after all worker goroutines have exited (after Shutdown returns).
+	done chan struct{}
+
+	// wg tracks all running worker goroutines.
+	wg sync.WaitGroup
 }
 
 // ServerOption configures a Server.
@@ -140,6 +150,8 @@ func New(client *protocol.Client, campfireID string, opts ...ServerOption) (*Ser
 		privKey:       priv,
 		pollInterval:  200 * time.Millisecond,
 		joinRateLimit: 10,
+		errCh:         make(chan error, 64),
+		done:          make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -154,44 +166,85 @@ func (s *Server) PubKeyHex() string {
 
 // Start launches one goroutine per operation to serve incoming messages.
 // It also ensures a convention:server-binding message exists for this server.
-// If an inbox campfire is configured, starts the inbox watcher goroutine.
+// If an inbox campfire is configured, validates that the inbox campfire ID is
+// in the client's membership list and returns an error if not found; then
+// starts the inbox watcher goroutine.
 // The goroutines run until ctx is cancelled.
-func (s *Server) Start(ctx context.Context) {
+// Call Shutdown() to block until all goroutines have exited.
+func (s *Server) Start(ctx context.Context) error {
 	// Ensure server-binding exists before starting workers.
 	if err := s.ensureServerBinding(ctx); err != nil {
 		// Non-fatal: log and continue. The server still works; discovery fails gracefully.
 		_ = err
 	}
 
-	var wg sync.WaitGroup
 	for _, op := range allOperations {
 		op := op
-		wg.Add(1)
+		s.wg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer s.wg.Done()
 			if err := s.serveOperation(ctx, op); err != nil && err != ctx.Err() {
-				// Non-cancellation errors are silently discarded — no logger at pkg level.
-				_ = err
+				s.sendErr(err)
 			}
 		}()
 	}
 
-	// Start inbox watcher if an inbox campfire is configured.
+	// Validate and start inbox watcher if an inbox campfire is configured.
 	if s.inboxCampfireID != "" {
+		m, err := s.client.GetMembership(s.inboxCampfireID)
+		if err != nil {
+			return fmt.Errorf("conventionserver: checking inbox campfire membership: %w", err)
+		}
+		if m == nil {
+			return fmt.Errorf("conventionserver: inbox campfire %s not in client membership list", s.inboxCampfireID)
+		}
+
 		w := &inboxWatcher{
 			client:          s.client,
 			inboxCampfire:   s.inboxCampfireID,
 			projectCampfire: s.campfireID,
 			pollInterval:    30 * time.Second,
 			rateLimit:       newJoinRateLimiter(s.joinRateLimit),
+			errCh:           s.errCh,
 		}
-		go w.run(ctx)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			w.run(ctx)
+		}()
 	}
 
-	// Wait for all goroutines to exit when ctx is cancelled.
+	// Close done channel after all goroutines exit.
 	go func() {
-		wg.Wait()
+		s.wg.Wait()
+		close(s.done)
 	}()
+
+	return nil
+}
+
+// Shutdown blocks until all worker goroutines started by Start() have exited.
+// Callers should cancel the context passed to Start() before calling Shutdown.
+func (s *Server) Shutdown() {
+	<-s.done
+}
+
+// Errors returns a receive-only channel that delivers non-fatal errors from
+// serveOperation goroutines and the inbox watcher. The channel is buffered
+// (64 slots); sends are non-blocking — errors are dropped if the caller is not
+// draining. Callers may ignore this channel entirely; errors are never required
+// to be handled.
+func (s *Server) Errors() <-chan error {
+	return s.errCh
+}
+
+// sendErr sends err to errCh without blocking. If the channel is full, the error
+// is silently dropped.
+func (s *Server) sendErr(err error) {
+	select {
+	case s.errCh <- err:
+	default:
+	}
 }
 
 // serveOperation starts a convention.Server for the named operation and serves

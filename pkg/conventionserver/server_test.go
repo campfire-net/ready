@@ -255,7 +255,9 @@ func TestServerPostsServerBinding(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	srv.Start(ctx)
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 
 	// Give the server a moment to post the binding.
 	time.Sleep(100 * time.Millisecond)
@@ -333,7 +335,9 @@ func TestServerFulfillsCloseOperation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	srv.Start(ctx)
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 
 	// Give the server a moment to start its subscriptions.
 	time.Sleep(100 * time.Millisecond)
@@ -431,7 +435,9 @@ func TestServerBindingIdempotent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	srv.Start(ctx)
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 	time.Sleep(150 * time.Millisecond)
 
 	// Create a second server with the SAME key by reading the count first.
@@ -457,7 +463,9 @@ func TestServerBindingIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New srv2: %v", err)
 	}
-	srv2.Start(ctx)
+	if err := srv2.Start(ctx); err != nil {
+		t.Fatalf("srv2.Start: %v", err)
+	}
 	time.Sleep(150 * time.Millisecond)
 
 	result2, err := env.callerClient.Read(protocol.ReadRequest{
@@ -601,7 +609,9 @@ func TestServerWritesSummaryOnCreate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	srv.Start(ctx)
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 	time.Sleep(100 * time.Millisecond)
 
 	// Send a work:create operation from the caller.

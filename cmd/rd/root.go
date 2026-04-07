@@ -116,7 +116,10 @@ func requireConventionServer(ctx context.Context, client *protocol.Client) {
 		return
 	}
 
-	srv.Start(ctx)
+	if err := srv.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not start in-process convention server: %v\n", err)
+		return
+	}
 }
 
 // CFHome returns the resolved campfire home directory.
