@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,8 +14,10 @@ import (
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
+	"github.com/campfire-net/ready/pkg/conventionserver"
 	"github.com/campfire-net/ready/pkg/declarations"
 	"github.com/campfire-net/ready/pkg/provenance"
+	"github.com/campfire-net/ready/pkg/rdconfig"
 	"github.com/campfire-net/ready/pkg/resolve"
 	"github.com/campfire-net/ready/pkg/state"
 )
@@ -63,6 +66,55 @@ https://ready.getcampfire.dev`,
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output as JSON")
 	rootCmd.PersistentFlags().StringVar(&rdHome, "cf-home", "", "campfire home directory (default: ~/.cf)")
+
+	// Wire in the in-process convention server for solo mode.
+	// PersistentPreRunE runs before every subcommand; if the client initializes
+	// successfully and we're in solo mode, the server starts as a background goroutine
+	// tied to the command's context (cancelled when the command exits).
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		client, err := requireClient()
+		if err != nil {
+			// Client init failure is non-fatal here — individual commands report it.
+			return nil
+		}
+		requireConventionServer(cmd.Context(), client)
+		return nil
+	}
+}
+
+// requireConventionServer starts the in-process convention server in solo mode.
+// Solo mode is detected via conventionserver.IsSoloMode: if no convention:server-binding
+// exists other than our own, we start the in-process server so work operations are
+// self-authorized. Loads InboxCampfireID from sync config to activate the inbox watcher.
+func requireConventionServer(ctx context.Context, client *protocol.Client) {
+	campfireID, projectDir, hasCampfire := projectRoot()
+	if !hasCampfire || campfireID == "" {
+		// JSONL-only mode — no campfire, no server needed.
+		return
+	}
+
+	var opts []conventionserver.ServerOption
+	if syncCfg, err := rdconfig.LoadSyncConfig(projectDir); err == nil && syncCfg != nil {
+		if syncCfg.InboxCampfireID != "" {
+			opts = append(opts, conventionserver.WithInboxCampfireID(syncCfg.InboxCampfireID))
+		}
+		if syncCfg.SummaryCampfireID != "" {
+			opts = append(opts, conventionserver.WithSummaryCampfireID(syncCfg.SummaryCampfireID))
+		}
+	}
+
+	srv, err := conventionserver.New(client, campfireID, opts...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not start in-process convention server: %v\n", err)
+		return
+	}
+
+	if !conventionserver.IsSoloMode(client, campfireID, srv.PubKeyHex()) {
+		// A remote convention server is present — don't start a local one.
+		return
+	}
+
+	srv.Start(ctx)
 }
 
 // CFHome returns the resolved campfire home directory.
