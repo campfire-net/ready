@@ -1,6 +1,9 @@
 package state_test
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -12,11 +15,16 @@ import (
 // TestDerive_FulfillmentWithValidServerBinding verifies that a work:close
 // message is accepted when accompanied by a valid fulfillment from the bound server.
 func TestDerive_FulfillmentWithValidServerBinding(t *testing.T) {
+	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	serverPubKeyHex := hex.EncodeToString(pubKey)
 	ts := now()
 	bindingTime := ts + 1000           // Server binding posted 1us after create
 	closeTime := ts + 2000             // Close issued 1us after binding
 	fulfillmentTime := ts + 3000       // Fulfillment posted 1us after close
-	boundServerPubkey := "server-key-hex"
+	boundServerPubkey := serverPubKeyHex
 
 	msgs := []store.MessageRecord{
 		// Create the item
@@ -58,12 +66,21 @@ func TestDerive_FulfillmentWithValidServerBinding(t *testing.T) {
 // message is rejected when the fulfillment is from a sender that doesn't match
 // the server-binding declaration.
 func TestDerive_FulfillmentRejectedWrongSender(t *testing.T) {
+	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	serverPubKeyHex := hex.EncodeToString(pubKey)
+	wrongPubKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
 	ts := now()
 	bindingTime := ts + 1000
 	closeTime := ts + 2000
 	fulfillmentTime := ts + 3000
-	boundServerPubkey := "server-key-hex"
-	wrongServerPubkey := "wrong-server-key-hex"
+	boundServerPubkey := serverPubKeyHex
+	wrongServerPubkey := hex.EncodeToString(wrongPubKey)
 
 	msgs := []store.MessageRecord{
 		makeMsg("msg-create-1", []string{"work:create"}, map[string]interface{}{
@@ -132,6 +149,11 @@ func TestDerive_BypassModeNoServerBinding(t *testing.T) {
 // TestDerive_PreBindingItemsAccepted verifies that operations issued before
 // a server-binding is declared are implicitly authorized.
 func TestDerive_PreBindingItemsAccepted(t *testing.T) {
+	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	serverPubKeyHex := hex.EncodeToString(pubKey)
 	// Use a fixed base time so second-level granularity is controlled.
 	// T1 (close) is 10 seconds before T2 (binding valid_from).
 	baseNs := now()
@@ -156,7 +178,7 @@ func TestDerive_PreBindingItemsAccepted(t *testing.T) {
 		makeMsg("msg-binding-1", []string{"convention:server-binding"}, map[string]interface{}{
 			"convention":   "work",
 			"operation":    "close",
-			"server_pubkey": "server-key-hex",
+			"server_pubkey": serverPubKeyHex,
 			"valid_from":   fmt.Sprintf("%d", bindingValidFrom),
 		}, nil, bindingTime),
 	}
@@ -175,11 +197,16 @@ func TestDerive_PreBindingItemsAccepted(t *testing.T) {
 // TestDerive_DelegateWithServerBinding verifies that work:delegate also respects
 // the fulfillment gating rules (it's a consequential operation).
 func TestDerive_DelegateWithServerBinding(t *testing.T) {
+	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	serverPubKeyHex := hex.EncodeToString(pubKey)
 	ts := now()
 	bindingTime := ts + 1000
 	delegateTime := ts + 2000
 	fulfillmentTime := ts + 3000
-	boundServerPubkey := "server-key-hex"
+	boundServerPubkey := serverPubKeyHex
 
 	msgs := []store.MessageRecord{
 		makeMsg("msg-create-1", []string{"work:create"}, map[string]interface{}{
@@ -217,12 +244,17 @@ func TestDerive_DelegateWithServerBinding(t *testing.T) {
 // TestDerive_GateResolveWithServerBinding verifies that work:gate-resolve
 // respects fulfillment gating.
 func TestDerive_GateResolveWithServerBinding(t *testing.T) {
+	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	serverPubKeyHex := hex.EncodeToString(pubKey)
 	ts := now()
 	gateTime := ts + 1000
 	bindingTime := ts + 2000
 	resolveTime := ts + 3000
 	fulfillmentTime := ts + 4000
-	boundServerPubkey := "server-key-hex"
+	boundServerPubkey := serverPubKeyHex
 
 	msgs := []store.MessageRecord{
 		makeMsg("msg-create-1", []string{"work:create"}, map[string]interface{}{
