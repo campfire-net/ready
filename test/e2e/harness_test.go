@@ -252,6 +252,7 @@ type Item struct {
 	BlockedBy   []string `json:"blocked_by"`
 	Blocks      []string `json:"blocks"`
 	Gate        string   `json:"gate"`
+	GateMsgID   string   `json:"gate_msg_id"`
 	WaitingOn   string   `json:"waiting_on"`
 	WaitingType string   `json:"waiting_type"`
 	CreatedAt   int64    `json:"created_at"`
