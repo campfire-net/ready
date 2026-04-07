@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/store"
@@ -195,6 +196,27 @@ type gateResolvePayload struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
+// serverBindingPayload mirrors the fields in a convention:server-binding message payload.
+type serverBindingPayload struct {
+	Convention string `json:"convention"`
+	Operation  string `json:"operation"`
+	ServerPubkey string `json:"server_pubkey"`
+	ValidFrom  string `json:"valid_from"`
+	ValidUntil string `json:"valid_until,omitempty"`
+}
+
+// capabilityTokenPayload represents an offline capability token embedded in an operation.
+type capabilityTokenPayload struct {
+	Subject      string   `json:"subject"`
+	Campfire     string   `json:"campfire"`
+	Role         string   `json:"role"`
+	Operations   []string `json:"operations"`
+	IssuedAt     int64    `json:"issued_at"`
+	ExpiresAt    int64    `json:"expires_at"`
+	BindingMsgID string   `json:"binding_msg_id,omitempty"`
+	Signature    string   `json:"signature"`
+}
+
 // hasTag reports whether tags contains the given tag.
 func hasTag(tags []string, tag string) bool {
 	for _, t := range tags {
@@ -238,11 +260,204 @@ func resolveItemID(msgIndex map[string]string, target string, antecedents []stri
 	return ""
 }
 
+// serverBinding represents an active server-binding declaration for a (convention, operation) pair.
+type serverBinding struct {
+	serverPubkey string
+	validFrom    int64 // nanoseconds (unix timestamp converted)
+	validUntil   int64 // nanoseconds, 0 means no expiration
+	msgID        string
+}
+
+// roleInfo represents a member's role state from work:role-grant messages.
+type roleInfo struct {
+	role      string
+	grantedAt int64 // nanoseconds
+	expiresAt int64 // nanoseconds, 0 means no expiration
+	msgID     string
+}
+
+// parseTimestamp converts an RFC3339 or unix timestamp string to int64 nanoseconds.
+// Returns 0 if parsing fails.
+func parseTimestamp(ts string) int64 {
+	// Try RFC3339 first
+	if t, err := time.Parse(time.RFC3339, ts); err == nil {
+		return t.UnixNano()
+	}
+	// Try unix seconds
+	if unixSec, err := strconv.ParseInt(ts, 10, 64); err == nil {
+		return unixSec * 1e9
+	}
+	return 0
+}
+
+// findActiveServerBinding finds the most recent server-binding declaration
+// that is valid at the given timestamp for the specified convention and operation.
+func findActiveServerBinding(msgs []store.MessageRecord, convention, operation string, atTime int64) *serverBinding {
+	var active *serverBinding
+	for _, m := range msgs {
+		if !hasTag(m.Tags, "convention:server-binding") {
+			continue
+		}
+		var p serverBindingPayload
+		if err := json.Unmarshal(m.Payload, &p); err != nil {
+			continue
+		}
+		if p.Convention != convention || p.Operation != operation {
+			continue
+		}
+		validFrom := parseTimestamp(p.ValidFrom)
+		if validFrom == 0 || validFrom > atTime {
+			// Binding not yet valid at this message's timestamp
+			continue
+		}
+		validUntil := parseTimestamp(p.ValidUntil)
+		if validUntil != 0 && validUntil < atTime {
+			// Binding has expired
+			continue
+		}
+		// Keep the most recent valid binding
+		if active == nil || validFrom > active.validFrom {
+			active = &serverBinding{
+				serverPubkey: p.ServerPubkey,
+				validFrom:    validFrom,
+				validUntil:   validUntil,
+				msgID:        m.ID,
+			}
+		}
+	}
+	return active
+}
+
+// findFulfillmentForOperation finds a fulfillment message that matches the given
+// target message, sent by the specified sender pubkey.
+func findFulfillmentForOperation(msgs []store.MessageRecord, targetMsgID string, senderPubkey string) *store.MessageRecord {
+	for i, m := range msgs {
+		if hasTag(m.Tags, "fulfills") && m.Sender == senderPubkey {
+			// Check if this fulfillment targets the operation
+			// Fulfillment messages have the target in their Antecedents
+			for _, ant := range m.Antecedents {
+				if ant == targetMsgID {
+					return &msgs[i]
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// isConsequentialOp returns true if the operation requires server fulfillment gating.
+func isConsequentialOp(tags []string) bool {
+	consequentialOps := []string{"work:close", "work:delegate", "work:gate-resolve"}
+	for _, op := range consequentialOps {
+		if hasTag(tags, op) {
+			return true
+		}
+	}
+	return false
+}
+
+// isOperationAuthorized checks if a consequential operation is authorized under
+// the server-binding gating rules.
+//
+// Rules:
+// - If no server-binding exists (bypass mode): accept all (Wave 1 behavior)
+// - If binding exists and operation has a valid fulfillment from the bound server: accept
+// - If binding exists and operation has a valid capability token: accept
+// - If binding exists and operation was issued before the binding's valid_from: accept (pre-binding)
+// - Otherwise: reject (drop from derived state)
+func isOperationAuthorized(msgs []store.MessageRecord, op *store.MessageRecord, convention, operation string, roleMap map[string]roleInfo) bool {
+	// Find the active server-binding at the time of this operation.
+	binding := findActiveServerBinding(msgs, convention, operation, op.Timestamp)
+
+	// Bypass mode: if no binding exists, accept all (Wave 1 behavior).
+	if binding == nil {
+		return true
+	}
+
+	// Binding exists. Check for valid fulfillment or capability token.
+
+	// 1. Check for a fulfillment message from the bound server.
+	if findFulfillmentForOperation(msgs, op.ID, binding.serverPubkey) != nil {
+		return true
+	}
+
+	// 2. Check for a valid capability token in the operation payload.
+	if hasValidCapabilityToken(op, binding.serverPubkey) {
+		return true
+	}
+
+	// 3. Check if this operation was issued before the binding became valid (pre-binding items).
+	if op.Timestamp < binding.validFrom {
+		return true
+	}
+
+	// No authorization path succeeded.
+	return false
+}
+
+// hasValidCapabilityToken checks if an operation message contains a valid
+// capability token signed by the specified server pubkey.
+//
+// For now, this is a stub that returns false. Full implementation requires
+// cryptographic signature verification (Ed25519), which is deferred to Wave 2+
+// as part of the capability token verification framework.
+func hasValidCapabilityToken(op *store.MessageRecord, serverPubkey string) bool {
+	// Stub implementation. Full token verification requires:
+	// 1. Extract token from operation payload
+	// 2. Verify signature against serverPubkey
+	// 3. Check expires_at > now
+	// 4. Check operation in token's operations list
+	// 5. Check subject matches sender
+	//
+	// For now, always return false to avoid false positives.
+	return false
+}
+
 // Derive replays all work convention messages from the provided campfire message
 // records and returns the derived item states keyed by item ID. Messages must
 // be from a single campfire and are processed in timestamp order (the store
 // returns them in ascending timestamp order by default).
+//
+// Two-pass approach:
+// Pass 1: Build the role map from work:role-grant messages. Latest grant per pubkey wins.
+// Pass 2: Replay operations, with fulfillment gating for consequential ops (close, delegate, gate-resolve).
 func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
+	// Pass 1: Build role map from work:role-grant messages.
+	// Map[pubkey] -> roleInfo
+	roleMap := make(map[string]roleInfo)
+	for _, m := range msgs {
+		if !hasTag(m.Tags, "work:role-grant") {
+			continue
+		}
+		var p struct {
+			Pubkey    string `json:"pubkey"`
+			Role      string `json:"role"`
+			GrantedAt int64  `json:"granted_at,omitempty"`
+			ExpiresAt int64  `json:"expires_at,omitempty"`
+		}
+		if err := json.Unmarshal(m.Payload, &p); err != nil {
+			continue
+		}
+		if p.Pubkey == "" {
+			continue
+		}
+		grantedAt := m.Timestamp
+		if p.GrantedAt != 0 {
+			grantedAt = p.GrantedAt
+		}
+		// Only update role map if this grant is more recent than what's already there.
+		existing, ok := roleMap[p.Pubkey]
+		if !ok || grantedAt >= existing.grantedAt {
+			roleMap[p.Pubkey] = roleInfo{
+				role:      p.Role,
+				grantedAt: grantedAt,
+				expiresAt: p.ExpiresAt,
+				msgID:     m.ID,
+			}
+		}
+	}
+
+	// Pass 2: Replay operations with fulfillment gating.
 	// msgIndex: campfire message ID → item ID (for resolving target references)
 	msgIndex := make(map[string]string)
 	items := make(map[string]*Item)
@@ -364,6 +579,11 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			})
 
 		case hasTag(m.Tags, "work:delegate"):
+			// Check fulfillment gating for consequential operation.
+			if !isOperationAuthorized(msgs, m, "work", "delegate", roleMap) {
+				continue
+			}
+
 			var p delegatePayload
 			if err := json.Unmarshal(m.Payload, &p); err != nil {
 				continue
@@ -377,6 +597,11 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			item.UpdatedAt = m.Timestamp
 
 		case hasTag(m.Tags, "work:close"):
+			// Check fulfillment gating for consequential operation.
+			if !isOperationAuthorized(msgs, m, "work", "close", roleMap) {
+				continue
+			}
+
 			var p closePayload
 			if err := json.Unmarshal(m.Payload, &p); err != nil {
 				continue
@@ -528,6 +753,11 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			gateMsgIndex[m.ID] = itemID
 
 		case hasTag(m.Tags, "work:gate-resolve"):
+			// Check fulfillment gating for consequential operation.
+			if !isOperationAuthorized(msgs, m, "work", "gate-resolve", roleMap) {
+				continue
+			}
+
 			// work:gate-resolve fulfills the gate future. Target is the work:gate message.
 			// approved → transition to active; rejected → remain waiting.
 			var p gateResolvePayload
