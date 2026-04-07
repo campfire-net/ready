@@ -744,9 +744,13 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 					localItemID = p.BlockerID
 				}
 				if localItem, ok := items[localItemID]; ok {
+					crossRef := p.BlockerID
+					if blockedIsCross {
+						crossRef = p.BlockedID
+					}
 					localItem.CrossCampfireWarnings = appendUnique(
 						localItem.CrossCampfireWarnings,
-						fmt.Sprintf("unresolved cross-campfire dep: %s (not a member — non-blocking)", p.BlockerID),
+						fmt.Sprintf("unresolved cross-campfire dep: %s (not a member — non-blocking)", crossRef),
 					)
 				}
 				continue
