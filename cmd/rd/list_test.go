@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/campfire-net/ready/pkg/state"
@@ -221,4 +225,130 @@ func TestList_MultipleStatus_IncludesTerminalExplicitly(t *testing.T) {
 	if !ids["t3"] {
 		t.Errorf("expected t3 (cancelled) in result")
 	}
+}
+
+// TestList_NoHexInOutputWhenProjectNameConfigured verifies that rd list human-readable
+// output does not contain 64-char hex campfire IDs when project_name is configured.
+// The campfire hex must never leak into the list table.
+func TestList_NoHexInOutputWhenProjectNameConfigured(t *testing.T) {
+	origDebug := debugOutput
+	defer func() { debugOutput = origDebug }()
+	debugOutput = false
+
+	origJSON := jsonOutput
+	defer func() { jsonOutput = origJSON }()
+	jsonOutput = false
+
+	tmpDir, err := os.MkdirTemp("", "test-list-nohex")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	hexID := strings.Repeat("cd", 32) // 64-char hex campfire ID
+
+	// Point CF_HOME at tmpDir.
+	origCFHome := os.Getenv("CF_HOME")
+	os.Setenv("CF_HOME", tmpDir)
+	defer func() {
+		if origCFHome != "" {
+			os.Setenv("CF_HOME", origCFHome)
+		} else {
+			os.Unsetenv("CF_HOME")
+		}
+	}()
+	origRDHome := rdHome
+	rdHome = ""
+	defer func() { rdHome = origRDHome }()
+
+	// Write alias store: "listproject" → hexID.
+	aliasContent, _ := json.Marshal(map[string]string{"listproject": hexID})
+	if err := os.WriteFile(filepath.Join(tmpDir, "aliases.json"), aliasContent, 0600); err != nil {
+		t.Fatalf("WriteFile aliases.json: %v", err)
+	}
+
+	// Write .ready/config.json with project_name.
+	readyDir := filepath.Join(tmpDir, ".ready")
+	if err := os.MkdirAll(readyDir, 0700); err != nil {
+		t.Fatalf("MkdirAll .ready: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(readyDir, "config.json"), []byte(`{"project_name":"listproject"}`), 0600); err != nil {
+		t.Fatalf("WriteFile config.json: %v", err)
+	}
+
+	// Write mutations.jsonl with one work item whose campfire_id is the hex.
+	createPayload := `{"id":"ready-list1","title":"List Test Item","type":"task","for":"agent@test","priority":"p2"}`
+	mutation := `{"msg_id":"test-msg-list1","campfire_id":"` + hexID + `","timestamp":1000000000000000001,"operation":"work:create","payload":` + createPayload + `,"tags":["work:create"],"sender":"testsender"}`
+	if err := os.WriteFile(filepath.Join(readyDir, "mutations.jsonl"), []byte(mutation+"\n"), 0600); err != nil {
+		t.Fatalf("WriteFile mutations.jsonl: %v", err)
+	}
+
+	// Chdir to tmpDir so readyProjectDir() and projectRoot() find our setup.
+	origCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origCwd)
+
+	// Capture os.Stdout.
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+
+	runErr := listCmd.RunE(listCmd, []string{})
+
+	w.Close()
+	os.Stdout = origStdout
+
+	var buf strings.Builder
+	outBuf := make([]byte, 4096)
+	for {
+		n, readErr := r.Read(outBuf)
+		if n > 0 {
+			buf.Write(outBuf[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	r.Close()
+
+	if runErr != nil {
+		t.Fatalf("listCmd.RunE error: %v", runErr)
+	}
+
+	output := buf.String()
+
+	// The item must appear in the list.
+	if !strings.Contains(output, "ready-list1") {
+		t.Errorf("list output does not contain item ID; output:\n%s", output)
+	}
+
+	// No 64-char hex token must appear in any line of the output.
+	for _, line := range strings.Split(output, "\n") {
+		for _, tok := range strings.Fields(line) {
+			if len(tok) == 64 && isHexString(tok) {
+				t.Errorf("list output contains raw 64-char hex %q on line: %q", tok, line)
+			}
+		}
+	}
+}
+
+// isHexString returns true if s is a 64-char lowercase hexadecimal string.
+func isHexString(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
