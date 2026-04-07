@@ -345,17 +345,6 @@ func findFulfillmentForOperation(msgs []store.MessageRecord, targetMsgID string,
 	return nil
 }
 
-// isConsequentialOp returns true if the operation requires server fulfillment gating.
-func isConsequentialOp(tags []string) bool {
-	consequentialOps := []string{"work:close", "work:delegate", "work:gate-resolve"}
-	for _, op := range consequentialOps {
-		if hasTag(tags, op) {
-			return true
-		}
-	}
-	return false
-}
-
 // isOperationAuthorized checks if a consequential operation is authorized under
 // the server-binding gating rules.
 //
@@ -365,7 +354,9 @@ func isConsequentialOp(tags []string) bool {
 // - If binding exists and operation has a valid capability token: accept
 // - If binding exists and operation was issued before the binding's valid_from: accept (pre-binding)
 // - Otherwise: reject (drop from derived state)
-func isOperationAuthorized(msgs []store.MessageRecord, op *store.MessageRecord, convention, operation string, roleMap map[string]roleInfo) bool {
+//
+// roleMap is reserved for Wave 3+ role-based authorization (currently unused here).
+func isOperationAuthorized(msgs []store.MessageRecord, op *store.MessageRecord, convention, operation string, _ map[string]roleInfo) bool {
 	// Find the active server-binding at the time of this operation.
 	binding := findActiveServerBinding(msgs, convention, operation, op.Timestamp)
 
