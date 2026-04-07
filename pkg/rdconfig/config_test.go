@@ -258,6 +258,68 @@ func TestSaveSyncConfig_Overwrite(t *testing.T) {
 	}
 }
 
+// --- TOFU beacon root ---
+
+// TestSaveLoad_BeaconRoot_RoundTrip verifies that the BeaconRoot field
+// persists across save/load cycles (TOFU pinning).
+func TestSaveLoad_BeaconRoot_RoundTrip(t *testing.T) {
+	cfHome := t.TempDir()
+	root := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+	c := &rdconfig.Config{
+		Org:        "acme",
+		BeaconRoot: root,
+	}
+	if err := rdconfig.Save(cfHome, c); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := rdconfig.Load(cfHome)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.BeaconRoot != root {
+		t.Errorf("BeaconRoot: got %q, want %q", loaded.BeaconRoot, root)
+	}
+}
+
+// TestSave_BeaconRoot_OmitWhenEmpty verifies that an empty BeaconRoot is
+// omitted from the serialised JSON (omitempty).
+func TestSave_BeaconRoot_OmitWhenEmpty(t *testing.T) {
+	cfHome := t.TempDir()
+	c := &rdconfig.Config{Org: "acme"}
+	if err := rdconfig.Save(cfHome, c); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(rdconfig.Path(cfHome))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if containsSubstr(string(data), "beacon_root") {
+		t.Errorf("empty BeaconRoot should be omitted, got: %s", string(data))
+	}
+}
+
+// TestSave_BeaconRoot_ClearPin verifies that setting BeaconRoot to "" and
+// saving removes the field from the config (TOFU pin reset).
+func TestSave_BeaconRoot_ClearPin(t *testing.T) {
+	cfHome := t.TempDir()
+	root := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+	// First pin it.
+	if err := rdconfig.Save(cfHome, &rdconfig.Config{Org: "acme", BeaconRoot: root}); err != nil {
+		t.Fatalf("Save (set): %v", err)
+	}
+	// Now clear it.
+	if err := rdconfig.Save(cfHome, &rdconfig.Config{Org: "acme"}); err != nil {
+		t.Fatalf("Save (clear): %v", err)
+	}
+	loaded, err := rdconfig.Load(cfHome)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.BeaconRoot != "" {
+		t.Errorf("expected BeaconRoot cleared, got %q", loaded.BeaconRoot)
+	}
+}
+
 // containsSubstr is a simple substring check used by tests in this package.
 func containsSubstr(s, sub string) bool {
 	if len(sub) == 0 {

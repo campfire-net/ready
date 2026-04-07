@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/store"
@@ -83,6 +84,11 @@ type Item struct {
 	// Populated from work:create, work:status, work:claim, work:close messages,
 	// and from ImportHistory entries embedded in work:update messages.
 	History []HistoryEntry `json:"history,omitempty"`
+
+	// CrossCampfireWarnings lists advisory messages about cross-campfire dependencies
+	// that could not be resolved (e.g., not a member of the target campfire, network
+	// error). Cross-campfire deps are always NON-BLOCKING — the item stays actionable.
+	CrossCampfireWarnings []string `json:"cross_campfire_warnings,omitempty"`
 }
 
 // HistoryEntry is a single audit trail entry for a work item.
@@ -471,6 +477,23 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			if p.BlockerID == "" || p.BlockedID == "" {
 				continue
 			}
+			// Cross-campfire references are non-blocking: record as warnings only.
+			blockerIsCross := IsCrossCampfireRef(p.BlockerID)
+			blockedIsCross := IsCrossCampfireRef(p.BlockedID)
+			if blockerIsCross || blockedIsCross {
+				// Attach warning to the local item involved.
+				localItemID := p.BlockedID
+				if blockedIsCross {
+					localItemID = p.BlockerID
+				}
+				if localItem, ok := items[localItemID]; ok {
+					localItem.CrossCampfireWarnings = appendUnique(
+						localItem.CrossCampfireWarnings,
+						fmt.Sprintf("unresolved cross-campfire dep: %s (not a member — non-blocking)", p.BlockerID),
+					)
+				}
+				continue
+			}
 			blockEdges = append(blockEdges, blockEdge{
 				blockerID:  p.BlockerID,
 				blockedID:  p.BlockedID,
@@ -719,4 +742,44 @@ func IsBlocked(item *Item) bool {
 // IsTerminal reports whether item is in a terminal state.
 func IsTerminal(item *Item) bool {
 	return TerminalStatuses[item.Status]
+}
+
+// IsCrossCampfireRef reports whether ref looks like a cross-campfire item
+// reference (e.g. "acme.frontend.item-abc"). A cross-campfire ref contains at
+// least one dot and the last dot-separated segment is the item ID (looks like
+// a project-prefixed ID with a hyphen). The preceding segments are the campfire
+// name path.
+func IsCrossCampfireRef(ref string) bool {
+	dot := strings.LastIndex(ref, ".")
+	if dot < 0 {
+		return false
+	}
+	itemPart := ref[dot+1:]
+	// Item IDs are project-prefixed: at least one letter prefix, a hyphen, then alphanumeric.
+	hyphen := strings.Index(itemPart, "-")
+	return hyphen > 0 && hyphen < len(itemPart)-1
+}
+
+// ParseCrossCampfireRef parses a cross-campfire item reference. Returns nil if ref
+// is not a cross-campfire reference.
+func ParseCrossCampfireRef(ref string) *CrossCampfireRef {
+	if !IsCrossCampfireRef(ref) {
+		return nil
+	}
+	dot := strings.LastIndex(ref, ".")
+	return &CrossCampfireRef{
+		CampfireName: ref[:dot],
+		ItemID:       ref[dot+1:],
+		Raw:          ref,
+	}
+}
+
+// CrossCampfireRef holds the parsed components of a cross-campfire item reference.
+type CrossCampfireRef struct {
+	// CampfireName is the dot-separated campfire path (e.g. "acme.frontend").
+	CampfireName string
+	// ItemID is the item ID within the target campfire (e.g. "item-abc").
+	ItemID string
+	// Raw is the original reference string.
+	Raw string
 }
