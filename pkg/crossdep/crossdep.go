@@ -103,7 +103,7 @@ func resolveSingle(parsed *state.CrossCampfireRef, memberMap map[string]map[stri
 	}
 
 	if campfireID == "" {
-		dep.Warning = fmt.Sprintf("unresolved cross-campfire dep: %s (campfire %q not in local aliases — not a member or not discovered)", parsed.Raw, parsed.CampfireName)
+		dep.Warning = fmt.Sprintf("unresolved cross-campfire dep: %s (campfire not in local aliases — not a member or not discovered)", parsed.Raw)
 		return dep
 	}
 
