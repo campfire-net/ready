@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,5 +119,366 @@ func TestE2E_CFHome_Legacy_DotCampfire(t *testing.T) {
 	// Verify no identity errors.
 	if strings.Contains(stderr, "loading identity") || strings.Contains(stderr, "cannot determine home") {
 		t.Errorf("unexpected error in stderr: %s", stderr)
+	}
+}
+
+// TestE2E_CFHome_LegacyPath_FullSmoke is the e2e smoke test for legacy ~/.campfire path (DC1).
+// This test:
+//   1. Creates a temporary CF_HOME at a path ending in .campfire/ (simulating legacy layout)
+//   2. Runs cf init in that home to create an identity
+//   3. Runs rd init --name testproject with CF_HOME pointing to the legacy path
+//   4. Creates an item, lists items, shows item — all succeed
+//   5. Verifies no errors about missing identity or wrong path
+//
+// This tests the full workflow with real cf init and rd commands, not just rd list.
+func TestE2E_CFHome_LegacyPath_FullSmoke(t *testing.T) {
+	// Use a dedicated fake HOME so we don't pollute test runner's home dirs.
+	fakeHome := t.TempDir()
+
+	// Create ~/.campfire (legacy path) with a campfire identity.
+	legacyCFHome := filepath.Join(fakeHome, ".campfire")
+	if err := os.MkdirAll(legacyCFHome, 0700); err != nil {
+		t.Fatalf("mkdir ~/.campfire: %v", err)
+	}
+	cfInitInHome(t, legacyCFHome)
+
+	// Create a project dir.
+	projectDir := t.TempDir()
+
+	// --- Run rd init with CF_HOME pointing to legacy path ---
+	cmd := exec.Command(rdBinary, "init", "--name", "testproject")
+	cmd.Dir = projectDir
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + fakeHome,
+		"CF_HOME=" + legacyCFHome, // Explicit legacy CF_HOME
+	}
+	var initStdout, initStderr bytes.Buffer
+	cmd.Stdout = &initStdout
+	cmd.Stderr = &initStderr
+	initCode := 0
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			initCode = exitErr.ExitCode()
+		}
+	}
+
+	if initCode != 0 {
+		t.Fatalf("rd init failed (exit %d) with legacy CF_HOME:\nstderr: %s\nstdout: %s",
+			initCode, initStderr.String(), initStdout.String())
+	}
+
+	// --- Verify .campfire/root was created in the project ---
+	rootFile := filepath.Join(projectDir, ".campfire", "root")
+	rootData, err := os.ReadFile(rootFile)
+	if err != nil {
+		t.Fatalf("reading .campfire/root: %v", err)
+	}
+	campfireID := strings.TrimSpace(string(rootData))
+	if len(campfireID) != 64 {
+		t.Errorf(".campfire/root has wrong length %d: %q", len(campfireID), campfireID)
+	}
+
+	// --- Create an item with the legacy CF_HOME ---
+	createCmd := exec.Command(rdBinary, "create", "--title", "Test item", "--priority", "p1", "--type", "task", "--json")
+	createCmd.Dir = projectDir
+	createCmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + fakeHome,
+		"CF_HOME=" + legacyCFHome,
+	}
+	var createStdout, createStderr bytes.Buffer
+	createCmd.Stdout = &createStdout
+	createCmd.Stderr = &createStderr
+	createCode := 0
+	if err := createCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			createCode = exitErr.ExitCode()
+		}
+	}
+
+	if createCode != 0 {
+		t.Fatalf("rd create failed (exit %d) with legacy CF_HOME:\nstderr: %s\nstdout: %s",
+			createCode, createStderr.String(), createStdout.String())
+	}
+
+	// Parse created item ID.
+	var createResult map[string]interface{}
+	if err := json.Unmarshal(createStdout.Bytes(), &createResult); err != nil {
+		t.Fatalf("JSON parse of rd create output failed: %v\noutput: %s", err, createStdout.String())
+	}
+	itemID, ok := createResult["id"].(string)
+	if !ok || itemID == "" {
+		t.Fatalf("created item has empty/missing ID: %v", createResult)
+	}
+
+	// --- List items with legacy CF_HOME ---
+	listCmd := exec.Command(rdBinary, "list", "--json")
+	listCmd.Dir = projectDir
+	listCmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + fakeHome,
+		"CF_HOME=" + legacyCFHome,
+	}
+	var listStdout, listStderr bytes.Buffer
+	listCmd.Stdout = &listStdout
+	listCmd.Stderr = &listStderr
+	listCode := 0
+	if err := listCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			listCode = exitErr.ExitCode()
+		}
+	}
+
+	if listCode != 0 {
+		t.Fatalf("rd list failed (exit %d) with legacy CF_HOME:\nstderr: %s\nstdout: %s",
+			listCode, listStderr.String(), listStdout.String())
+	}
+
+	// Verify created item appears in list.
+	var listItems []map[string]interface{}
+	if err := json.Unmarshal(listStdout.Bytes(), &listItems); err != nil {
+		t.Fatalf("JSON parse of rd list output failed: %v\noutput: %s", err, listStdout.String())
+	}
+	found := false
+	for _, item := range listItems {
+		if item["id"] == itemID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("created item %q not found in rd list output", itemID)
+	}
+
+	// --- Show item with legacy CF_HOME ---
+	showCmd := exec.Command(rdBinary, "show", itemID, "--json")
+	showCmd.Dir = projectDir
+	showCmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + fakeHome,
+		"CF_HOME=" + legacyCFHome,
+	}
+	var showStdout, showStderr bytes.Buffer
+	showCmd.Stdout = &showStdout
+	showCmd.Stderr = &showStderr
+	showCode := 0
+	if err := showCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			showCode = exitErr.ExitCode()
+		}
+	}
+
+	if showCode != 0 {
+		t.Fatalf("rd show failed (exit %d) with legacy CF_HOME:\nstderr: %s\nstdout: %s",
+			showCode, showStderr.String(), showStdout.String())
+	}
+
+	// Parse shown item.
+	var showResult map[string]interface{}
+	if err := json.Unmarshal(showStdout.Bytes(), &showResult); err != nil {
+		t.Fatalf("JSON parse of rd show output failed: %v\noutput: %s", err, showStdout.String())
+	}
+	if showResult["id"] != itemID {
+		t.Errorf("rd show returned wrong item: got %v, want %s", showResult["id"], itemID)
+	}
+	if showResult["title"] != "Test item" {
+		t.Errorf("rd show returned wrong title: got %v, want 'Test item'", showResult["title"])
+	}
+
+	// --- Verify no errors about missing identity or wrong path ---
+	for _, stderr := range []string{
+		initStderr.String(),
+		createStderr.String(),
+		listStderr.String(),
+		showStderr.String(),
+	} {
+		if strings.Contains(stderr, "loading identity") || strings.Contains(stderr, "cannot determine home") {
+			t.Errorf("unexpected error in stderr: %s", stderr)
+		}
+	}
+}
+
+// TestE2E_CFHome_NewInstall_FullSmoke is the e2e smoke test for new-install ~/.cf path (DC2).
+// This test:
+//   1. Creates a temporary CF_HOME at a path ending in .cf/ (simulating new-install default)
+//   2. Runs cf init in that home to create an identity
+//   3. Runs rd init --name testproject with CF_HOME pointing to the new path
+//   4. Creates an item, lists items, shows item — all succeed
+//   5. Verifies no errors about missing identity or wrong path
+//   6. Verifies .campfire/ directory is NOT required or created
+//
+// This tests the full workflow with real cf init and rd commands, not just rd list.
+func TestE2E_CFHome_NewInstall_FullSmoke(t *testing.T) {
+	// Use a dedicated fake HOME so we don't pollute test runner's home dirs.
+	fakeHome := t.TempDir()
+
+	// Create ~/.cf (new-install path) with a campfire identity.
+	newCFHome := filepath.Join(fakeHome, ".cf")
+	if err := os.MkdirAll(newCFHome, 0700); err != nil {
+		t.Fatalf("mkdir ~/.cf: %v", err)
+	}
+	cfInitInHome(t, newCFHome)
+
+	// Verify identity was created in the new .cf path.
+	identityFile := filepath.Join(newCFHome, "identity.json")
+	if _, err := os.Stat(identityFile); err != nil {
+		t.Fatalf("identity.json not found in ~/.cf: %v", err)
+	}
+
+	// Create a project dir.
+	projectDir := t.TempDir()
+
+	// --- Run rd init with CF_HOME pointing to new .cf path ---
+	cmd := exec.Command(rdBinary, "init", "--name", "testproject")
+	cmd.Dir = projectDir
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + fakeHome,
+		"CF_HOME=" + newCFHome, // Explicit new CF_HOME
+	}
+	var initStdout, initStderr bytes.Buffer
+	cmd.Stdout = &initStdout
+	cmd.Stderr = &initStderr
+	initCode := 0
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			initCode = exitErr.ExitCode()
+		}
+	}
+
+	if initCode != 0 {
+		t.Fatalf("rd init failed (exit %d) with new-install CF_HOME:\nstderr: %s\nstdout: %s",
+			initCode, initStderr.String(), initStdout.String())
+	}
+
+	// --- Verify .campfire/root was created in the project ---
+	rootFile := filepath.Join(projectDir, ".campfire", "root")
+	rootData, err := os.ReadFile(rootFile)
+	if err != nil {
+		t.Fatalf("reading .campfire/root: %v", err)
+	}
+	campfireID := strings.TrimSpace(string(rootData))
+	if len(campfireID) != 64 {
+		t.Errorf(".campfire/root has wrong length %d: %q", len(campfireID), campfireID)
+	}
+
+	// --- Create an item with the new CF_HOME ---
+	createCmd := exec.Command(rdBinary, "create", "--title", "Test item", "--priority", "p1", "--type", "task", "--json")
+	createCmd.Dir = projectDir
+	createCmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + fakeHome,
+		"CF_HOME=" + newCFHome,
+	}
+	var createStdout, createStderr bytes.Buffer
+	createCmd.Stdout = &createStdout
+	createCmd.Stderr = &createStderr
+	createCode := 0
+	if err := createCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			createCode = exitErr.ExitCode()
+		}
+	}
+
+	if createCode != 0 {
+		t.Fatalf("rd create failed (exit %d) with new-install CF_HOME:\nstderr: %s\nstdout: %s",
+			createCode, createStderr.String(), createStdout.String())
+	}
+
+	// Parse created item ID.
+	var createResult map[string]interface{}
+	if err := json.Unmarshal(createStdout.Bytes(), &createResult); err != nil {
+		t.Fatalf("JSON parse of rd create output failed: %v\noutput: %s", err, createStdout.String())
+	}
+	itemID, ok := createResult["id"].(string)
+	if !ok || itemID == "" {
+		t.Fatalf("created item has empty/missing ID: %v", createResult)
+	}
+
+	// --- List items with new CF_HOME ---
+	listCmd := exec.Command(rdBinary, "list", "--json")
+	listCmd.Dir = projectDir
+	listCmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + fakeHome,
+		"CF_HOME=" + newCFHome,
+	}
+	var listStdout, listStderr bytes.Buffer
+	listCmd.Stdout = &listStdout
+	listCmd.Stderr = &listStderr
+	listCode := 0
+	if err := listCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			listCode = exitErr.ExitCode()
+		}
+	}
+
+	if listCode != 0 {
+		t.Fatalf("rd list failed (exit %d) with new-install CF_HOME:\nstderr: %s\nstdout: %s",
+			listCode, listStderr.String(), listStdout.String())
+	}
+
+	// Verify created item appears in list.
+	var listItems []map[string]interface{}
+	if err := json.Unmarshal(listStdout.Bytes(), &listItems); err != nil {
+		t.Fatalf("JSON parse of rd list output failed: %v\noutput: %s", err, listStdout.String())
+	}
+	found := false
+	for _, item := range listItems {
+		if item["id"] == itemID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("created item %q not found in rd list output", itemID)
+	}
+
+	// --- Show item with new CF_HOME ---
+	showCmd := exec.Command(rdBinary, "show", itemID, "--json")
+	showCmd.Dir = projectDir
+	showCmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + fakeHome,
+		"CF_HOME=" + newCFHome,
+	}
+	var showStdout, showStderr bytes.Buffer
+	showCmd.Stdout = &showStdout
+	showCmd.Stderr = &showStderr
+	showCode := 0
+	if err := showCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			showCode = exitErr.ExitCode()
+		}
+	}
+
+	if showCode != 0 {
+		t.Fatalf("rd show failed (exit %d) with new-install CF_HOME:\nstderr: %s\nstdout: %s",
+			showCode, showStderr.String(), showStdout.String())
+	}
+
+	// Parse shown item.
+	var showResult map[string]interface{}
+	if err := json.Unmarshal(showStdout.Bytes(), &showResult); err != nil {
+		t.Fatalf("JSON parse of rd show output failed: %v\noutput: %s", err, showStdout.String())
+	}
+	if showResult["id"] != itemID {
+		t.Errorf("rd show returned wrong item: got %v, want %s", showResult["id"], itemID)
+	}
+	if showResult["title"] != "Test item" {
+		t.Errorf("rd show returned wrong title: got %v, want 'Test item'", showResult["title"])
+	}
+
+	// --- Verify no errors about missing identity or wrong path ---
+	for _, stderr := range []string{
+		initStderr.String(),
+		createStderr.String(),
+		listStderr.String(),
+		showStderr.String(),
+	} {
+		if strings.Contains(stderr, "loading identity") || strings.Contains(stderr, "cannot determine home") {
+			t.Errorf("unexpected error in stderr: %s", stderr)
+		}
 	}
 }
