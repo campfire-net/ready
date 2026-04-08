@@ -2,6 +2,7 @@ package playbook_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"testing"
 
@@ -295,5 +296,379 @@ func TestItemsJSON(t *testing.T) {
 	}
 	if len(items) != len(tmpl.Items) {
 		t.Errorf("round-trip item count mismatch: %d != %d", len(items), len(tmpl.Items))
+	}
+}
+
+// TestValidate_AllValidTypes checks all valid item types are accepted.
+func TestValidate_AllValidTypes(t *testing.T) {
+	types := []string{"task", "decision", "review", "reminder", "deadline", "prep", "message", "directive"}
+	for _, ty := range types {
+		itemJSON := []byte(fmt.Sprintf(`[{"title":"T","type":"%s","priority":"p1","deps":[]}]`, ty))
+		_, err := playbook.Parse("type-test", "Test", "", itemJSON)
+		if err != nil {
+			t.Errorf("type %q should be valid, got error: %v", ty, err)
+		}
+	}
+}
+
+// TestValidate_AllValidPriorities checks all valid priorities are accepted.
+func TestValidate_AllValidPriorities(t *testing.T) {
+	priorities := []string{"p0", "p1", "p2", "p3"}
+	for _, pri := range priorities {
+		itemJSON := []byte(fmt.Sprintf(`[{"title":"T","type":"task","priority":"%s","deps":[]}]`, pri))
+		_, err := playbook.Parse("pri-test", "Test", "", itemJSON)
+		if err != nil {
+			t.Errorf("priority %q should be valid, got error: %v", pri, err)
+		}
+	}
+}
+
+// TestValidate_AllValidLevels checks all valid levels are accepted.
+func TestValidate_AllValidLevels(t *testing.T) {
+	levels := []string{"", "epic", "task", "subtask"}
+	for _, lv := range levels {
+		levelField := ""
+		if lv != "" {
+			levelField = fmt.Sprintf(`,"level":"%s"`, lv)
+		}
+		itemJSON := []byte(fmt.Sprintf(`[{"title":"T","type":"task","priority":"p1","deps":[]%s}]`, levelField))
+		_, err := playbook.Parse("level-test", "Test", "", itemJSON)
+		if err != nil {
+			t.Errorf("level %q should be valid, got error: %v", lv, err)
+		}
+	}
+}
+
+// TestValidate_InvalidLevel checks invalid levels are rejected.
+func TestValidate_InvalidLevel(t *testing.T) {
+	itemJSON := []byte(`[{"title":"T","type":"task","level":"badlevel","priority":"p1","deps":[]}]`)
+	_, err := playbook.Parse("bad-level", "Test", "", itemJSON)
+	if err == nil {
+		t.Fatal("expected error for invalid level")
+	}
+}
+
+// TestValidate_InvalidType checks invalid types are rejected.
+func TestValidate_InvalidType(t *testing.T) {
+	itemJSON := []byte(`[{"title":"T","type":"badtype","priority":"p1","deps":[]}]`)
+	_, err := playbook.Parse("bad-type", "Test", "", itemJSON)
+	if err == nil {
+		t.Fatal("expected error for invalid type")
+	}
+}
+
+// TestParse_InvalidIDPattern checks various invalid ID patterns.
+func TestParse_InvalidIDPattern(t *testing.T) {
+	invalidIDs := []string{
+		"",           // empty
+		"A",          // uppercase
+		"a",          // too short
+		"ab",         // exactly 2 chars
+		"_abc",       // starts with underscore
+		"-abc",       // starts with dash
+		"abc_def",    // has underscore
+		"abc def",    // has space
+	}
+	for _, id := range invalidIDs {
+		_, err := playbook.Parse(id, "Title", "", sampleItemsJSON)
+		if err == nil {
+			t.Errorf("ID %q should be invalid", id)
+		}
+	}
+}
+
+// TestParse_ValidIDPattern checks valid ID patterns.
+func TestParse_ValidIDPattern(t *testing.T) {
+	validIDs := []string{
+		"a-b",           // 3 chars with dash
+		"a1b",           // 3 chars with digit
+		"abc-def",       // longer with dash
+		"sre-incident",  // typical playbook ID
+		"test-pb-123",   // longer with numbers
+	}
+	for _, id := range validIDs {
+		_, err := playbook.Parse(id, "Title", "", sampleItemsJSON)
+		if err != nil {
+			t.Errorf("ID %q should be valid, got error: %v", id, err)
+		}
+	}
+}
+
+// TestParse_EmptyDescription is allowed.
+func TestParse_EmptyDescription(t *testing.T) {
+	tmpl, err := playbook.Parse("desc-test", "Title", "", sampleItemsJSON)
+	if err != nil {
+		t.Fatalf("empty description should be allowed: %v", err)
+	}
+	if tmpl.Description != "" {
+		t.Errorf("expected empty description, got %q", tmpl.Description)
+	}
+}
+
+// TestParse_WithDescription preserves description.
+func TestParse_WithDescription(t *testing.T) {
+	desc := "This is a detailed description"
+	tmpl, err := playbook.Parse("desc-test2", "Title", desc, sampleItemsJSON)
+	if err != nil {
+		t.Fatalf("parse with description failed: %v", err)
+	}
+	if tmpl.Description != desc {
+		t.Errorf("expected description %q, got %q", desc, tmpl.Description)
+	}
+}
+
+// TestValidate_EmptyItemTitle checks that empty item titles are rejected.
+func TestValidate_EmptyItemTitle(t *testing.T) {
+	itemJSON := []byte(`[{"title":"","type":"task","priority":"p1","deps":[]}]`)
+	_, err := playbook.Parse("empty-title", "Title", "", itemJSON)
+	if err == nil {
+		t.Fatal("expected error for empty item title")
+	}
+}
+
+// TestValidate_WhitespaceOnlyItemTitle checks that whitespace-only titles are rejected.
+func TestValidate_WhitespaceOnlyItemTitle(t *testing.T) {
+	itemJSON := []byte(`[{"title":"   ","type":"task","priority":"p1","deps":[]}]`)
+	_, err := playbook.Parse("ws-title", "Title", "", itemJSON)
+	if err == nil {
+		t.Fatal("expected error for whitespace-only item title")
+	}
+}
+
+// TestValidate_MultipleItems checks a playbook with many items.
+func TestValidate_MultipleItems(t *testing.T) {
+	itemJSON := []byte(`[
+		{"title":"A","type":"task","priority":"p1","deps":[]},
+		{"title":"B","type":"task","priority":"p1","deps":[]},
+		{"title":"C","type":"task","priority":"p1","deps":[]},
+		{"title":"D","type":"task","priority":"p1","deps":[0]},
+		{"title":"E","type":"task","priority":"p1","deps":[1,2]}
+	]`)
+	tmpl, err := playbook.Parse("multi", "Multi", "", itemJSON)
+	if err != nil {
+		t.Fatalf("multi-item playbook failed: %v", err)
+	}
+	if len(tmpl.Items) != 5 {
+		t.Errorf("expected 5 items, got %d", len(tmpl.Items))
+	}
+	if len(tmpl.Items[4].Deps) != 2 {
+		t.Errorf("expected item[4] to have 2 deps, got %d", len(tmpl.Items[4].Deps))
+	}
+}
+
+// TestValidate_MultipleDepsOnSingleItem checks items with multiple deps.
+func TestValidate_MultipleDepsOnSingleItem(t *testing.T) {
+	itemJSON := []byte(`[
+		{"title":"A","type":"task","priority":"p1","deps":[]},
+		{"title":"B","type":"task","priority":"p1","deps":[]},
+		{"title":"C","type":"task","priority":"p1","deps":[0,1]}
+	]`)
+	tmpl, err := playbook.Parse("multi-dep", "MultiDep", "", itemJSON)
+	if err != nil {
+		t.Fatalf("multi-dep playbook failed: %v", err)
+	}
+	if len(tmpl.Items[2].Deps) != 2 {
+		t.Errorf("expected 2 deps, got %d", len(tmpl.Items[2].Deps))
+	}
+	if tmpl.Items[2].Deps[0] != 0 || tmpl.Items[2].Deps[1] != 1 {
+		t.Errorf("unexpected dep values: %v", tmpl.Items[2].Deps)
+	}
+}
+
+// TestExpand_ComplexGraph tests expansion with a more complex dependency graph.
+func TestExpand_ComplexGraph(t *testing.T) {
+	itemJSON := []byte(`[
+		{"title":"Setup","type":"task","priority":"p0","deps":[]},
+		{"title":"Build","type":"task","priority":"p1","deps":[0]},
+		{"title":"Test","type":"task","priority":"p1","deps":[1]},
+		{"title":"Review","type":"decision","priority":"p1","deps":[2]},
+		{"title":"Deploy","type":"task","priority":"p0","deps":[3]}
+	]`)
+	tmpl, err := playbook.Parse("complex", "Complex", "", itemJSON)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	expanded, err := playbook.Expand(tmpl, "proj", nil)
+	if err != nil {
+		t.Fatalf("expand failed: %v", err)
+	}
+	if len(expanded) != 5 {
+		t.Errorf("expected 5 items, got %d", len(expanded))
+	}
+	// Verify chain: Deploy→Review→Test→Build→Setup
+	if len(expanded[4].Deps) != 1 || expanded[4].Deps[0] != expanded[3].ID {
+		t.Errorf("Deploy should depend on Review")
+	}
+	if len(expanded[3].Deps) != 1 || expanded[3].Deps[0] != expanded[2].ID {
+		t.Errorf("Review should depend on Test")
+	}
+}
+
+// TestExpand_VariableWithWhitespace tests variable substitution with whitespace.
+func TestExpand_VariableWithWhitespace(t *testing.T) {
+	itemJSON := []byte(`[
+		{"title":"Prepare {{ project }}","type":"task","priority":"p1","deps":[]}
+	]`)
+	tmpl, err := playbook.Parse("ws-var", "WS Var", "", itemJSON)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	vars := map[string]string{"project": "myapp"}
+	expanded, err := playbook.Expand(tmpl, "myapp", vars)
+	if err != nil {
+		t.Fatalf("expand failed: %v", err)
+	}
+	if expanded[0].Title != "Prepare myapp" {
+		t.Errorf("expected 'Prepare myapp', got %q", expanded[0].Title)
+	}
+}
+
+// TestExpand_MultipleVariables tests substitution with multiple distinct variables.
+func TestExpand_MultipleVariables(t *testing.T) {
+	itemJSON := []byte(`[
+		{"title":"Setup {{env}} on {{region}}","type":"task","priority":"p1","context":"Config: {{config}}","deps":[]}
+	]`)
+	tmpl, err := playbook.Parse("multi-var", "Multi Var", "", itemJSON)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	vars := map[string]string{
+		"env":    "production",
+		"region": "us-west",
+		"config": "standard",
+	}
+	expanded, err := playbook.Expand(tmpl, "myapp", vars)
+	if err != nil {
+		t.Fatalf("expand failed: %v", err)
+	}
+	if expanded[0].Title != "Setup production on us-west" {
+		t.Errorf("expected title with both vars, got %q", expanded[0].Title)
+	}
+	if expanded[0].Context != "Config: standard" {
+		t.Errorf("expected context 'Config: standard', got %q", expanded[0].Context)
+	}
+}
+
+// TestExpand_DuplicateIDGeneration runs expansion multiple times and checks all IDs are unique.
+func TestExpand_DuplicateIDGeneration(t *testing.T) {
+	itemJSON := []byte(`[
+		{"title":"A","type":"task","priority":"p1","deps":[]},
+		{"title":"B","type":"task","priority":"p1","deps":[]},
+		{"title":"C","type":"task","priority":"p1","deps":[]}
+	]`)
+	tmpl, err := playbook.Parse("dup-id", "Dup ID", "", itemJSON)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	// Generate multiple times and collect IDs
+	allIDs := map[string]bool{}
+	for run := 0; run < 5; run++ {
+		expanded, err := playbook.Expand(tmpl, "proj", nil)
+		if err != nil {
+			t.Fatalf("expand run %d failed: %v", run, err)
+		}
+		for _, item := range expanded {
+			if allIDs[item.ID] {
+				t.Fatalf("duplicate ID %q generated", item.ID)
+			}
+			allIDs[item.ID] = true
+		}
+	}
+	if len(allIDs) != 15 {
+		t.Errorf("expected 15 unique IDs (5 runs × 3 items), got %d", len(allIDs))
+	}
+}
+
+// TestExpand_TemplateIndexPreserved checks that TemplateIndex is correctly set.
+func TestExpand_TemplateIndexPreserved(t *testing.T) {
+	itemJSON := []byte(`[
+		{"title":"A","type":"task","priority":"p1","deps":[]},
+		{"title":"B","type":"task","priority":"p1","deps":[0]},
+		{"title":"C","type":"task","priority":"p1","deps":[1]},
+		{"title":"D","type":"task","priority":"p1","deps":[2]}
+	]`)
+	tmpl, err := playbook.Parse("idx", "Index", "", itemJSON)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	expanded, err := playbook.Expand(tmpl, "proj", nil)
+	if err != nil {
+		t.Fatalf("expand failed: %v", err)
+	}
+	for i, item := range expanded {
+		if item.TemplateIndex != i {
+			t.Errorf("item %d: expected TemplateIndex %d, got %d", i, i, item.TemplateIndex)
+		}
+	}
+}
+
+// TestValidate_LargePlaybook checks a playbook with many items.
+func TestValidate_LargePlaybook(t *testing.T) {
+	// Build a large playbook with 20 items in sequence.
+	items := make([]map[string]interface{}, 20)
+	for i := 0; i < 20; i++ {
+		deps := []int{}
+		if i > 0 {
+			deps = []int{i - 1}
+		}
+		items[i] = map[string]interface{}{
+			"title":    fmt.Sprintf("Item %d", i),
+			"type":     "task",
+			"priority": "p1",
+			"deps":     deps,
+		}
+	}
+	data, _ := json.Marshal(items)
+	tmpl, err := playbook.Parse("large", "Large", "", data)
+	if err != nil {
+		t.Fatalf("large playbook failed: %v", err)
+	}
+	if len(tmpl.Items) != 20 {
+		t.Errorf("expected 20 items, got %d", len(tmpl.Items))
+	}
+}
+
+// TestParseFull_InvalidJSON checks ParseFull with invalid JSON.
+func TestParseFull_InvalidJSON(t *testing.T) {
+	_, err := playbook.ParseFull([]byte(`not valid json`))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+// TestParseFull_MissingField checks ParseFull with missing required field.
+func TestParseFull_MissingField(t *testing.T) {
+	data := []byte(`{"id":"test","title":"Test"}`) // missing items
+	_, err := playbook.ParseFull(data)
+	if err == nil {
+		t.Fatal("expected error for missing items field")
+	}
+}
+
+// TestParseFull_RoundTrip does a full round-trip: Parse → ItemsJSON → ParseFull.
+func TestParseFull_RoundTrip(t *testing.T) {
+	tmpl, err := playbook.Parse("round", "Round", "Test description", sampleItemsJSON)
+	if err != nil {
+		t.Fatalf("initial parse failed: %v", err)
+	}
+	itemsData, err := tmpl.ItemsJSON()
+	if err != nil {
+		t.Fatalf("ItemsJSON failed: %v", err)
+	}
+	fullData, _ := json.Marshal(map[string]interface{}{
+		"id":          tmpl.ID,
+		"title":       tmpl.Title,
+		"description": tmpl.Description,
+		"items":       json.RawMessage(itemsData),
+	})
+	tmpl2, err := playbook.ParseFull(fullData)
+	if err != nil {
+		t.Fatalf("ParseFull failed: %v", err)
+	}
+	if tmpl2.ID != tmpl.ID || tmpl2.Title != tmpl.Title || tmpl2.Description != tmpl.Description {
+		t.Errorf("round-trip metadata mismatch")
+	}
+	if len(tmpl2.Items) != len(tmpl.Items) {
+		t.Errorf("round-trip item count mismatch: %d != %d", len(tmpl2.Items), len(tmpl.Items))
 	}
 }
