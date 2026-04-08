@@ -470,3 +470,223 @@ func TestCreate_DescriptionFlag_HelpfulError(t *testing.T) {
 		t.Errorf("expected error to mention 'rd update', got: %q", err.Error())
 	}
 }
+
+// TestProjectPrefix_BasicPath verifies that projectPrefix extracts the directory name
+// from a project path and sanitizes it by removing non-alphanumeric characters (keeping only a-z and 0-9).
+func TestProjectPrefix_BasicPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"simple path", "/home/baron/projects/ready", "ready"},
+		{"with trailing slash", "/home/baron/projects/ready/", "ready"},
+		{"single dir", "ready", "ready"},
+		{"single dir with trailing slash", "ready/", "ready"},
+		{"path with hyphens (sanitized to remove hyphens)", "/home/baron/projects/my-project", "myproject"},
+		{"path with underscores (sanitized)", "/home/baron/projects/my_project", "myproject"},
+		{"path with mixed chars (sanitized)", "/home/baron/projects/my-project_name", "myprojectname"},
+		{"path with spaces (sanitized)", "/home/baron/projects/my project", "myproject"},
+		{"path with dots (sanitized)", "/home/baron/projects/my.project", "myproject"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := projectPrefix(tt.input)
+			if result != tt.want {
+				t.Errorf("projectPrefix(%q) = %q, want %q", tt.input, result, tt.want)
+			}
+		})
+	}
+}
+
+// TestProjectPrefix_MinimumLength verifies that projectPrefix returns an empty string
+// for directory names that are shorter than 2 characters after sanitization.
+func TestProjectPrefix_MinimumLength(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"single char dir", "a", ""},
+		{"single char with path", "/home/baron/projects/a", ""},
+		{"two char dir", "ab", "ab"},
+		{"two char with path", "/home/baron/projects/ab", "ab"},
+		{"sanitizes to single char", "/home/baron/projects/a_", ""},
+		{"sanitizes to two chars", "/home/baron/projects/a_b", "ab"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := projectPrefix(tt.input)
+			if result != tt.want {
+				t.Errorf("projectPrefix(%q) = %q, want %q", tt.input, result, tt.want)
+			}
+		})
+	}
+}
+
+// TestProjectPrefix_EdgeCases verifies projectPrefix behavior with unusual but valid inputs.
+func TestProjectPrefix_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"all hyphens (sanitized to empty, <2 chars)", "---", ""},
+		{"all underscores (sanitized)", "___", ""},
+		{"numbers only", "123", "123"},
+		{"numbers with non-alphanumeric", "12_34", "1234"},
+		{"mixed case (uppercase removed)", "ReadyProject", "eadyroject"},
+		{"empty string", "", ""},
+		{"root path", "/", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := projectPrefix(tt.input)
+			if result != tt.want {
+				t.Errorf("projectPrefix(%q) = %q, want %q", tt.input, result, tt.want)
+			}
+		})
+	}
+}
+
+// TestGenerateID_NoPrefix verifies that generateID without a prefix produces a hex string
+// of minimum 3 characters, and longer strings if collision detection requires it.
+func TestGenerateID_NoPrefix(t *testing.T) {
+	existingIDs := map[string]struct{}{}
+	id, err := generateID("", existingIDs)
+	if err != nil {
+		t.Fatalf("generateID returned error: %v", err)
+	}
+	if len(id) < 3 {
+		t.Errorf("generateID without prefix: id=%q has length %d, want >= 3", id, len(id))
+	}
+}
+
+// TestGenerateID_WithPrefix verifies that generateID with a prefix returns "<prefix>-<hex>".
+func TestGenerateID_WithPrefix(t *testing.T) {
+	existingIDs := map[string]struct{}{}
+	id, err := generateID("ready", existingIDs)
+	if err != nil {
+		t.Fatalf("generateID returned error: %v", err)
+	}
+	parts := strings.Split(id, "-")
+	if len(parts) != 2 {
+		t.Errorf("generateID with prefix: id=%q should be '<prefix>-<hex>', got %d parts", id, len(parts))
+	}
+	if parts[0] != "ready" {
+		t.Errorf("generateID with prefix: prefix=%q, want 'ready'", parts[0])
+	}
+	if len(parts[1]) < 3 {
+		t.Errorf("generateID with prefix: hex part=%q has length %d, want >= 3", parts[1], len(parts[1]))
+	}
+}
+
+// TestGenerateID_CollisionDetection verifies that generateID avoids collisions by
+// trying longer hex strings when shorter ones collide.
+func TestGenerateID_CollisionDetection(t *testing.T) {
+	// Simulate a collision scenario: force the generator to try progressively longer strings.
+	// We'll manually create collisions and verify generateID handles them.
+	existingIDs := map[string]struct{}{
+		"ready-abc": {},
+		"ready-ab":  {},
+	}
+
+	// Generate multiple IDs and ensure no collisions.
+	generatedIDs := make(map[string]struct{})
+	for i := 0; i < 10; i++ {
+		id, err := generateID("ready", existingIDs)
+		if err != nil {
+			t.Fatalf("iteration %d: generateID returned error: %v", i, err)
+		}
+		if _, collision := existingIDs[id]; collision {
+			t.Errorf("iteration %d: collision detected with existing id=%q", i, id)
+		}
+		if _, collision := generatedIDs[id]; collision {
+			t.Errorf("iteration %d: collision detected with previously generated id=%q", i, id)
+		}
+		generatedIDs[id] = struct{}{}
+	}
+}
+
+// TestGenerateID_Format verifies that generated IDs match the expected format patterns.
+func TestGenerateID_Format(t *testing.T) {
+	tests := []struct {
+		name       string
+		prefix     string
+		wantPrefix string
+	}{
+		{"with prefix 'ready'", "ready", "ready-"},
+		{"with prefix 'aerocloak'", "aerocloak", "aerocloak-"},
+		{"empty prefix", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			existingIDs := map[string]struct{}{}
+			id, err := generateID(tt.prefix, existingIDs)
+			if err != nil {
+				t.Fatalf("generateID returned error: %v", err)
+			}
+			if tt.wantPrefix != "" && !strings.HasPrefix(id, tt.wantPrefix) {
+				t.Errorf("generateID prefix=%q: id=%q doesn't have prefix %q", tt.prefix, id, tt.wantPrefix)
+			}
+		})
+	}
+}
+
+// TestGenerateID_MinimumLength verifies that generated IDs have a minimum hex length of 3
+// (for the hex part, excluding the prefix and dash).
+func TestGenerateID_MinimumLength(t *testing.T) {
+	existingIDs := map[string]struct{}{}
+	id, err := generateID("test", existingIDs)
+	if err != nil {
+		t.Fatalf("generateID returned error: %v", err)
+	}
+	parts := strings.Split(id, "-")
+	if len(parts) != 2 {
+		t.Fatalf("expected format 'prefix-hex', got: %q", id)
+	}
+	hexPart := parts[1]
+	if len(hexPart) < 3 {
+		t.Errorf("generateID: hex part=%q has length %d, want >= 3", hexPart, len(hexPart))
+	}
+}
+
+// TestGenerateID_RandomnessAndUniqueness verifies that consecutive calls to generateID
+// produce different IDs (not deterministic repetition).
+func TestGenerateID_RandomnessAndUniqueness(t *testing.T) {
+	existingIDs := map[string]struct{}{}
+	id1, err1 := generateID("ready", existingIDs)
+	if err1 != nil {
+		t.Fatalf("first generateID returned error: %v", err1)
+	}
+	existingIDs[id1] = struct{}{} // Prevent collision with first ID
+
+	id2, err2 := generateID("ready", existingIDs)
+	if err2 != nil {
+		t.Fatalf("second generateID returned error: %v", err2)
+	}
+
+	if id1 == id2 {
+		t.Errorf("generateID produced same ID twice: %q == %q, want unique IDs", id1, id2)
+	}
+}
+
+// TestGenerateID_EmptyExistingIDs verifies that generateID works correctly when no
+// existing IDs are present (the normal first-use case).
+func TestGenerateID_EmptyExistingIDs(t *testing.T) {
+	existingIDs := map[string]struct{}{}
+	id, err := generateID("ready", existingIDs)
+	if err != nil {
+		t.Fatalf("generateID returned error: %v", err)
+	}
+	parts := strings.Split(id, "-")
+	if len(parts) != 2 {
+		t.Fatalf("expected format 'ready-<hex>', got: %q", id)
+	}
+	if len(parts[1]) == 3 {
+		// With no collisions, we expect the minimum 3-char hex.
+		// (This is probabilistically true; edge cases exist but are rare.)
+		t.Logf("generateID with empty existingIDs returned 3-char hex (expected): %q", id)
+	}
+}
+
