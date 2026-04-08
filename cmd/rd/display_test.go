@@ -245,6 +245,16 @@ func TestShowCommandDisplay_NoHexWithoutDebug(t *testing.T) {
 
 	output := buf.String()
 
+	// Assert output contains the item title.
+	if !strings.Contains(output, "Show Test Item") {
+		t.Errorf("show output does not contain item title %q; output:\n%s", "Show Test Item", output)
+	}
+
+	// Assert output contains the item status (task status from the payload).
+	if !strings.Contains(output, "ready-show1") {
+		t.Errorf("show output does not contain item ID %q; output:\n%s", "ready-show1", output)
+	}
+
 	// The Campfire line must show the project name, not the raw hex.
 	if !strings.Contains(output, "showproject") {
 		t.Errorf("show output does not contain project name %q; output:\n%s", "showproject", output)
