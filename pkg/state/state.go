@@ -298,6 +298,26 @@ func parseTimestamp(ts string) int64 {
 	return 0
 }
 
+// parseTimestampValue converts a timestamp value (int, float64, or string) to int64 nanoseconds.
+// This handles both old int64 nanosecond values and new RFC3339 string values.
+// Returns 0 if the value is nil or parsing fails.
+func parseTimestampValue(v interface{}) int64 {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		// JSON unmarshals numbers as float64; treat as nanoseconds
+		return int64(val)
+	case int64:
+		return val
+	case string:
+		return parseTimestamp(val)
+	default:
+		return 0
+	}
+}
+
 // findActiveServerBinding finds the most recent server-binding declaration
 // that is valid at the given timestamp for the specified convention and operation.
 func findActiveServerBinding(msgs []store.MessageRecord, convention, operation string, atTime int64) *serverBinding {
@@ -470,10 +490,10 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			continue
 		}
 		var p struct {
-			Pubkey    string `json:"pubkey"`
-			Role      string `json:"role"`
-			GrantedAt int64  `json:"granted_at,omitempty"`
-			ExpiresAt int64  `json:"expires_at,omitempty"`
+			Pubkey    string      `json:"pubkey"`
+			Role      string      `json:"role"`
+			GrantedAt interface{} `json:"granted_at,omitempty"`
+			ExpiresAt interface{} `json:"expires_at,omitempty"`
 		}
 		if err := json.Unmarshal(m.Payload, &p); err != nil {
 			continue
@@ -482,8 +502,18 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			continue
 		}
 		grantedAt := m.Timestamp
-		if p.GrantedAt != 0 {
-			grantedAt = p.GrantedAt
+		if p.GrantedAt != nil {
+			parsed := parseTimestampValue(p.GrantedAt)
+			if parsed != 0 {
+				grantedAt = parsed
+			}
+		}
+		expiresAt := int64(0)
+		if p.ExpiresAt != nil {
+			parsed := parseTimestampValue(p.ExpiresAt)
+			if parsed != 0 {
+				expiresAt = parsed
+			}
 		}
 		// Only update role map if this grant is more recent than what's already there.
 		existing, ok := roleMap[p.Pubkey]
@@ -491,7 +521,7 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			roleMap[p.Pubkey] = roleInfo{
 				role:      p.Role,
 				grantedAt: grantedAt,
-				expiresAt: p.ExpiresAt,
+				expiresAt: expiresAt,
 				msgID:     m.ID,
 			}
 		}

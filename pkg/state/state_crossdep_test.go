@@ -285,3 +285,75 @@ func TestDerive_StrandedItemReclaim_IgnoresUnclaimedActive(t *testing.T) {
 		t.Errorf("By should remain empty, got %q", task.By)
 	}
 }
+
+// TestDerive_RoleGrant_RFC3339GrantedAt verifies that role-grant messages with
+// RFC3339 formatted granted_at strings are correctly parsed and used.
+// This test ensures backward compatibility with RFC3339 timestamps sent by
+// admit.go and revoke.go (ready-430).
+func TestDerive_RoleGrant_RFC3339GrantedAt(t *testing.T) {
+	const campfireID = "cccc0000dddd1111eeee2222ffff3333aaaa4444bbbb5555cccc0000dddd1111"
+	const granteeKey = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+	// RFC3339 timestamp: 2026-04-08T15:30:45Z
+	grantedAt := "2026-04-08T15:30:45Z"
+
+	msgs := []store.MessageRecord{
+		{
+			ID: "m1", CampfireID: campfireID, Sender: "admin",
+			Tags: []string{"work:create"},
+			Payload: mustMarshal(map[string]interface{}{
+				"id": "task-003", "title": "A task with grantee", "type": "task",
+				"for": "team@example.com", "priority": "p1",
+			}),
+			Timestamp: 1000,
+		},
+		// Claim by grantee
+		{
+			ID: "m2", CampfireID: campfireID, Sender: granteeKey,
+			Tags: []string{"work:claim"},
+			Payload: mustMarshal(map[string]interface{}{
+				"target": "m1",
+			}),
+			Antecedents: []string{"m1"},
+			Timestamp:   2000,
+		},
+		// Grant role with RFC3339 timestamp
+		{
+			ID: "m3", CampfireID: campfireID, Sender: "admin",
+			Tags: []string{"work:role-grant"},
+			Payload: mustMarshal(map[string]interface{}{
+				"pubkey":     granteeKey,
+				"role":       "member",
+				"granted_at": grantedAt, // RFC3339 string, not int64
+			}),
+			Timestamp: 3000,
+		},
+		// Later, revoke using RFC3339 timestamp
+		{
+			ID: "m4", CampfireID: campfireID, Sender: "admin",
+			Tags: []string{"work:role-grant"},
+			Payload: mustMarshal(map[string]interface{}{
+				"pubkey":     granteeKey,
+				"role":       "revoked",
+				"granted_at": "2026-04-08T16:00:00Z", // Another RFC3339 string
+			}),
+			Timestamp: 4000,
+		},
+	}
+
+	items := state.Derive(campfireID, msgs)
+	task := items["task-003"]
+	if task == nil {
+		t.Fatal("task-003 not found")
+	}
+
+	// The revocation (m4) with role=revoked triggers Pass 3: stranded-item reclaim.
+	// Since the item is active and claimed by granteeKey, it should be moved to inbox.
+	// This verifies that the RFC3339 timestamps were correctly parsed.
+	if task.Status != state.StatusInbox {
+		t.Errorf("expected status %q after revocation, got %q", state.StatusInbox, task.Status)
+	}
+	if task.By != "" {
+		t.Errorf("expected By to be empty after revocation, got %q", task.By)
+	}
+}
