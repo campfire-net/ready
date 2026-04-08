@@ -634,3 +634,68 @@ func TestJoin_InviteOnlyCampfire_FailsWithClearError(t *testing.T) {
 		t.Errorf("B.Join error = %q — expected 'invite-only' in message so rd join can distinguish protocol rejection from transport errors", joinErr.Error())
 	}
 }
+
+// TestValidateNameFormat is the security regression test for ready-bf5.
+// validateNameFormat must reject malformed names before any network call.
+func TestValidateNameFormat(t *testing.T) {
+	// validHexID is a well-formed 64-char campfire ID.
+	validHexID := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+	cases := []struct {
+		name    string
+		input   string
+		wantErr bool
+		errFrag string // substring that must appear in the error message
+	}{
+		// Valid inputs — must not error.
+		{name: "valid_hex_id", input: validHexID, wantErr: false},
+		{name: "valid_short_name", input: "myorg.ready/myproject", wantErr: false},
+		{name: "valid_cf_uri", input: "cf://myorg.ready/myproject", wantErr: false},
+		{name: "valid_simple_name", input: "myproject", wantErr: false},
+		{name: "valid_hyphenated", input: "my-org.ready/my-project", wantErr: false},
+
+		// Path traversal — must error.
+		{name: "path_traversal_unix", input: "../etc/passwd", wantErr: true, errFrag: "path traversal"},
+		{name: "path_traversal_in_middle", input: "foo/../bar", wantErr: true, errFrag: "path traversal"},
+		{name: "path_traversal_windows", input: `foo..\bar`, wantErr: true, errFrag: "path traversal"},
+		{name: "path_traversal_bare", input: "..", wantErr: true, errFrag: "path traversal"},
+
+		// Null bytes — must error.
+		{name: "null_byte_prefix", input: "\x00foo", wantErr: true, errFrag: "null byte"},
+		{name: "null_byte_middle", input: "foo\x00bar", wantErr: true, errFrag: "null byte"},
+		{name: "null_byte_only", input: "\x00", wantErr: true, errFrag: "null byte"},
+
+		// Excessive length — must error.
+		{name: "too_long_257", input: strings.Repeat("a", 257), wantErr: true, errFrag: "too long"},
+		{name: "exactly_256", input: strings.Repeat("a", 256), wantErr: false},
+
+		// Empty input — must error.
+		{name: "empty", input: "", wantErr: true, errFrag: "empty"},
+
+		// Invalid characters — must error.
+		{name: "space_char", input: "my project", wantErr: true, errFrag: "invalid character"},
+		{name: "at_sign", input: "user@host", wantErr: true, errFrag: "invalid character"},
+		{name: "backslash_only", input: `foo\bar`, wantErr: true, errFrag: "invalid character"},
+		{name: "semicolon", input: "foo;bar", wantErr: true, errFrag: "invalid character"},
+		{name: "newline", input: "foo\nbar", wantErr: true, errFrag: "invalid character"},
+		{name: "tilde", input: "~root", wantErr: true, errFrag: "invalid character"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateNameFormat(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("validateNameFormat(%q): expected error, got nil", tc.input)
+				}
+				if tc.errFrag != "" && !strings.Contains(err.Error(), tc.errFrag) {
+					t.Errorf("validateNameFormat(%q): error %q does not contain %q", tc.input, err.Error(), tc.errFrag)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("validateNameFormat(%q): unexpected error: %v", tc.input, err)
+				}
+			}
+		})
+	}
+}
