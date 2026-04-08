@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/campfire-net/campfire/pkg/convention"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
@@ -123,8 +124,8 @@ func admitByPubKey(pubKeyHex, role string) error {
 }
 
 // admitFromJoinRequest admits a member from a work:join-request item.
-// It looks up the item, extracts the requester's pubkey, posts a role-grant,
-// and calls Client.Admit() to write the membership record.
+// It looks up the item, extracts the requester's pubkey, calls Admit() to
+// write the membership record, then posts the advisory role-grant.
 // If denyReason is non-empty, the request is denied instead.
 func admitFromJoinRequest(itemID, role, denyReason string) error {
 	campfireID, _, ok := projectRoot()
@@ -197,46 +198,16 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 		return nil
 	}
 
-	// Grant: post work:role-grant for the requester.
-	roleGrantDecl, declErr := loadDeclaration("role-grant")
-	if declErr != nil {
-		return fmt.Errorf("loading role-grant declaration: %w", declErr)
-	}
-
 	grantRole := role
 	if grantRole == "org-observer" {
 		grantRole = "member" // org-observer is an rd concept, not a campfire role
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
-	grantResult, grantErr := exec.Execute(ctx, roleGrantDecl, campfireID, map[string]any{
-		"pubkey":     pubKeyHex,
-		"role":       grantRole,
-		"granted_at": now,
-	})
-	if grantErr != nil {
-		return fmt.Errorf("posting role-grant: %w", grantErr)
-	}
-
-	// Call Client.Admit() to write the membership record.
-	m, membershipErr := client.GetMembership(campfireID)
-	if membershipErr != nil {
-		return fmt.Errorf("getting campfire membership: %w", membershipErr)
-	}
-
-	// admitRole follows the same mapping as grantRole: org-observer→member,
-	// agent→agent. Since grantRole already handles org-observer, use it directly.
-	admitRole := grantRole
-
-	admitErr := client.Admit(protocol.AdmitRequest{
-		CampfireID:      campfireID,
-		MemberPubKeyHex: pubKeyHex,
-		Role:            admitRole,
-		Transport:       protocol.FilesystemTransport{Dir: m.TransportDir},
-	})
-	if admitErr != nil {
-		// role-grant was posted (advisory), Admit is the enforcement gate.
-		return fmt.Errorf("Admit() failed (role-grant already posted): %w", admitErr)
+	// admitThenGrant calls Admit() first, then posts the advisory role-grant only
+	// on success — no dangling role-grant on Admit() failure. (ready-f45)
+	grantMsgID, admitGrantErr := admitThenGrant(ctx, client, exec, campfireID, pubKeyHex, grantRole)
+	if admitGrantErr != nil {
+		return admitGrantErr
 	}
 
 	// Close the join-request item.
@@ -248,7 +219,7 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 		_, closeErr := exec.Execute(ctx, closeDecl, campfireID, map[string]any{
 			"target":     item.MsgID,
 			"resolution": "done",
-			"reason":     fmt.Sprintf("admitted as %s (role-grant: %s)", grantRole, grantResult.MessageID[:12]+"..."),
+			"reason":     fmt.Sprintf("admitted as %s (role-grant: %s)", grantRole, grantMsgID[:12]+"..."),
 		})
 		if closeErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not close join-request item: %v\n", closeErr)
@@ -259,18 +230,58 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 	if len(displayKey) > 12 {
 		displayKey = displayKey[:12] + "..."
 	}
-	fmt.Fprintf(os.Stdout, "admitted %s as %s (role-grant: %s)\n", displayKey, role, grantResult.MessageID[:12]+"...")
+	fmt.Fprintf(os.Stdout, "admitted %s as %s (role-grant: %s)\n", displayKey, role, grantMsgID[:12]+"...")
 
 	_ = agentID // used via requireAgentAndStore, may be needed for future audit
 	return nil
 }
-
 
 // campfireAdmitter is the subset of protocol.Client used by admitMemberWithRole.
 // Defined here so tests can inject a fake.
 type campfireAdmitter interface {
 	GetMembership(campfireID string) (*store.Membership, error)
 	Admit(req protocol.AdmitRequest) error
+}
+
+// admitThenGrant performs the atomic admit-then-grant sequence for the
+// join-request path. It calls client.Admit() FIRST; if that succeeds, it posts
+// the advisory work:role-grant via exec. This ordering ensures no role-grant
+// is ever posted when Admit() fails (ready-f45).
+//
+// Returns the role-grant message ID on success. Extracted so tests can inject
+// fake implementations of campfireAdmitter and convention.Executor.
+func admitThenGrant(ctx context.Context, client campfireAdmitter, exec *convention.Executor, campfireID, pubKeyHex, grantRole string) (grantMsgID string, err error) {
+	m, err := client.GetMembership(campfireID)
+	if err != nil {
+		return "", fmt.Errorf("getting campfire membership: %w", err)
+	}
+
+	if err := client.Admit(protocol.AdmitRequest{
+		CampfireID:      campfireID,
+		MemberPubKeyHex: pubKeyHex,
+		Role:            grantRole,
+		Transport:       protocol.FilesystemTransport{Dir: m.TransportDir},
+	}); err != nil {
+		return "", fmt.Errorf("admitting member: %w", err)
+	}
+
+	// Admit() succeeded — now post the advisory work:role-grant.
+	roleGrantDecl, declErr := loadDeclaration("role-grant")
+	if declErr != nil {
+		return "", fmt.Errorf("loading role-grant declaration: %w", declErr)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	grantResult, grantErr := exec.Execute(ctx, roleGrantDecl, campfireID, map[string]any{
+		"pubkey":     pubKeyHex,
+		"role":       grantRole,
+		"granted_at": now,
+	})
+	if grantErr != nil {
+		return "", fmt.Errorf("posting role-grant: %w", grantErr)
+	}
+
+	return grantResult.MessageID, nil
 }
 
 // admitMember admits the given public key to the campfire identified by campfireID.
