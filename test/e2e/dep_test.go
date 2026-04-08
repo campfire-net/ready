@@ -103,29 +103,28 @@ func TestE2E_Dep_Tree_JSON_ShowsStructure(t *testing.T) {
 
 // TestE2E_Dep_Add_CrossProjectSyntax verifies that passing a cross-campfire
 // reference (e.g. "other.project.item-abc") to rd dep add fails with a clear
-// "cross-project deps not supported" error — not a silent failure or generic
-// "not found" error.
+// error when the user is not a member of the referenced campfire.
 func TestE2E_Dep_Add_CrossProjectSyntax(t *testing.T) {
 	e := NewEnv(t)
 	local := createItem(e, t, "Local item for cross-project test", "p1", "task")
 
-	// Try to use a cross-project ref as the blocker.
+	// Try to use a cross-project ref as the blocker (not a member of that campfire).
 	stderr := e.RdMustFail("dep", "add", local.ID, "other.project.item-abc")
 
-	if !strings.Contains(stderr, "cross-project") {
-		t.Errorf("expected 'cross-project' in error message, got: %q", stderr)
+	if !strings.Contains(stderr, "cross-campfire") && !strings.Contains(stderr, "cross-project") {
+		t.Errorf("expected 'cross-campfire' or 'cross-project' in error message, got: %q", stderr)
 	}
-	if !strings.Contains(stderr, "not supported") {
-		t.Errorf("expected 'not supported' in error message, got: %q", stderr)
+	if !strings.Contains(stderr, "not found") && !strings.Contains(stderr, "not supported") {
+		t.Errorf("expected 'not found' or 'not supported' in error message, got: %q", stderr)
 	}
 
 	// Also verify cross-project ref as the blocked arg.
 	stderr2 := e.RdMustFail("dep", "add", "other.project.item-xyz", local.ID)
 
-	if !strings.Contains(stderr2, "cross-project") {
-		t.Errorf("expected 'cross-project' in error message for blocked arg, got: %q", stderr2)
+	if !strings.Contains(stderr2, "cross-campfire") && !strings.Contains(stderr2, "cross-project") {
+		t.Errorf("expected 'cross-campfire' or 'cross-project' in error message for blocked arg, got: %q", stderr2)
 	}
-	if !strings.Contains(stderr2, "not supported") {
-		t.Errorf("expected 'not supported' in error message for blocked arg, got: %q", stderr2)
+	if !strings.Contains(stderr2, "not found") && !strings.Contains(stderr2, "not supported") {
+		t.Errorf("expected 'not found' or 'not supported' in error message for blocked arg, got: %q", stderr2)
 	}
 }
