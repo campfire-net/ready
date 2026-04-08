@@ -94,6 +94,12 @@ func admitByPubKey(pubKeyHex, role string) error {
 		return err
 	}
 
+	return admitByPubKeyWithConfig(client, syncCfg, pubKeyHex, role)
+}
+
+// admitByPubKeyWithConfig routes a pubkey admission based on role and injected config.
+// This is extracted from admitByPubKey to make role routing testable.
+func admitByPubKeyWithConfig(client campfireAdmitter, syncCfg *rdconfig.SyncConfig, pubKeyHex, role string) error {
 	switch role {
 	case "member":
 		if syncCfg.CampfireID == "" {
