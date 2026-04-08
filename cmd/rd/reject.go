@@ -28,62 +28,58 @@ Example:
 		itemID := args[0]
 		reason, _ := cmd.Flags().GetString("reason")
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-
-		// Resolve the item.
-		item, err := byIDFromJSONLOrStore(s, itemID)
-		if err != nil {
-			return err
-		}
-
-		// Check item has an unfulfilled gate.
-		if item.GateMsgID == "" {
-			return fmt.Errorf("item %s has no pending gate to reject", item.ID)
-		}
-		if item.Status != state.StatusWaiting {
-			return fmt.Errorf("item %s is not waiting (status=%s)", item.ID, item.Status)
-		}
-
-		exec, _, err := requireExecutor()
-		if err != nil {
-			return err
-		}
-		decl, err := loadDeclaration("gate-resolve")
-		if err != nil {
-			return err
-		}
-
-		argsMap := map[string]any{
-			"target":     item.GateMsgID,
-			"resolution": "rejected",
-		}
-		if reason != "" {
-			argsMap["reason"] = reason
-		}
-
-		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
-		if err != nil {
-			return err
-		}
-
-		if jsonOutput {
-			out := map[string]interface{}{
-				"id":          item.ID,
-				"msg_id":      msg.ID,
-				"campfire_id": campfireID,
-				"resolution":  "rejected",
+		return withAgentAndStore(func(agentID, s) error {
+			// Resolve the item.
+			item, err := byIDFromJSONLOrStore(s, itemID)
+			if err != nil {
+				return err
 			}
-			enc := json.NewEncoder(os.Stdout)
+
+			// Check item has an unfulfilled gate.
+			if item.GateMsgID == "" {
+				return fmt.Errorf("item %s has no pending gate to reject", item.ID)
+			}
+			if item.Status != state.StatusWaiting {
+				return fmt.Errorf("item %s is not waiting (status=%s)", item.ID, item.Status)
+			}
+
+			exec, _, err := requireExecutor()
+			if err != nil {
+				return err
+			}
+			decl, err := loadDeclaration("gate-resolve")
+			if err != nil {
+				return err
+			}
+
+			argsMap := map[string]any{
+				"target":     item.GateMsgID,
+				"resolution": "rejected",
+			}
+			if reason != "" {
+				argsMap["reason"] = reason
+			}
+
+			msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
+			if err != nil {
+				return err
+			}
+
+			if jsonOutput {
+				out := map[string]interface{}{
+					"id":          item.ID,
+					"msg_id":      msg.ID,
+					"campfire_id": campfireID,
+					"resolution":  "rejected",
+				}
+				enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			return enc.Encode(out)
 		}
 
-		fmt.Printf("rejected gate for %s\n", item.ID)
-		return nil
+			fmt.Printf("rejected gate for %s\n", item.ID)
+			return nil
+		})
 	},
 }
 

@@ -473,17 +473,86 @@ func hasValidCapabilityToken(op *store.MessageRecord, serverPubkey string) bool 
 	return false
 }
 
+// replayState holds mutable intermediate state used during Pass 2 of Derive.
+type replayState struct {
+	items    map[string]*Item
+	msgIndex map[string]string // campfire message ID → item ID
+
+	// blockEdges tracks blocker→blocked relationships.
+	// When a blocker item closes, its entries are removed.
+	blockEdges    []blockEdge
+	blockMsgIndex map[string]blockEdgeKey // work:block message ID → {blockerID, blockedID}
+
+	// gateMsgIndex maps a gate message ID → item ID, used by work:gate-resolve.
+	gateMsgIndex map[string]string
+}
+
+// blockEdge records a single blocker→blocked dependency.
+type blockEdge struct {
+	blockerID  string
+	blockedID  string
+	blockMsgID string // campfire message ID of the work:block message
+}
+
+// blockEdgeKey is used as the value type in replayState.blockMsgIndex.
+type blockEdgeKey struct {
+	blockerID string
+	blockedID string
+}
+
 // Derive replays all work convention messages from the provided campfire message
 // records and returns the derived item states keyed by item ID. Messages must
 // be from a single campfire and are processed in timestamp order (the store
 // returns them in ascending timestamp order by default).
 //
-// Two-pass approach:
+// Three-pass approach:
 // Pass 1: Build the role map from work:role-grant messages. Latest grant per pubkey wins.
 // Pass 2: Replay operations, with fulfillment gating for consequential ops (close, delegate, gate-resolve).
+// Pass 3: Stranded-item reclaim — flip active items owned by revoked members back to inbox.
 func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
-	// Pass 1: Build role map from work:role-grant messages.
-	// Map[pubkey] -> roleInfo
+	roleMap := buildRoleMap(msgs)
+
+	rs := &replayState{
+		items:         make(map[string]*Item),
+		msgIndex:      make(map[string]string),
+		blockMsgIndex: make(map[string]blockEdgeKey),
+		gateMsgIndex:  make(map[string]string),
+	}
+
+	for _, m := range msgs {
+		switch {
+		case hasTag(m.Tags, "work:create"):
+			handleWorkCreate(campfireID, m, rs)
+		case hasTag(m.Tags, "work:status"):
+			handleWorkStatus(m, rs)
+		case hasTag(m.Tags, "work:claim"):
+			handleWorkClaim(m, rs)
+		case hasTag(m.Tags, "work:delegate"):
+			handleWorkDelegate(msgs, m, rs, roleMap)
+		case hasTag(m.Tags, "work:close"):
+			handleWorkClose(msgs, m, rs, roleMap)
+		case hasTag(m.Tags, "work:update"):
+			handleWorkUpdate(m, rs)
+		case hasTag(m.Tags, "work:block"):
+			handleWorkBlock(m, rs)
+		case hasTag(m.Tags, "work:unblock"):
+			handleWorkUnblock(m, rs)
+		case hasTag(m.Tags, "work:gate"):
+			handleWorkGate(m, rs)
+		case hasTag(m.Tags, "work:gate-resolve"):
+			handleWorkGateResolve(msgs, m, rs, roleMap)
+		}
+	}
+
+	applyBlockStatus(rs)
+	applyStrandedItemReclaim(rs.items, roleMap)
+
+	return rs.items
+}
+
+// buildRoleMap scans msgs for work:role-grant messages and returns a map of
+// pubkey → roleInfo. The most recent grant per pubkey wins.
+func buildRoleMap(msgs []store.MessageRecord) map[string]roleInfo {
 	roleMap := make(map[string]roleInfo)
 	for _, m := range msgs {
 		if !hasTag(m.Tags, "work:role-grant") {
@@ -503,19 +572,16 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 		}
 		grantedAt := m.Timestamp
 		if p.GrantedAt != nil {
-			parsed := parseTimestampValue(p.GrantedAt)
-			if parsed != 0 {
+			if parsed := parseTimestampValue(p.GrantedAt); parsed != 0 {
 				grantedAt = parsed
 			}
 		}
 		expiresAt := int64(0)
 		if p.ExpiresAt != nil {
-			parsed := parseTimestampValue(p.ExpiresAt)
-			if parsed != 0 {
+			if parsed := parseTimestampValue(p.ExpiresAt); parsed != 0 {
 				expiresAt = parsed
 			}
 		}
-		// Only update role map if this grant is more recent than what's already there.
 		existing, ok := roleMap[p.Pubkey]
 		if !ok || grantedAt >= existing.grantedAt {
 			roleMap[p.Pubkey] = roleInfo{
@@ -526,371 +592,356 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			}
 		}
 	}
+	return roleMap
+}
 
-	// Pass 2: Replay operations with fulfillment gating.
-	// msgIndex: campfire message ID → item ID (for resolving target references)
-	msgIndex := make(map[string]string)
-	items := make(map[string]*Item)
-
-	// blockEdges tracks blocker→blocked relationships.
-	// When a blocker item closes, its entries are removed.
-	type blockEdge struct {
-		blockerID  string
-		blockedID  string
-		blockMsgID string // campfire message ID of the work:block message
+// handleWorkCreate processes a work:create message and adds the new item to rs.
+func handleWorkCreate(campfireID string, m store.MessageRecord, rs *replayState) {
+	var p createPayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
 	}
-	var blockEdges []blockEdge
-	// blockMsgIndex maps the work:block message ID to the edge's blockerID+blockedID
-	// for removal by work:unblock.
-	blockMsgIndex := make(map[string]struct {
-		blockerID string
-		blockedID string
+	if p.ID == "" {
+		return
+	}
+	now := time.Unix(0, m.Timestamp)
+	eta := p.ETA
+	if eta == "" {
+		eta = etaFromPriority(p.Priority, now)
+	}
+	item := &Item{
+		ID:          p.ID,
+		MsgID:       m.ID,
+		CampfireID:  campfireID,
+		Title:       p.Title,
+		Context:     p.Context,
+		Description: p.Context, // alias for bd compatibility
+		Type:        p.Type,
+		Level:       p.Level,
+		Project:     p.Project,
+		For:         p.For,
+		By:          p.By,
+		Priority:    p.Priority,
+		Status:      StatusInbox,
+		ETA:         eta,
+		Due:         p.Due,
+		ParentID:    p.ParentID,
+		Gate:        p.Gate,
+		CreatedAt:   m.Timestamp,
+		UpdatedAt:   m.Timestamp,
+	}
+	item.History = append(item.History, HistoryEntry{
+		Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
+		FromStatus: StatusInbox,
+		ToStatus:   StatusInbox,
+		ChangedBy:  m.Sender,
+		Note:       "created",
 	})
+	rs.items[p.ID] = item
+	rs.msgIndex[m.ID] = p.ID
+}
 
-	// gateMsgIndex maps a gate message ID → item ID, used by work:gate-resolve.
-	gateMsgIndex := make(map[string]string)
+// handleWorkStatus processes a work:status message, updating item status and waiting fields.
+func handleWorkStatus(m store.MessageRecord, rs *replayState) {
+	var p statusPayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
+	}
+	itemID := resolveItemID(rs.msgIndex, p.Target, m.Antecedents)
+	item, ok := rs.items[itemID]
+	if !ok {
+		return
+	}
+	prevStatus := item.Status
+	item.Status = p.To
+	item.UpdatedAt = m.Timestamp
+	item.History = append(item.History, HistoryEntry{
+		Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
+		FromStatus: prevStatus,
+		ToStatus:   p.To,
+		ChangedBy:  m.Sender,
+		Note:       p.Reason,
+	})
+	if p.To == StatusWaiting {
+		item.WaitingOn = p.WaitingOn
+		item.WaitingType = p.WaitingType
+		item.WaitingSince = time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339)
+	} else {
+		item.WaitingOn = ""
+		item.WaitingType = ""
+		item.WaitingSince = ""
+	}
+}
 
-	for _, m := range msgs {
-		switch {
-		case hasTag(m.Tags, "work:create"):
-			var p createPayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			if p.ID == "" {
-				continue
-			}
-			now := time.Unix(0, m.Timestamp)
-			eta := p.ETA
-			if eta == "" {
-				eta = etaFromPriority(p.Priority, now)
-			}
-			item := &Item{
-				ID:          p.ID,
-				MsgID:       m.ID,
-				CampfireID:  campfireID,
-				Title:       p.Title,
-				Context:     p.Context,
-				Description: p.Context, // alias for bd compatibility
-				Type:        p.Type,
-				Level:      p.Level,
-				Project:    p.Project,
-				For:        p.For,
-				By:         p.By,
-				Priority:   p.Priority,
-				Status:     StatusInbox,
-				ETA:        eta,
-				Due:        p.Due,
-				ParentID:   p.ParentID,
-				Gate:       p.Gate,
-				CreatedAt:  m.Timestamp,
-				UpdatedAt:  m.Timestamp,
-			}
-			item.History = append(item.History, HistoryEntry{
-				Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
-				FromStatus: StatusInbox,
-				ToStatus:   StatusInbox,
-				ChangedBy:  m.Sender,
-				Note:       "created",
-			})
-			items[p.ID] = item
-			msgIndex[m.ID] = p.ID
+// handleWorkClaim processes a work:claim message, setting by=sender and transitioning to active.
+func handleWorkClaim(m store.MessageRecord, rs *replayState) {
+	var p claimPayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
+	}
+	itemID := resolveItemID(rs.msgIndex, p.Target, m.Antecedents)
+	item, ok := rs.items[itemID]
+	if !ok {
+		return
+	}
+	prevStatus := item.Status
+	item.By = m.Sender
+	item.Status = StatusActive
+	item.UpdatedAt = m.Timestamp
+	item.History = append(item.History, HistoryEntry{
+		Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
+		FromStatus: prevStatus,
+		ToStatus:   StatusActive,
+		ChangedBy:  m.Sender,
+	})
+}
 
-		case hasTag(m.Tags, "work:status"):
-			var p statusPayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
-			item, ok := items[itemID]
-			if !ok {
-				continue
-			}
-			prevStatus := item.Status
-			item.Status = p.To
-			item.UpdatedAt = m.Timestamp
-			item.History = append(item.History, HistoryEntry{
-				Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
-				FromStatus: prevStatus,
-				ToStatus:   p.To,
-				ChangedBy:  m.Sender,
-				Note:       p.Reason,
-			})
-			if p.To == StatusWaiting {
-				item.WaitingOn = p.WaitingOn
-				item.WaitingType = p.WaitingType
-				item.WaitingSince = time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339)
-			} else {
-				item.WaitingOn = ""
-				item.WaitingType = ""
-				item.WaitingSince = ""
-			}
+// handleWorkDelegate processes a work:delegate message (fulfillment-gated).
+func handleWorkDelegate(msgs []store.MessageRecord, m store.MessageRecord, rs *replayState, roleMap map[string]roleInfo) {
+	if !isOperationAuthorized(msgs, m, "work", "delegate", roleMap) {
+		return
+	}
+	var p delegatePayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
+	}
+	itemID := resolveItemID(rs.msgIndex, p.Target, m.Antecedents)
+	item, ok := rs.items[itemID]
+	if !ok {
+		return
+	}
+	item.By = p.To
+	item.UpdatedAt = m.Timestamp
+}
 
-		case hasTag(m.Tags, "work:claim"):
-			var p claimPayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
-			item, ok := items[itemID]
-			if !ok {
-				continue
-			}
-			// Claim sets by=sender and transitions to active.
-			prevStatus := item.Status
-			item.By = m.Sender
-			item.Status = StatusActive
-			item.UpdatedAt = m.Timestamp
-			item.History = append(item.History, HistoryEntry{
-				Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
-				FromStatus: prevStatus,
-				ToStatus:   StatusActive,
-				ChangedBy:  m.Sender,
-			})
-
-		case hasTag(m.Tags, "work:delegate"):
-			// Check fulfillment gating for consequential operation.
-			if !isOperationAuthorized(msgs, m, "work", "delegate", roleMap) {
-				continue
-			}
-
-			var p delegatePayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
-			item, ok := items[itemID]
-			if !ok {
-				continue
-			}
-			item.By = p.To
-			item.UpdatedAt = m.Timestamp
-
-		case hasTag(m.Tags, "work:close"):
-			// Check fulfillment gating for consequential operation.
-			if !isOperationAuthorized(msgs, m, "work", "close", roleMap) {
-				continue
-			}
-
-			var p closePayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
-			item, ok := items[itemID]
-			if !ok {
-				continue
-			}
-			// Resolution maps to terminal status.
-			prevStatus := item.Status
-			switch p.Resolution {
-			case "done":
-				item.Status = StatusDone
-			case "cancelled":
-				item.Status = StatusCancelled
-			case "failed":
-				item.Status = StatusFailed
-			default:
-				item.Status = StatusDone
-			}
-			item.UpdatedAt = m.Timestamp
-			item.History = append(item.History, HistoryEntry{
-				Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
-				FromStatus: prevStatus,
-				ToStatus:   item.Status,
-				ChangedBy:  m.Sender,
-				Note:       p.Reason,
-			})
-			// Implicit unblock: remove all block edges where this item is the blocker.
-			// Also clean up blockMsgIndex so stale entries don't linger.
-			var newEdges []blockEdge
-			for _, edge := range blockEdges {
-				if edge.blockerID != item.ID {
-					newEdges = append(newEdges, edge)
-				} else {
-					delete(blockMsgIndex, edge.blockMsgID)
-				}
-			}
-			blockEdges = newEdges
-
-		case hasTag(m.Tags, "work:update"):
-			var p updatePayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
-			item, ok := items[itemID]
-			if !ok {
-				continue
-			}
-			// Apply field updates. The sentinel "-" clears a field.
-			if p.Title != "" {
-				item.Title = clearOrSet(p.Title)
-			}
-			if p.Context != "" {
-				item.Context = clearOrSet(p.Context)
-				item.Description = item.Context // keep alias in sync
-			}
-			if p.Priority != "" {
-				item.Priority = clearOrSet(p.Priority)
-			}
-			if p.ETA != "" {
-				item.ETA = clearOrSet(p.ETA)
-			}
-			if p.Due != "" {
-				item.Due = clearOrSet(p.Due)
-			}
-			if p.Level != "" {
-				item.Level = clearOrSet(p.Level)
-			}
-			if p.For != "" {
-				item.For = clearOrSet(p.For)
-			}
-			if p.By != "" {
-				item.By = clearOrSet(p.By)
-			}
-			if p.Gate != "" {
-				item.Gate = clearOrSet(p.Gate)
-			}
-			// ImportHistory: append original history entries from migration replay.
-			if len(p.ImportHistory) > 0 {
-				item.History = append(item.History, p.ImportHistory...)
-			}
-			item.UpdatedAt = m.Timestamp
-
-		case hasTag(m.Tags, "work:block"):
-			var p blockPayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			if p.BlockerID == "" || p.BlockedID == "" {
-				continue
-			}
-			// Cross-campfire references are non-blocking: record as warnings only.
-			blockerIsCross := IsCrossCampfireRef(p.BlockerID)
-			blockedIsCross := IsCrossCampfireRef(p.BlockedID)
-			if blockerIsCross || blockedIsCross {
-				// Attach warning to the local item involved.
-				localItemID := p.BlockedID
-				if blockedIsCross {
-					localItemID = p.BlockerID
-				}
-				if localItem, ok := items[localItemID]; ok {
-					crossRef := p.BlockerID
-					if blockedIsCross {
-						crossRef = p.BlockedID
-					}
-					localItem.CrossCampfireWarnings = appendUnique(
-						localItem.CrossCampfireWarnings,
-						fmt.Sprintf("unresolved cross-campfire dep: %s (not a member — non-blocking)", crossRef),
-					)
-				}
-				continue
-			}
-			blockEdges = append(blockEdges, blockEdge{
-				blockerID:  p.BlockerID,
-				blockedID:  p.BlockedID,
-				blockMsgID: m.ID,
-			})
-			blockMsgIndex[m.ID] = struct {
-				blockerID string
-				blockedID string
-			}{p.BlockerID, p.BlockedID}
-
-		case hasTag(m.Tags, "work:unblock"):
-			var p unblockPayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			targetMsg := p.Target
-			if targetMsg == "" {
-				for _, ant := range m.Antecedents {
-					targetMsg = ant
-					break
-				}
-			}
-			if edge, ok := blockMsgIndex[targetMsg]; ok {
-				var newEdges []blockEdge
-				for _, e := range blockEdges {
-					if e.blockerID != edge.blockerID || e.blockedID != edge.blockedID {
-						newEdges = append(newEdges, e)
-					}
-				}
-				blockEdges = newEdges
-				delete(blockMsgIndex, targetMsg)
-			}
-
-		case hasTag(m.Tags, "work:gate"):
-			// work:gate implicitly transitions item to waiting with waiting_type=gate.
-			// The gate message is always sent as --future in a full implementation.
-			// TODO: when campfire transport supports --future, this should be sent
-			// with --future and resolved via cf await. For now, we send normally.
-			var p gatePayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			itemID := resolveItemID(msgIndex, p.Target, m.Antecedents)
-			item, ok := items[itemID]
-			if !ok {
-				continue
-			}
-			item.Status = StatusWaiting
-			item.WaitingType = "gate"
-			item.WaitingOn = p.Description
-			item.WaitingSince = time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339)
-			item.GateMsgID = m.ID
-			item.UpdatedAt = m.Timestamp
-			// Register gate message ID → item ID for gate-resolve lookup.
-			gateMsgIndex[m.ID] = itemID
-
-		case hasTag(m.Tags, "work:gate-resolve"):
-			// Check fulfillment gating for consequential operation.
-			if !isOperationAuthorized(msgs, m, "work", "gate-resolve", roleMap) {
-				continue
-			}
-
-			// work:gate-resolve fulfills the gate future. Target is the work:gate message.
-			// approved → transition to active; rejected → remain waiting.
-			var p gateResolvePayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				continue
-			}
-			// Resolve via target (gate msg ID) or antecedents.
-			gateMsgID := p.Target
-			if gateMsgID == "" {
-				for _, ant := range m.Antecedents {
-					if _, ok := gateMsgIndex[ant]; ok {
-						gateMsgID = ant
-						break
-					}
-				}
-			}
-			itemID := gateMsgIndex[gateMsgID]
-			if itemID == "" {
-				continue
-			}
-			item, ok := items[itemID]
-			if !ok {
-				continue
-			}
-			if p.Resolution == "approved" {
-				item.Status = StatusActive
-				item.WaitingOn = ""
-				item.WaitingType = ""
-				item.WaitingSince = ""
-				item.GateMsgID = ""
-			}
-			// rejected: item remains waiting; gate stays open.
-			// The by party should revise approach and re-gate or resume.
-			item.UpdatedAt = m.Timestamp
+// handleWorkClose processes a work:close message (fulfillment-gated), transitioning to a
+// terminal status and implicitly unblocking any items this item was blocking.
+func handleWorkClose(msgs []store.MessageRecord, m store.MessageRecord, rs *replayState, roleMap map[string]roleInfo) {
+	if !isOperationAuthorized(msgs, m, "work", "close", roleMap) {
+		return
+	}
+	var p closePayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
+	}
+	itemID := resolveItemID(rs.msgIndex, p.Target, m.Antecedents)
+	item, ok := rs.items[itemID]
+	if !ok {
+		return
+	}
+	prevStatus := item.Status
+	switch p.Resolution {
+	case "done":
+		item.Status = StatusDone
+	case "cancelled":
+		item.Status = StatusCancelled
+	case "failed":
+		item.Status = StatusFailed
+	default:
+		item.Status = StatusDone
+	}
+	item.UpdatedAt = m.Timestamp
+	item.History = append(item.History, HistoryEntry{
+		Timestamp:  time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339),
+		FromStatus: prevStatus,
+		ToStatus:   item.Status,
+		ChangedBy:  m.Sender,
+		Note:       p.Reason,
+	})
+	// Implicit unblock: remove all block edges where this item is the blocker.
+	// Also clean up blockMsgIndex so stale entries don't linger.
+	var newEdges []blockEdge
+	for _, edge := range rs.blockEdges {
+		if edge.blockerID != item.ID {
+			newEdges = append(newEdges, edge)
+		} else {
+			delete(rs.blockMsgIndex, edge.blockMsgID)
 		}
 	}
+	rs.blockEdges = newEdges
+}
 
-	// Apply derived block status. An item is blocked if at least one of its
-	// blocker items is non-terminal. Only apply to non-terminal items.
-	for _, edge := range blockEdges {
-		blocker, blockerOK := items[edge.blockerID]
-		blocked, blockedOK := items[edge.blockedID]
+// handleWorkUpdate processes a work:update message, applying field-level updates.
+func handleWorkUpdate(m store.MessageRecord, rs *replayState) {
+	var p updatePayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
+	}
+	itemID := resolveItemID(rs.msgIndex, p.Target, m.Antecedents)
+	item, ok := rs.items[itemID]
+	if !ok {
+		return
+	}
+	// Apply field updates. The sentinel "-" clears a field.
+	if p.Title != "" {
+		item.Title = clearOrSet(p.Title)
+	}
+	if p.Context != "" {
+		item.Context = clearOrSet(p.Context)
+		item.Description = item.Context // keep alias in sync
+	}
+	if p.Priority != "" {
+		item.Priority = clearOrSet(p.Priority)
+	}
+	if p.ETA != "" {
+		item.ETA = clearOrSet(p.ETA)
+	}
+	if p.Due != "" {
+		item.Due = clearOrSet(p.Due)
+	}
+	if p.Level != "" {
+		item.Level = clearOrSet(p.Level)
+	}
+	if p.For != "" {
+		item.For = clearOrSet(p.For)
+	}
+	if p.By != "" {
+		item.By = clearOrSet(p.By)
+	}
+	if p.Gate != "" {
+		item.Gate = clearOrSet(p.Gate)
+	}
+	// ImportHistory: append original history entries from migration replay.
+	if len(p.ImportHistory) > 0 {
+		item.History = append(item.History, p.ImportHistory...)
+	}
+	item.UpdatedAt = m.Timestamp
+}
+
+// handleWorkBlock processes a work:block message, recording the blocker→blocked edge.
+// Cross-campfire references are recorded as warnings and do not create blocking edges.
+func handleWorkBlock(m store.MessageRecord, rs *replayState) {
+	var p blockPayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
+	}
+	if p.BlockerID == "" || p.BlockedID == "" {
+		return
+	}
+	blockerIsCross := IsCrossCampfireRef(p.BlockerID)
+	blockedIsCross := IsCrossCampfireRef(p.BlockedID)
+	if blockerIsCross || blockedIsCross {
+		// Attach warning to the local item involved.
+		localItemID := p.BlockedID
+		if blockedIsCross {
+			localItemID = p.BlockerID
+		}
+		if localItem, ok := rs.items[localItemID]; ok {
+			crossRef := p.BlockerID
+			if blockedIsCross {
+				crossRef = p.BlockedID
+			}
+			localItem.CrossCampfireWarnings = appendUnique(
+				localItem.CrossCampfireWarnings,
+				fmt.Sprintf("unresolved cross-campfire dep: %s (not a member — non-blocking)", crossRef),
+			)
+		}
+		return
+	}
+	rs.blockEdges = append(rs.blockEdges, blockEdge{
+		blockerID:  p.BlockerID,
+		blockedID:  p.BlockedID,
+		blockMsgID: m.ID,
+	})
+	rs.blockMsgIndex[m.ID] = blockEdgeKey{p.BlockerID, p.BlockedID}
+}
+
+// handleWorkUnblock processes a work:unblock message, removing the referenced block edge.
+func handleWorkUnblock(m store.MessageRecord, rs *replayState) {
+	var p unblockPayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
+	}
+	targetMsg := p.Target
+	if targetMsg == "" {
+		for _, ant := range m.Antecedents {
+			targetMsg = ant
+			break
+		}
+	}
+	if edge, ok := rs.blockMsgIndex[targetMsg]; ok {
+		var newEdges []blockEdge
+		for _, e := range rs.blockEdges {
+			if e.blockerID != edge.blockerID || e.blockedID != edge.blockedID {
+				newEdges = append(newEdges, e)
+			}
+		}
+		rs.blockEdges = newEdges
+		delete(rs.blockMsgIndex, targetMsg)
+	}
+}
+
+// handleWorkGate processes a work:gate message, transitioning the item to waiting/gate.
+func handleWorkGate(m store.MessageRecord, rs *replayState) {
+	// work:gate implicitly transitions item to waiting with waiting_type=gate.
+	// The gate message is always sent as --future in a full implementation.
+	// TODO: when campfire transport supports --future, this should be sent
+	// with --future and resolved via cf await. For now, we send normally.
+	var p gatePayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
+	}
+	itemID := resolveItemID(rs.msgIndex, p.Target, m.Antecedents)
+	item, ok := rs.items[itemID]
+	if !ok {
+		return
+	}
+	item.Status = StatusWaiting
+	item.WaitingType = "gate"
+	item.WaitingOn = p.Description
+	item.WaitingSince = time.Unix(0, m.Timestamp).UTC().Format(time.RFC3339)
+	item.GateMsgID = m.ID
+	item.UpdatedAt = m.Timestamp
+	rs.gateMsgIndex[m.ID] = itemID
+}
+
+// handleWorkGateResolve processes a work:gate-resolve message (fulfillment-gated).
+// approved → transitions to active; rejected → item remains waiting.
+func handleWorkGateResolve(msgs []store.MessageRecord, m store.MessageRecord, rs *replayState, roleMap map[string]roleInfo) {
+	if !isOperationAuthorized(msgs, m, "work", "gate-resolve", roleMap) {
+		return
+	}
+	var p gateResolvePayload
+	if err := json.Unmarshal(m.Payload, &p); err != nil {
+		return
+	}
+	// Resolve via target (gate msg ID) or antecedents.
+	gateMsgID := p.Target
+	if gateMsgID == "" {
+		for _, ant := range m.Antecedents {
+			if _, ok := rs.gateMsgIndex[ant]; ok {
+				gateMsgID = ant
+				break
+			}
+		}
+	}
+	itemID := rs.gateMsgIndex[gateMsgID]
+	if itemID == "" {
+		return
+	}
+	item, ok := rs.items[itemID]
+	if !ok {
+		return
+	}
+	if p.Resolution == "approved" {
+		item.Status = StatusActive
+		item.WaitingOn = ""
+		item.WaitingType = ""
+		item.WaitingSince = ""
+		item.GateMsgID = ""
+	}
+	// rejected: item remains waiting; gate stays open.
+	// The by party should revise approach and re-gate or resume.
+	item.UpdatedAt = m.Timestamp
+}
+
+// applyBlockStatus derives the blocked status for items by inspecting remaining
+// block edges. An item is blocked if at least one of its blocker items is
+// non-terminal. Only non-terminal items can become blocked.
+func applyBlockStatus(rs *replayState) {
+	for _, edge := range rs.blockEdges {
+		blocker, blockerOK := rs.items[edge.blockerID]
+		blocked, blockedOK := rs.items[edge.blockedID]
 		if !blockerOK || !blockedOK {
 			continue
 		}
@@ -900,17 +951,15 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 		if !TerminalStatuses[blocker.Status] {
 			blocked.Status = StatusBlocked
 		}
-		// Wire up the relationships on the items.
 		blocked.BlockedBy = appendUnique(blocked.BlockedBy, edge.blockerID)
 		blocker.Blocks = appendUnique(blocker.Blocks, edge.blockedID)
 	}
+}
 
-	// Pass 3: Stranded-item reclaim.
-	// For each pubkey with a current role=revoked, flip any in-progress items
-	// claimed by that pubkey back to ready so other members can pick them up.
-	// This implements §4.5 of the design: "a work:role-grant role=revoked
-	// automatically marks all in-progress items claimed by that pubkey as
-	// eligible for re-claim."
+// applyStrandedItemReclaim implements §4.5: for each pubkey with role=revoked,
+// flip any active items claimed by that pubkey back to inbox so other members
+// can pick them up.
+func applyStrandedItemReclaim(items map[string]*Item, roleMap map[string]roleInfo) {
 	for pubkey, ri := range roleMap {
 		if ri.role != "revoked" {
 			continue
@@ -922,8 +971,6 @@ func Derive(campfireID string, msgs []store.MessageRecord) map[string]*Item {
 			}
 		}
 	}
-
-	return items
 }
 
 // DeriveFromStore loads all messages from the given campfire and derives item state.

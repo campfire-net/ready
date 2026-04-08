@@ -18,6 +18,15 @@ import (
 	"github.com/campfire-net/ready/pkg/rdconfig"
 )
 
+// resolveContext holds the shared context needed by resolve functions.
+type resolveContext struct {
+	cfg       *rdconfig.Config
+	aliases   *naming.AliasStore
+	agentID   *identity.Identity
+	store     store.Store
+	client    *protocol.Client
+}
+
 var registerCmd = &cobra.Command{
 	Use:   "register",
 	Short: "Register this project in the naming tree",
@@ -44,31 +53,33 @@ discoverability. Run this whenever you're ready to add naming.`,
 			return fmt.Errorf("no .campfire/root found — run 'rd init' first")
 		}
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
+		return withAgentAndStore(func(agentID, s) error {
+			client, err := requireClient()
+			if err != nil {
+				return err
+			}
 
-		client, err := requireClient()
-		if err != nil {
-			return err
-		}
+			// Default name from project directory.
+			if name == "" {
+				name = filepath.Base(projectDir)
+			}
 
-		// Default name from project directory.
-		if name == "" {
-			name = filepath.Base(projectDir)
-		}
+			cfg, err := rdconfig.Load(CFHome())
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
+			aliases := naming.NewAliasStore(CFHome())
 
-		cfg, err := rdconfig.Load(CFHome())
-		if err != nil {
-			return fmt.Errorf("loading config: %w", err)
-		}
-		aliases := naming.NewAliasStore(CFHome())
+			// --- Find or create home campfire ---
 
-		// --- Find or create home campfire ---
-
-		homeID, orgName, createdHome, err := resolveHome(cmd, homeFlag, org, cfg, aliases, agentID, s, client)
+			ctx := &resolveContext{
+				cfg:     cfg,
+				aliases: aliases,
+				agentID: agentID,
+				store:   s,
+				client:  client,
+			}
+		homeID, orgName, createdHome, err := resolveHome(cmd, homeFlag, org, ctx)
 		if err != nil {
 			return err
 		}
@@ -95,7 +106,7 @@ discoverability. Run this whenever you're ready to add naming.`,
 
 		// --- Find or create ready namespace ---
 
-		readyID, createdReady, err := resolveReady(orgName, cfg, aliases, agentID, s, client, homeID)
+		readyID, createdReady, err := resolveReady(orgName, ctx, homeID)
 		if err != nil {
 			return err
 		}
@@ -122,59 +133,60 @@ discoverability. Run this whenever you're ready to add naming.`,
 
 		// --- Output ---
 
-		namespace := fmt.Sprintf("cf://%s.ready.%s", orgName, name)
-		localURI := fmt.Sprintf("cf://~%s.ready/%s", orgName, name)
-		if jsonOutput {
-			out := map[string]interface{}{
-				"campfire_id":       campfireID,
-				"home_campfire_id":  homeID,
-				"ready_campfire_id": readyID,
-				"name":              name,
-				"org":               orgName,
-				"namespace":         namespace,
-				"local_uri":         localURI,
-				"registered":        true,
-				"created_home":      createdHome,
-				"created_ready":     createdReady,
+			namespace := fmt.Sprintf("cf://%s.ready.%s", orgName, name)
+			localURI := fmt.Sprintf("cf://~%s.ready/%s", orgName, name)
+			if jsonOutput {
+				out := map[string]interface{}{
+					"campfire_id":       campfireID,
+					"home_campfire_id":  homeID,
+					"ready_campfire_id": readyID,
+					"name":              name,
+					"org":               orgName,
+					"namespace":         namespace,
+					"local_uri":         localURI,
+					"registered":        true,
+					"created_home":      createdHome,
+					"created_ready":     createdReady,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(out)
-		}
 
-		if createdHome {
-			fmt.Printf("created home campfire: %s\n", homeID[:12]+"...")
-		}
-		if createdReady {
-			fmt.Printf("created ready namespace: %s\n", readyID[:12]+"...")
-		}
-		fmt.Printf("registered %s\n", namespace)
-		fmt.Printf("  local: %s\n", localURI)
-		fmt.Println()
-		fmt.Println("  to make globally resolvable later:")
-		fmt.Printf("    cf register <root-id> %s %s\n", orgName, homeID)
+			if createdHome {
+				fmt.Printf("created home campfire: %s\n", homeID[:12]+"...")
+			}
+			if createdReady {
+				fmt.Printf("created ready namespace: %s\n", readyID[:12]+"...")
+			}
+			fmt.Printf("registered %s\n", namespace)
+			fmt.Printf("  local: %s\n", localURI)
+			fmt.Println()
+			fmt.Println("  to make globally resolvable later:")
+			fmt.Printf("    cf register <root-id> %s %s\n", orgName, homeID)
 
-		return nil
+			return nil
+		})
 	},
 }
 
 // resolveHome finds or creates the home campfire based on flags, config, and aliases.
 // Returns (homeID, orgName, createdHome, error).
 // Returns empty homeID when no home is found and none was requested (not an error).
-func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config, aliases *naming.AliasStore, agentID *identity.Identity, s store.Store, client *protocol.Client) (string, string, bool, error) {
+func resolveHome(cmd *cobra.Command, homeFlag, org string, ctx *resolveContext) (string, string, bool, error) {
 	// Mode 1: explicit --home flag.
 	if homeFlag != "" {
 		orgName := org
 		if orgName == "" {
-			orgName = cfg.Org
+			orgName = ctx.cfg.Org
 		}
 		if orgName == "" {
 			orgName = "default"
 		}
-		if err := aliases.Set("home", homeFlag); err != nil {
+		if err := ctx.aliases.Set("home", homeFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not cache home alias: %v\n", err)
 		}
-		if err := aliases.Set(orgName, homeFlag); err != nil {
+		if err := ctx.aliases.Set(orgName, homeFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not cache org alias %q: %v\n", orgName, err)
 		}
 		return homeFlag, orgName, false, nil
@@ -183,14 +195,14 @@ func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config,
 	// Mode 2: explicit --org — create a new home.
 	if cmd.Flags().Changed("org") && org != "" {
 		homeDesc := org + " operator root"
-		homeID, err := createLocalCampfire(client, "", "invite-only", []string{"beacon:registration"}, homeDesc)
+		homeID, err := createLocalCampfire(ctx.client, "", "invite-only", []string{"beacon:registration"}, homeDesc)
 		if err != nil {
 			return "", "", false, fmt.Errorf("creating home campfire: %w", err)
 		}
-		if err := aliases.Set("home", homeID); err != nil {
+		if err := ctx.aliases.Set("home", homeID); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not cache home alias: %v\n", err)
 		}
-		if err := aliases.Set(org, homeID); err != nil {
+		if err := ctx.aliases.Set(org, homeID); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not cache org alias %q: %v\n", org, err)
 		}
 		return homeID, org, true, nil
@@ -199,11 +211,11 @@ func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config,
 	// Mode 3: discover existing home.
 	orgName := org
 	if orgName == "" {
-		orgName = cfg.Org
+		orgName = ctx.cfg.Org
 	}
 
 	// Check alias "home".
-	if id, err := aliases.Get("home"); err == nil && id != "" {
+	if id, err := ctx.aliases.Get("home"); err == nil && id != "" {
 		if orgName == "" {
 			orgName = "default"
 		}
@@ -211,14 +223,14 @@ func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config,
 	}
 
 	// Check config.
-	if cfg.HomeCampfireID != "" {
+	if ctx.cfg.HomeCampfireID != "" {
 		if orgName == "" {
 			orgName = "default"
 		}
-		if err := aliases.Set("home", cfg.HomeCampfireID); err != nil {
+		if err := ctx.aliases.Set("home", ctx.cfg.HomeCampfireID); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not cache home alias: %v\n", err)
 		}
-		return cfg.HomeCampfireID, orgName, false, nil
+		return ctx.cfg.HomeCampfireID, orgName, false, nil
 	}
 
 	// Nothing found. Return empty — caller will guide the user.
@@ -226,35 +238,35 @@ func resolveHome(cmd *cobra.Command, homeFlag, org string, cfg *rdconfig.Config,
 }
 
 // resolveReady finds or creates the ready namespace campfire under the home.
-func resolveReady(org string, cfg *rdconfig.Config, aliases *naming.AliasStore, agentID *identity.Identity, s store.Store, client *protocol.Client, homeID string) (string, bool, error) {
+func resolveReady(org string, ctx *resolveContext, homeID string) (string, bool, error) {
 	readyAlias := org + ".ready"
 
 	// Check config first.
-	if cfg.ReadyCampfireID != "" {
-		if err := aliases.Set(readyAlias, cfg.ReadyCampfireID); err != nil {
+	if ctx.cfg.ReadyCampfireID != "" {
+		if err := ctx.aliases.Set(readyAlias, ctx.cfg.ReadyCampfireID); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not cache ready alias: %v\n", err)
 		}
-		return cfg.ReadyCampfireID, false, nil
+		return ctx.cfg.ReadyCampfireID, false, nil
 	}
 
 	// Check alias.
-	if id, err := aliases.Get(readyAlias); err == nil && id != "" {
+	if id, err := ctx.aliases.Get(readyAlias); err == nil && id != "" {
 		return id, false, nil
 	}
 
 	// Create ready namespace campfire.
 	readyDesc := org + " ready namespace"
-	readyID, err := createLocalCampfire(client, "", "invite-only", []string{"beacon:registration"}, readyDesc)
+	readyID, err := createLocalCampfire(ctx.client, "", "invite-only", []string{"beacon:registration"}, readyDesc)
 	if err != nil {
 		return "", false, fmt.Errorf("creating ready namespace: %w", err)
 	}
 
 	// Register under home.
-	if err := postBeaconRegistration(agentID, s, homeID, readyID, "ready", readyDesc); err != nil {
+	if err := postBeaconRegistration(ctx.agentID, ctx.store, homeID, readyID, "ready", readyDesc); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not register ready under home: %v\n", err)
 	}
 
-	if err := aliases.Set(readyAlias, readyID); err != nil {
+	if err := ctx.aliases.Set(readyAlias, readyID); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not cache ready alias: %v\n", err)
 	}
 	return readyID, true, nil

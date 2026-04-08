@@ -51,57 +51,53 @@ var depAddCmd = &cobra.Command{
 			return fmt.Errorf("cross-project deps not supported: %q looks like a cross-campfire reference (use rd join to establish membership)", blockerArg)
 		}
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
+		return withAgentAndStore(func(agentID, s) error {
+			// Resolve both items.
+			blocked, err := byIDFromJSONLOrStore(s, blockedArg)
+			if err != nil {
+				return fmt.Errorf("resolving blocked item %q: %w", blockedArg, err)
+			}
+			blocker, err := byIDFromJSONLOrStore(s, blockerArg)
+			if err != nil {
+				return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
+			}
 
-		// Resolve both items.
-		blocked, err := byIDFromJSONLOrStore(s, blockedArg)
-		if err != nil {
-			return fmt.Errorf("resolving blocked item %q: %w", blockedArg, err)
-		}
-		blocker, err := byIDFromJSONLOrStore(s, blockerArg)
-		if err != nil {
-			return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
-		}
+			exec, _, err := requireExecutor()
+			if err != nil {
+				return err
+			}
+			decl, err := loadDeclaration("block")
+			if err != nil {
+				return err
+			}
 
-		exec, _, err := requireExecutor()
-		if err != nil {
-			return err
-		}
-		decl, err := loadDeclaration("block")
-		if err != nil {
-			return err
-		}
-
-		argsMap := map[string]any{
-			"blocker_id":  blocker.ID,
-			"blocked_id":  blocked.ID,
-			"blocker_msg": blocker.MsgID,
-			"blocked_msg": blocked.MsgID,
-		}
-
-		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
-		if err != nil {
-			return err
-		}
-
-		if jsonOutput {
-			out := map[string]interface{}{
-				"msg_id":      msg.ID,
-				"campfire_id": campfireID,
+			argsMap := map[string]any{
 				"blocker_id":  blocker.ID,
 				"blocked_id":  blocked.ID,
+				"blocker_msg": blocker.MsgID,
+				"blocked_msg": blocked.MsgID,
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(out)
-		}
 
-		fmt.Printf("blocked: %s is now blocked by %s\n", blocked.ID, blocker.ID)
-		return nil
+			msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
+			if err != nil {
+				return err
+			}
+
+			if jsonOutput {
+				out := map[string]interface{}{
+					"msg_id":      msg.ID,
+					"campfire_id": campfireID,
+					"blocker_id":  blocker.ID,
+					"blocked_id":  blocked.ID,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+
+			fmt.Printf("blocked: %s is now blocked by %s\n", blocked.ID, blocker.ID)
+			return nil
+		})
 	},
 }
 
@@ -115,67 +111,63 @@ var depRemoveCmd = &cobra.Command{
 		blockerArg := args[1]
 		reason, _ := cmd.Flags().GetString("reason")
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-
-		// Resolve both items to get their canonical IDs.
-		blocked, err := byIDFromJSONLOrStore(s, blockedArg)
-		if err != nil {
-			return fmt.Errorf("resolving blocked item %q: %w", blockedArg, err)
-		}
-		blocker, err := byIDFromJSONLOrStore(s, blockerArg)
-		if err != nil {
-			return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
-		}
-
-		// Find the work:block message linking these two items.
-		blockMsgID, campfireID, err := findBlockMessage(s, blocker.ID, blocked.ID)
-		if err != nil {
-			return err
-		}
-
-		exec, _, err := requireExecutor()
-		if err != nil {
-			return err
-		}
-		decl, err := loadDeclaration("unblock")
-		if err != nil {
-			return err
-		}
-
-		argsMap := map[string]any{
-			"target": blockMsgID,
-		}
-		if reason != "" {
-			argsMap["reason"] = reason
-		}
-
-		// Send directly to the campfire that contains the block message.
-		// We use executeConventionOp with the known campfireID via a direct executor call,
-		// bypassing the project campfire lookup.
-		msg, newCampfireID, err := executeConventionOpToCampfire(agentID, s, exec, decl, campfireID, argsMap)
-		if err != nil {
-			return err
-		}
-
-		if jsonOutput {
-			out := map[string]interface{}{
-				"msg_id":       msg.ID,
-				"campfire_id":  newCampfireID,
-				"block_msg_id": blockMsgID,
-				"blocker_id":   blocker.ID,
-				"blocked_id":   blocked.ID,
+		return withAgentAndStore(func(agentID, s) error {
+			// Resolve both items to get their canonical IDs.
+			blocked, err := byIDFromJSONLOrStore(s, blockedArg)
+			if err != nil {
+				return fmt.Errorf("resolving blocked item %q: %w", blockedArg, err)
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(out)
-		}
+			blocker, err := byIDFromJSONLOrStore(s, blockerArg)
+			if err != nil {
+				return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
+			}
 
-		fmt.Printf("unblocked: %s is no longer blocked by %s\n", blocked.ID, blocker.ID)
-		return nil
+			// Find the work:block message linking these two items.
+			blockMsgID, campfireID, err := findBlockMessage(s, blocker.ID, blocked.ID)
+			if err != nil {
+				return err
+			}
+
+			exec, _, err := requireExecutor()
+			if err != nil {
+				return err
+			}
+			decl, err := loadDeclaration("unblock")
+			if err != nil {
+				return err
+			}
+
+			argsMap := map[string]any{
+				"target": blockMsgID,
+			}
+			if reason != "" {
+				argsMap["reason"] = reason
+			}
+
+			// Send directly to the campfire that contains the block message.
+			// We use executeConventionOp with the known campfireID via a direct executor call,
+			// bypassing the project campfire lookup.
+			msg, newCampfireID, err := executeConventionOpToCampfire(agentID, s, exec, decl, campfireID, argsMap)
+			if err != nil {
+				return err
+			}
+
+			if jsonOutput {
+				out := map[string]interface{}{
+					"msg_id":       msg.ID,
+					"campfire_id":  newCampfireID,
+					"block_msg_id": blockMsgID,
+					"blocker_id":   blocker.ID,
+					"blocked_id":   blocked.ID,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+
+			fmt.Printf("unblocked: %s is no longer blocked by %s\n", blocked.ID, blocker.ID)
+			return nil
+		})
 	},
 }
 

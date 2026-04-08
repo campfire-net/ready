@@ -180,6 +180,24 @@ func requireAgentAndStore() (*identity.Identity, store.Store, error) {
 	return agentID, s, nil
 }
 
+// withAgentAndStore loads the agent identity and opens the store, then calls fn
+// with both. The store is automatically closed when fn returns, even if fn returns
+// an error. This helper reduces boilerplate for the common pattern:
+//
+//	agentID, s, err := requireAgentAndStore()
+//	if err != nil {
+//		return err
+//	}
+//	defer s.Close()
+func withAgentAndStore(fn func(*identity.Identity, store.Store) error) error {
+	agentID, s, err := requireAgentAndStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return fn(agentID, s)
+}
+
 // requireExecutor returns a convention.Executor backed by the protocol client,
 // with a ProvenanceChecker wired in so that min_operator_level gates are
 // enforced correctly.

@@ -144,104 +144,100 @@ Note: use --context for descriptions, not --description.`,
 			due = normalized
 		}
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-
-		// Default --for to the current session identity when not explicitly set.
-		if !cmd.Flags().Changed("for") {
-			forParty = agentID.PublicKeyHex()
-		} else if forParty == "" {
-			return fmt.Errorf("--for: value cannot be empty")
-		}
-
-		// Load existing IDs for collision detection.
-		existingIDs := map[string]struct{}{}
-		existingItems, _ := allItemsFromJSONLOrStore(s)
-		for _, it := range existingItems {
-			existingIDs[it.ID] = struct{}{}
-		}
-
-		// Determine ID prefix from project directory.
-		_, projectDir, hasCampfire := projectRoot()
-		if id == "" {
-			prefix := ""
-			if hasCampfire {
-				prefix = projectPrefix(projectDir)
-			} else if dir, ok := readyProjectDir(); ok {
-				prefix = projectPrefix(dir)
+		return withAgentAndStore(func(agentID, s) error {
+			// Default --for to the current session identity when not explicitly set.
+			if !cmd.Flags().Changed("for") {
+				forParty = agentID.PublicKeyHex()
+			} else if forParty == "" {
+				return fmt.Errorf("--for: value cannot be empty")
 			}
-			generated, err := generateID(prefix, existingIDs)
+
+			// Load existing IDs for collision detection.
+			existingIDs := map[string]struct{}{}
+			existingItems, _ := allItemsFromJSONLOrStore(s)
+			for _, it := range existingItems {
+				existingIDs[it.ID] = struct{}{}
+			}
+
+			// Determine ID prefix from project directory.
+			_, projectDir, hasCampfire := projectRoot()
+			if id == "" {
+				prefix := ""
+				if hasCampfire {
+					prefix = projectPrefix(projectDir)
+				} else if dir, ok := readyProjectDir(); ok {
+					prefix = projectPrefix(dir)
+				}
+				generated, err := generateID(prefix, existingIDs)
+				if err != nil {
+					return err
+				}
+				id = generated
+			} else if _, collision := existingIDs[id]; collision {
+				return fmt.Errorf("item %q already exists", id)
+			}
+
+			exec, _, err := requireExecutor()
 			if err != nil {
 				return err
 			}
-			id = generated
-		} else if _, collision := existingIDs[id]; collision {
-			return fmt.Errorf("item %q already exists", id)
-		}
-
-		exec, _, err := requireExecutor()
-		if err != nil {
-			return err
-		}
-		decl, err := loadDeclaration("create")
-		if err != nil {
-			return err
-		}
-
-		argsMap := map[string]any{
-			"id":       id,
-			"title":    title,
-			"type":     itemType,
-			"for":      forParty,
-			"priority": priority,
-		}
-		if context != "" {
-			argsMap["context"] = context
-		}
-		if level != "" {
-			argsMap["level"] = level
-		}
-		if project != "" {
-			argsMap["project"] = project
-		}
-		if by != "" {
-			argsMap["by"] = by
-		}
-		if parentID != "" {
-			argsMap["parent_id"] = parentID
-		}
-		if eta != "" {
-			argsMap["eta"] = eta
-		}
-		if due != "" {
-			argsMap["due"] = due
-		}
-
-		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
-		if err != nil {
-			return err
-		}
-
-		if jsonOutput {
-			out := map[string]interface{}{
-				"id":          id,
-				"msg_id":      msg.ID,
-				"campfire_id": campfireID,
-				"title":       title,
-				"type":        itemType,
-				"priority":    priority,
-				"for":         forParty,
+			decl, err := loadDeclaration("create")
+			if err != nil {
+				return err
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(out)
-		}
 
-		fmt.Printf("created %s (msg: %s)\n", id, msg.ID)
-		return nil
+			argsMap := map[string]any{
+				"id":       id,
+				"title":    title,
+				"type":     itemType,
+				"for":      forParty,
+				"priority": priority,
+			}
+			if context != "" {
+				argsMap["context"] = context
+			}
+			if level != "" {
+				argsMap["level"] = level
+			}
+			if project != "" {
+				argsMap["project"] = project
+			}
+			if by != "" {
+				argsMap["by"] = by
+			}
+			if parentID != "" {
+				argsMap["parent_id"] = parentID
+			}
+			if eta != "" {
+				argsMap["eta"] = eta
+			}
+			if due != "" {
+				argsMap["due"] = due
+			}
+
+			msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
+			if err != nil {
+				return err
+			}
+
+			if jsonOutput {
+				out := map[string]interface{}{
+					"id":          id,
+					"msg_id":      msg.ID,
+					"campfire_id": campfireID,
+					"title":       title,
+					"type":        itemType,
+					"priority":    priority,
+					"for":         forParty,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+
+			fmt.Printf("created %s (msg: %s)\n", id, msg.ID)
+			return nil
+		})
 	},
 }
 

@@ -40,62 +40,58 @@ Example:
 		forFilter, _ := cmd.Flags().GetString("for")
 		projectFilter, _ := cmd.Flags().GetString("project")
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-
-		// Default --for to the current session identity when not explicitly set.
-		if !cmd.Flags().Changed("for") {
-			forFilter = agentID.PublicKeyHex()
-		}
-
-		items, err := allItemsFromJSONLOrStore(s)
-		if err != nil {
-			return fmt.Errorf("loading items: %w", err)
-		}
-
-		// Apply view filter.
-		if viewName == "" {
-			viewName = views.ViewReady
-		}
-		filter := views.Named(viewName, forFilter)
-		if filter == nil {
-			return fmt.Errorf("unknown view %q: choose from %v", viewName, views.AllNames())
-		}
-		items = views.Apply(items, filter)
-
-		// For views that don't filter by identity internally, scope to
-		// items where the current identity is involved — either as the
-		// outcome owner (for) or the performer (by). This covers items
-		// you created, items delegated to you, and items you own.
-		switch viewName {
-		case views.ViewDelegated, views.ViewMyWork:
-			// Already filtered by identity in the view function.
-		default:
-			if forFilter != "" {
-				items = views.Apply(items, func(item *state.Item) bool {
-					return item.For == forFilter || item.By == forFilter
-				})
+		return withAgentAndStore(func(agentID, s) error {
+			// Default --for to the current session identity when not explicitly set.
+			if !cmd.Flags().Changed("for") {
+				forFilter = agentID.PublicKeyHex()
 			}
-		}
 
-		items = filterByProject(items, projectFilter)
+			items, err := allItemsFromJSONLOrStore(s)
+			if err != nil {
+				return fmt.Errorf("loading items: %w", err)
+			}
 
-		sortByPriorityETA(items)
+			// Apply view filter.
+			if viewName == "" {
+				viewName = views.ViewReady
+			}
+			filter := views.Named(viewName, forFilter)
+			if filter == nil {
+				return fmt.Errorf("unknown view %q: choose from %v", viewName, views.AllNames())
+			}
+			items = views.Apply(items, filter)
 
-		if jsonOutput {
-			return outputItemsJSON(items)
-		}
+			// For views that don't filter by identity internally, scope to
+			// items where the current identity is involved — either as the
+			// outcome owner (for) or the performer (by). This covers items
+			// you created, items delegated to you, and items you own.
+			switch viewName {
+			case views.ViewDelegated, views.ViewMyWork:
+				// Already filtered by identity in the view function.
+			default:
+				if forFilter != "" {
+					items = views.Apply(items, func(item *state.Item) bool {
+						return item.For == forFilter || item.By == forFilter
+					})
+				}
+			}
 
-		if len(items) == 0 {
-			fmt.Println("nothing ready")
+			items = filterByProject(items, projectFilter)
+
+			sortByPriorityETA(items)
+
+			if jsonOutput {
+				return outputItemsJSON(items)
+			}
+
+			if len(items) == 0 {
+				fmt.Println("nothing ready")
+				return nil
+			}
+
+			printItemTable(items)
 			return nil
-		}
-
-		printItemTable(items)
-		return nil
+		})
 	},
 }
 
