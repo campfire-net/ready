@@ -704,3 +704,82 @@ func TestStartRejectsUnknownInboxCampfire(t *testing.T) {
 		t.Fatal("Start() should return an error when inbox campfire is not in membership list, got nil")
 	}
 }
+
+// TestIsSoloMode_SkipsExpiredBindings verifies that IsSoloMode returns true
+// (solo mode enabled) when the only server-binding messages are from a different
+// server and those bindings have expired. Regression test for ready-7c3.
+func TestIsSoloMode_SkipsExpiredBindings(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Create an identity for a "remote" server.
+	remoteServerID, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("generating remote server identity: %v", err)
+	}
+	remoteServerPubKey := remoteServerID.PublicKeyHex()
+
+	// Create an expired server-binding message from the remote server.
+	// ValidUntil is set to 1 second in the past.
+	expiredBinding := map[string]interface{}{
+		"convention":   "work",
+		"operation":    "server-binding",
+		"server_pubkey": remoteServerPubKey,
+		"valid_from":   time.Now().Unix() - 10,
+		"valid_until":  time.Now().Unix() - 1, // Expired 1 second ago
+	}
+	expiredPayload, err := json.Marshal(expiredBinding)
+	if err != nil {
+		t.Fatalf("marshalling expired binding: %v", err)
+	}
+
+	// Post the expired binding to the campfire.
+	_, err = env.callerClient.Send(protocol.SendRequest{
+		CampfireID: env.campfireID,
+		Payload:    expiredPayload,
+		Tags:       []string{"convention:server-binding"},
+	})
+	if err != nil {
+		t.Fatalf("posting expired binding: %v", err)
+	}
+
+	// Get the local server's public key.
+	localServerID, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("generating local server identity: %v", err)
+	}
+	localServerPubKey := localServerID.PublicKeyHex()
+
+	// IsSoloMode should return true because the only binding is expired.
+	result := conventionserver.IsSoloMode(env.callerClient, env.campfireID, localServerPubKey)
+	if !result {
+		t.Errorf("IsSoloMode with only expired binding from different server = %v, want true", result)
+	}
+
+	// Now post a valid binding from the remote server.
+	validBinding := map[string]interface{}{
+		"convention":   "work",
+		"operation":    "server-binding",
+		"server_pubkey": remoteServerPubKey,
+		"valid_from":   time.Now().Unix(),
+		"valid_until":  time.Now().Unix() + 3600, // Expires in 1 hour
+	}
+	validPayload, err := json.Marshal(validBinding)
+	if err != nil {
+		t.Fatalf("marshalling valid binding: %v", err)
+	}
+
+	_, err = env.callerClient.Send(protocol.SendRequest{
+		CampfireID: env.campfireID,
+		Payload:    validPayload,
+		Tags:       []string{"convention:server-binding"},
+	})
+	if err != nil {
+		t.Fatalf("posting valid binding: %v", err)
+	}
+
+	// IsSoloMode should return false because there's a valid binding from a different server.
+	result = conventionserver.IsSoloMode(env.callerClient, env.campfireID, localServerPubKey)
+	if result {
+		t.Errorf("IsSoloMode with valid binding from different server = %v, want false", result)
+	}
+}

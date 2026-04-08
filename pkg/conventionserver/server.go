@@ -445,6 +445,7 @@ func loadEmbeddedDeclaration(name string) (*convention.Declaration, error) {
 //
 // Solo mode is detected by checking if there are no convention:server-binding
 // messages in the campfire, or if the only binding is our own.
+// Expired bindings (ValidUntil != 0 && ValidUntil < now) are skipped.
 func IsSoloMode(client *protocol.Client, campfireID, selfPubKeyHex string) bool {
 	result, err := client.Read(protocol.ReadRequest{
 		CampfireID: campfireID,
@@ -454,9 +455,14 @@ func IsSoloMode(client *protocol.Client, campfireID, selfPubKeyHex string) bool 
 		// No bindings = solo mode.
 		return true
 	}
+	now := time.Now().Unix()
 	for _, msg := range result.Messages {
 		var b serverBindingPayload
 		if err := json.Unmarshal(msg.Payload, &b); err != nil {
+			continue
+		}
+		// Skip expired bindings.
+		if b.ValidUntil != 0 && b.ValidUntil < now {
 			continue
 		}
 		if b.ServerPubkey != selfPubKeyHex {
