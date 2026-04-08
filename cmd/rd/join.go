@@ -252,9 +252,54 @@ func resetBeaconRoot(cfHome string) (prev string, err error) {
 	return prev, nil
 }
 
+// validateNameFormat rejects malformed names before any network or resolution
+// call. Valid names are either:
+//   - 64-char hex campfire IDs, or
+//   - cf:// URIs / short names using alphanumeric, dot, hyphen, slash, colon
+//     characters (the characters legal in campfire naming URIs).
+//
+// Rejected inputs (ready-bf5):
+//   - Path traversal sequences (../ or ..\)
+//   - Null bytes
+//   - Names longer than 256 characters
+//   - Characters outside the allowed set (for non-hex-ID inputs)
+func validateNameFormat(input string) error {
+	if len(input) == 0 {
+		return fmt.Errorf("name must not be empty")
+	}
+	if len(input) > 256 {
+		return fmt.Errorf("name too long: %d chars (max 256)", len(input))
+	}
+	// Reject null bytes.
+	if strings.ContainsRune(input, '\x00') {
+		return fmt.Errorf("name contains null byte")
+	}
+	// Reject path traversal sequences (both Unix and Windows separators).
+	if strings.Contains(input, "../") || strings.Contains(input, `..\`) || input == ".." {
+		return fmt.Errorf("name contains path traversal sequence")
+	}
+	// If this is a 64-char hex campfire ID, no further character validation needed.
+	if len(input) == 64 && isHex(input) {
+		return nil
+	}
+	// For cf:// URIs and short names, allow: alphanumeric, dot, hyphen, slash, colon.
+	for _, c := range input {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '.' || c == '-' || c == '/' || c == ':') {
+			return fmt.Errorf("name contains invalid character %q (allowed: alphanumeric, '.', '-', '/', ':')", c)
+		}
+	}
+	return nil
+}
+
 // resolveName resolves a name (cf:// URI, short name, or raw campfire ID) to a
 // campfire ID hex string.
 func resolveName(client *protocol.Client, input string) (string, error) {
+	// Validate name format before any network call (ready-bf5).
+	if err := validateNameFormat(input); err != nil {
+		return "", fmt.Errorf("invalid name %q: %w", input, err)
+	}
+
 	// If it's already a campfire ID (64 hex chars), return as-is.
 	if len(input) == 64 && isHex(input) {
 		return input, nil
