@@ -4,22 +4,28 @@ package main
 // the admitMemberWithRole SDK call path.
 //
 // The done conditions tested here:
-//  - --role org-observer targets SummaryCampfireID (not CampfireID)
-//  - --role org-observer fails with a clear error when SummaryCampfireID is empty
-//  - --role member targets CampfireID
-//  - unknown roles return errors
-//  - admitMemberWithRole calls client.Admit() with correct campfire + pubkey (ready-421)
-//  - admitMemberWithRole propagates GetMembership errors (ready-421)
-//  - admitMemberWithRole propagates Admit errors (ready-421)
+//   - --role org-observer targets SummaryCampfireID (not CampfireID)
+//   - --role org-observer fails with a clear error when SummaryCampfireID is empty
+//   - --role member targets CampfireID
+//   - unknown roles return errors
+//   - admitMemberWithRole calls client.Admit() with correct campfire + pubkey (ready-421)
+//   - admitMemberWithRole propagates GetMembership errors (ready-421)
+//   - admitMemberWithRole propagates Admit errors (ready-421)
+//   - ErrAmbiguous when prefix matches multiple join-request items (ready-afa5)
+//   - full-ID resolves unambiguously, item.For holds requester's pubkey (ready-afa5)
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/rdconfig"
+	"github.com/campfire-net/ready/pkg/resolve"
 )
 
 // admitRoleTarget returns the campfire ID that would be targeted for the given
@@ -255,5 +261,111 @@ func TestAdmitMemberWithRole_AdmitError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "admitting to main campfire") {
 		t.Errorf("error should mention 'admitting to main campfire', got: %v", err)
+	}
+}
+
+// writeJoinRequestJSONL writes a mutations.jsonl file containing join-request
+// items and returns the file path. campfireID labels each record. items is a
+// slice of (msgID, itemID, title, forPubkey) tuples.
+func writeJoinRequestJSONL(t *testing.T, campfireID string, items []struct{ msgID, itemID, title, forPubkey string }) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mutations.jsonl")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create mutations.jsonl: %v", err)
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	for i, it := range items {
+		payload, _ := json.Marshal(map[string]interface{}{
+			"id":    it.itemID,
+			"title": it.title,
+			"type":  "task",
+			"for":   it.forPubkey,
+		})
+		rec := map[string]interface{}{
+			"msg_id":      it.msgID,
+			"campfire_id": campfireID,
+			"timestamp":   int64(1000000000000000000 + i),
+			"operation":   "work:create",
+			"payload":     json.RawMessage(payload),
+			"tags":        []string{"work:create"},
+			"sender":      "testsender",
+		}
+		if err := enc.Encode(rec); err != nil {
+			t.Fatalf("encode record %d: %v", i, err)
+		}
+	}
+	return path
+}
+
+// TestAdmit_AmbiguousPrefix_ErrorsWithMatches verifies that ByIDFromJSONL
+// (the resolver used in the admitFromJoinRequest item-lookup path) returns
+// ErrAmbiguous when a prefix matches multiple join-request items.
+//
+// Security regression for ready-afa5: prefix collision must error, not silently
+// pick one item — which could cause the wrong person's pubkey to be admitted.
+func TestAdmit_AmbiguousPrefix_ErrorsWithMatches(t *testing.T) {
+	campfireID := strings.Repeat("ab", 32) // 64-char hex
+
+	// Two items whose IDs share the prefix "proj-aa".
+	path := writeJoinRequestJSONL(t, campfireID, []struct{ msgID, itemID, title, forPubkey string }{
+		{"msg-aa1", "proj-aa1xyz", "Join Request Alice", pubkeyHex("a1")},
+		{"msg-aa2", "proj-aa2xyz", "Join Request Bob", pubkeyHex("b2")},
+	})
+
+	_, err := resolve.ByIDFromJSONL(path, campfireID, "proj-aa")
+	if err == nil {
+		t.Fatal("expected ErrAmbiguous for shared prefix, got nil")
+	}
+
+	ambErr, ok := err.(resolve.ErrAmbiguous)
+	if !ok {
+		t.Fatalf("expected resolve.ErrAmbiguous, got %T: %v", err, err)
+	}
+
+	// Error must name both matching items so the admin can choose the right one.
+	errMsg := ambErr.Error()
+	if !strings.Contains(errMsg, "proj-aa1xyz") {
+		t.Errorf("ErrAmbiguous must mention proj-aa1xyz; got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "proj-aa2xyz") {
+		t.Errorf("ErrAmbiguous must mention proj-aa2xyz; got: %s", errMsg)
+	}
+}
+
+// TestAdmit_FullID_ResolvesItemAndHoldsPubkey verifies that ByIDFromJSONL
+// resolves a join-request item by full ID and that item.For holds the requester's
+// pubkey — the field admitFromJoinRequest uses to decide who to admit.
+//
+// Security regression for ready-afa5: full-ID lookup must resolve exactly one
+// item and the pubkey extracted from item.For must match the original requester.
+func TestAdmit_FullID_ResolvesItemAndHoldsPubkey(t *testing.T) {
+	campfireID := strings.Repeat("cd", 32) // 64-char hex
+	wantPubkey := pubkeyHex("e5")
+	wantTitle := "Join Request Eve"
+	wantID := "proj-eve42"
+
+	path := writeJoinRequestJSONL(t, campfireID, []struct{ msgID, itemID, title, forPubkey string }{
+		{"msg-eve", wantID, wantTitle, wantPubkey},
+		// Different-prefix item — must not interfere with the full-ID lookup.
+		{"msg-other", "proj-other99", "Other Item", pubkeyHex("ff")},
+	})
+
+	item, err := resolve.ByIDFromJSONL(path, campfireID, wantID)
+	if err != nil {
+		t.Fatalf("ByIDFromJSONL full ID: unexpected error: %v", err)
+	}
+	if item.ID != wantID {
+		t.Errorf("item.ID = %q, want %q", item.ID, wantID)
+	}
+	if item.Title != wantTitle {
+		t.Errorf("item.Title = %q, want %q", item.Title, wantTitle)
+	}
+	// item.For is the pubkey field admitFromJoinRequest reads to confirm who
+	// is being admitted. It must carry the requester's pubkey, not be empty or wrong.
+	if item.For != wantPubkey {
+		t.Errorf("item.For = %q, want requester pubkey %q", item.For, wantPubkey)
 	}
 }
