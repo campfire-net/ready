@@ -72,56 +72,52 @@ Example:
 			return fmt.Errorf("invalid playbook: %w", err)
 		}
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-
-		// Re-marshal the items as raw JSON for the payload.
-		itemsRaw, err := tmpl.ItemsJSON()
-		if err != nil {
-			return fmt.Errorf("encoding items: %w", err)
-		}
-
-		exec, _, err := requireExecutor()
-		if err != nil {
-			return err
-		}
-		decl, err := loadDeclaration("playbook-create")
-		if err != nil {
-			return err
-		}
-
-		argsMap := map[string]any{
-			"id":    tmpl.ID,
-			"title": tmpl.Title,
-			"items": json.RawMessage(itemsRaw),
-		}
-		if tmpl.Description != "" {
-			argsMap["description"] = tmpl.Description
-		}
-
-		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
-		if err != nil {
-			return err
-		}
-
-		if jsonOutput {
-			out := map[string]interface{}{
-				"id":          tmpl.ID,
-				"title":       tmpl.Title,
-				"item_count":  len(tmpl.Items),
-				"msg_id":      msg.ID,
-				"campfire_id": campfireID,
+		return withAgentAndStore(func(agentID, s) error {
+			// Re-marshal the items as raw JSON for the payload.
+			itemsRaw, err := tmpl.ItemsJSON()
+			if err != nil {
+				return fmt.Errorf("encoding items: %w", err)
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(out)
-		}
 
-		fmt.Printf("playbook %s registered (%d items, msg: %s)\n", tmpl.ID, len(tmpl.Items), msg.ID)
-		return nil
+			exec, _, err := requireExecutor()
+			if err != nil {
+				return err
+			}
+			decl, err := loadDeclaration("playbook-create")
+			if err != nil {
+				return err
+			}
+
+			argsMap := map[string]any{
+				"id":    tmpl.ID,
+				"title": tmpl.Title,
+				"items": json.RawMessage(itemsRaw),
+			}
+			if tmpl.Description != "" {
+				argsMap["description"] = tmpl.Description
+			}
+
+			msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
+			if err != nil {
+				return err
+			}
+
+			if jsonOutput {
+				out := map[string]interface{}{
+					"id":          tmpl.ID,
+					"title":       tmpl.Title,
+					"item_count":  len(tmpl.Items),
+					"msg_id":      msg.ID,
+					"campfire_id": campfireID,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+
+			fmt.Printf("playbook %s registered (%d items, msg: %s)\n", tmpl.ID, len(tmpl.Items), msg.ID)
+			return nil
+		})
 	},
 }
 

@@ -50,22 +50,17 @@ Example:
 			variables[parts[0]] = parts[1]
 		}
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
+		return withAgentAndStore(func(agentID, s) error {
+			exec, _, err := requireExecutor()
+			if err != nil {
+				return err
+			}
 
-		exec, _, err := requireExecutor()
-		if err != nil {
-			return err
-		}
-
-		// Find the playbook.
-		pb, err := findPlaybook(s, playbookID)
-		if err != nil {
-			return err
-		}
+			// Find the playbook.
+			pb, err := findPlaybook(s, playbookID)
+			if err != nil {
+				return err
+			}
 
 		// Expand the template.
 		items, err := playbook.Expand(pb.PlaybookTemplate, project, variables)
@@ -179,16 +174,17 @@ Example:
 			return enc.Encode(out)
 		}
 
-		// Human-readable output: print the created item tree.
-		fmt.Printf("engaged playbook %s → %d items\n\n", playbookID, len(items))
-		for _, item := range items {
-			depStr := ""
-			if len(item.Deps) > 0 {
-				depStr = fmt.Sprintf("  (blocked by: %s)", strings.Join(item.Deps, ", "))
+			// Human-readable output: print the created item tree.
+			fmt.Printf("engaged playbook %s → %d items\n\n", playbookID, len(items))
+			for _, item := range items {
+				depStr := ""
+				if len(item.Deps) > 0 {
+					depStr = fmt.Sprintf("  (blocked by: %s)", strings.Join(item.Deps, ", "))
+				}
+				fmt.Printf("  %-16s  %-6s  %s%s\n", item.ID, item.Priority, item.Title, depStr)
 			}
-			fmt.Printf("  %-16s  %-6s  %s%s\n", item.ID, item.Priority, item.Title, depStr)
-		}
-		return nil
+			return nil
+		})
 	},
 }
 

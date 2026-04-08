@@ -53,37 +53,32 @@ discoverability. Run this whenever you're ready to add naming.`,
 			return fmt.Errorf("no .campfire/root found — run 'rd init' first")
 		}
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
+		return withAgentAndStore(func(agentID, s) error {
+			client, err := requireClient()
+			if err != nil {
+				return err
+			}
 
-		client, err := requireClient()
-		if err != nil {
-			return err
-		}
+			// Default name from project directory.
+			if name == "" {
+				name = filepath.Base(projectDir)
+			}
 
-		// Default name from project directory.
-		if name == "" {
-			name = filepath.Base(projectDir)
-		}
+			cfg, err := rdconfig.Load(CFHome())
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
+			aliases := naming.NewAliasStore(CFHome())
 
-		cfg, err := rdconfig.Load(CFHome())
-		if err != nil {
-			return fmt.Errorf("loading config: %w", err)
-		}
-		aliases := naming.NewAliasStore(CFHome())
+			// --- Find or create home campfire ---
 
-		// --- Find or create home campfire ---
-
-		ctx := &resolveContext{
-			cfg:     cfg,
-			aliases: aliases,
-			agentID: agentID,
-			store:   s,
-			client:  client,
-		}
+			ctx := &resolveContext{
+				cfg:     cfg,
+				aliases: aliases,
+				agentID: agentID,
+				store:   s,
+				client:  client,
+			}
 		homeID, orgName, createdHome, err := resolveHome(cmd, homeFlag, org, ctx)
 		if err != nil {
 			return err
@@ -138,39 +133,40 @@ discoverability. Run this whenever you're ready to add naming.`,
 
 		// --- Output ---
 
-		namespace := fmt.Sprintf("cf://%s.ready.%s", orgName, name)
-		localURI := fmt.Sprintf("cf://~%s.ready/%s", orgName, name)
-		if jsonOutput {
-			out := map[string]interface{}{
-				"campfire_id":       campfireID,
-				"home_campfire_id":  homeID,
-				"ready_campfire_id": readyID,
-				"name":              name,
-				"org":               orgName,
-				"namespace":         namespace,
-				"local_uri":         localURI,
-				"registered":        true,
-				"created_home":      createdHome,
-				"created_ready":     createdReady,
+			namespace := fmt.Sprintf("cf://%s.ready.%s", orgName, name)
+			localURI := fmt.Sprintf("cf://~%s.ready/%s", orgName, name)
+			if jsonOutput {
+				out := map[string]interface{}{
+					"campfire_id":       campfireID,
+					"home_campfire_id":  homeID,
+					"ready_campfire_id": readyID,
+					"name":              name,
+					"org":               orgName,
+					"namespace":         namespace,
+					"local_uri":         localURI,
+					"registered":        true,
+					"created_home":      createdHome,
+					"created_ready":     createdReady,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(out)
-		}
 
-		if createdHome {
-			fmt.Printf("created home campfire: %s\n", homeID[:12]+"...")
-		}
-		if createdReady {
-			fmt.Printf("created ready namespace: %s\n", readyID[:12]+"...")
-		}
-		fmt.Printf("registered %s\n", namespace)
-		fmt.Printf("  local: %s\n", localURI)
-		fmt.Println()
-		fmt.Println("  to make globally resolvable later:")
-		fmt.Printf("    cf register <root-id> %s %s\n", orgName, homeID)
+			if createdHome {
+				fmt.Printf("created home campfire: %s\n", homeID[:12]+"...")
+			}
+			if createdReady {
+				fmt.Printf("created ready namespace: %s\n", readyID[:12]+"...")
+			}
+			fmt.Printf("registered %s\n", namespace)
+			fmt.Printf("  local: %s\n", localURI)
+			fmt.Println()
+			fmt.Println("  to make globally resolvable later:")
+			fmt.Printf("    cf register <root-id> %s %s\n", orgName, homeID)
 
-		return nil
+			return nil
+		})
 	},
 }
 

@@ -36,60 +36,56 @@ Example:
 			return fmt.Errorf("--gate-type is required: choose from budget, design, scope, review, human, stall, periodic")
 		}
 
-		agentID, s, err := requireAgentAndStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-
-		// Resolve the item.
-		item, err := byIDFromJSONLOrStore(s, itemID)
-		if err != nil {
-			return err
-		}
-
-		// Check not already terminal.
-		if state.IsTerminal(item) {
-			return fmt.Errorf("item %s is already %s", item.ID, item.Status)
-		}
-
-		exec, _, err := requireExecutor()
-		if err != nil {
-			return err
-		}
-		decl, err := loadDeclaration("gate")
-		if err != nil {
-			return err
-		}
-
-		// Fire-and-forget gate (no futures, D5).
-		argsMap := map[string]any{
-			"target":    item.MsgID,
-			"gate_type": gateType,
-		}
-		if description != "" {
-			argsMap["description"] = description
-		}
-
-		msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
-		if err != nil {
-			return err
-		}
-
-		if jsonOutput {
-			out := map[string]interface{}{
-				"id":          item.ID,
-				"msg_id":      msg.ID,
-				"campfire_id": campfireID,
-				"gate_type":   gateType,
+		return withAgentAndStore(func(agentID, s) error {
+			// Resolve the item.
+			item, err := byIDFromJSONLOrStore(s, itemID)
+			if err != nil {
+				return err
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(out)
-		}
 
-		fmt.Printf("gate sent for %s (%s)\n", item.ID, gateType)
-		return nil
+			// Check not already terminal.
+			if state.IsTerminal(item) {
+				return fmt.Errorf("item %s is already %s", item.ID, item.Status)
+			}
+
+			exec, _, err := requireExecutor()
+			if err != nil {
+				return err
+			}
+			decl, err := loadDeclaration("gate")
+			if err != nil {
+				return err
+			}
+
+			// Fire-and-forget gate (no futures, D5).
+			argsMap := map[string]any{
+				"target":    item.MsgID,
+				"gate_type": gateType,
+			}
+			if description != "" {
+				argsMap["description"] = description
+			}
+
+			msg, campfireID, err := executeConventionOp(agentID, s, exec, decl, argsMap)
+			if err != nil {
+				return err
+			}
+
+			if jsonOutput {
+				out := map[string]interface{}{
+					"id":          item.ID,
+					"msg_id":      msg.ID,
+					"campfire_id": campfireID,
+					"gate_type":   gateType,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+
+			fmt.Printf("gate sent for %s (%s)\n", item.ID, gateType)
+			return nil
+		})
 	},
 }
 
