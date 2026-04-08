@@ -238,30 +238,41 @@ type treeNode struct {
 
 // buildDepTree builds a recursive tree for JSON output.
 func buildDepTree(id string, items map[string]*state.Item, visited map[string]bool) *treeNode {
+	return buildDepTreeHelper(id, items, visited, make(map[string]bool))
+}
+
+func buildDepTreeHelper(id string, items map[string]*state.Item, visited map[string]bool, inPath map[string]bool) *treeNode {
 	item, ok := items[id]
 	if !ok {
 		return &treeNode{ID: id, Title: "(not found)", Status: "unknown"}
 	}
-	if visited[id] {
+	// Check if this node is in the current recursion path (indicates a cycle).
+	if inPath[id] {
 		return &treeNode{ID: id, Title: item.Title, Status: item.Status + " (cycle)"}
 	}
+	// Mark as visited to avoid processing the same node twice across different branches.
 	visited[id] = true
+	// Mark as in the current path for cycle detection.
+	inPath[id] = true
+
 	node := &treeNode{ID: id, Title: item.Title, Status: item.Status}
 	// Children are: items this one blocks (blocks list) + children by parent_id.
 	seen := map[string]bool{}
 	for _, childID := range item.Blocks {
 		if !seen[childID] {
 			seen[childID] = true
-			node.Children = append(node.Children, buildDepTree(childID, items, visited))
+			node.Children = append(node.Children, buildDepTreeHelper(childID, items, visited, inPath))
 		}
 	}
 	for _, child := range items {
 		if child.ParentID == id && !seen[child.ID] {
 			seen[child.ID] = true
-			node.Children = append(node.Children, buildDepTree(child.ID, items, visited))
+			node.Children = append(node.Children, buildDepTreeHelper(child.ID, items, visited, inPath))
 		}
 	}
-	delete(visited, id)
+	// Remove from the current path when backtracking, but keep in visited
+	// to avoid re-processing the same node in different branches.
+	delete(inPath, id)
 	return node
 }
 
