@@ -275,7 +275,7 @@ func validateNameFormat(input string) error {
 		return fmt.Errorf("name contains null byte")
 	}
 	// Reject path traversal sequences (both Unix and Windows separators).
-	if strings.Contains(input, "../") || strings.Contains(input, `..\`) || input == ".." {
+	if strings.Contains(input, "../") || strings.Contains(input, `..\`) || input == ".." || strings.HasSuffix(input, "/..") {
 		return fmt.Errorf("name contains path traversal sequence")
 	}
 	// If this is a 64-char hex campfire ID, no further character validation needed.

@@ -659,6 +659,9 @@ func TestValidateNameFormat(t *testing.T) {
 		{name: "path_traversal_in_middle", input: "foo/../bar", wantErr: true, errFrag: "path traversal"},
 		{name: "path_traversal_windows", input: `foo..\bar`, wantErr: true, errFrag: "path traversal"},
 		{name: "path_traversal_bare", input: "..", wantErr: true, errFrag: "path traversal"},
+		{name: "path_traversal_trailing_unix", input: "foo/..", wantErr: true, errFrag: "path traversal"},
+		{name: "path_traversal_trailing_nested", input: "bar/baz/..", wantErr: true, errFrag: "path traversal"},
+		{name: "path_traversal_trailing_windows", input: `foo\..\`, wantErr: true, errFrag: "path traversal"},
 
 		// Null bytes — must error.
 		{name: "null_byte_prefix", input: "\x00foo", wantErr: true, errFrag: "null byte"},

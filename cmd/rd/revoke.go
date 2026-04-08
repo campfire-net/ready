@@ -12,11 +12,14 @@ import (
 )
 
 var revokeCmd = &cobra.Command{
-	Use:   "revoke <pubkey-or-name>",
+	Use:   "revoke <pubkey>",
 	Short: "Revoke a member's role in the project campfire",
 	Long: `Revoke a member's role by posting a work:role-grant with role="revoked".
 
-The target is identified by their 64-character hex public key or a resolvable name.
+The target must be identified by their 64-character hex public key.
+Name-based revocation is not supported because name resolution produces
+campfire IDs, not member pubkeys — using one in place of the other is a
+semantic type error (ready-34d).
 
 Use --retroactive to also post retroactive revocation records for every member
 that the revoked key previously admitted (reads audit trail from campfire message log).
@@ -39,15 +42,16 @@ EXAMPLES
 			return err
 		}
 
-		// Resolve target: if not a raw pubkey, try naming resolution.
-		pubKeyHex := target
+		// Validate target is a 64-char hex pubkey.
+		// Name-based resolution is intentionally not supported here because
+		// resolveName() resolves names to campfire IDs — a different 64-char hex
+		// type — not to member pubkeys. Using a campfire ID as a pubkey in a
+		// role-grant message is a semantic type confusion (ready-34d).
+		// Use the member's full 64-character hex public key instead.
 		if len(target) != 64 || !isHex(target) {
-			resolved, resolveErr := resolveName(client, target)
-			if resolveErr != nil {
-				return fmt.Errorf("resolving %q: %w", target, resolveErr)
-			}
-			pubKeyHex = resolved
+			return fmt.Errorf("revoke target %q is not a valid pubkey: must be a 64-character hex string\n  hint: use the member's public key, not a name or campfire ID", target)
 		}
+		pubKeyHex := target
 
 		exec, _, execErr := requireExecutor()
 		if execErr != nil {
