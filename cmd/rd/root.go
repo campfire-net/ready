@@ -334,3 +334,14 @@ func byIDFromJSONLOrStore(s store.Store, itemID string) (*state.Item, error) {
 	}
 	return resolve.ByID(s, itemID)
 }
+
+// byIDFromJSONLOrStoreExact resolves an item by exact ID only — no prefix
+// expansion. Use for security-sensitive operations (e.g. admit) where a prefix
+// collision could allow an attacker to substitute a crafted item.
+func byIDFromJSONLOrStoreExact(s store.Store, itemID string) (*state.Item, error) {
+	if path := jsonlPath(); path != "" {
+		campfireID, _, _ := projectRoot()
+		return resolve.ByIDFromJSONLExact(path, campfireID, itemID)
+	}
+	return resolve.ByIDExact(s, itemID)
+}
