@@ -322,3 +322,34 @@ func TestMultipleOperations(t *testing.T) {
 		t.Errorf("operation work:close should be rejected")
 	}
 }
+
+// TestIssueTokenWithEmptyOperations tests that IssueToken handles an empty operations slice gracefully.
+// This is a regression test for the panic that occurred when accessing operations[0] before checking length.
+func TestIssueTokenWithEmptyOperations(t *testing.T) {
+	clientPubKey, _, _ := ed25519.GenerateKey(nil)
+	emptyOps := []string{}
+
+	// This should not panic
+	token := IssueToken(hex.EncodeToString(clientPubKey), "test-cf", "contributor", "binding-123", emptyOps)
+
+	if token == nil {
+		t.Errorf("IssueToken returned nil for empty operations")
+	}
+	if token.Subject != hex.EncodeToString(clientPubKey) {
+		t.Errorf("subject mismatch: expected %q, got %q", hex.EncodeToString(clientPubKey), token.Subject)
+	}
+	if token.CampfireID != "test-cf" {
+		t.Errorf("campfire ID mismatch: expected %q, got %q", "test-cf", token.CampfireID)
+	}
+	if len(token.Operations) != 0 {
+		t.Errorf("expected empty operations, got %v", token.Operations)
+	}
+
+	// Check that TTL defaults to 24h for empty operations
+	expectedExpiry := time.Now().Add(24 * time.Hour)
+	actualExpiry := time.Unix(token.ExpiresAt, 0)
+	diff := expectedExpiry.Sub(actualExpiry).Abs()
+	if diff > 5*time.Second { // Allow 5 seconds of variance
+		t.Errorf("expiry time off by %v, expected ~%v, got %v", diff, expectedExpiry, actualExpiry)
+	}
+}
