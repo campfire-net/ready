@@ -8,6 +8,7 @@ package main
 //   - grantTargets matches correct pubkey in payload
 //   - pollForRoleGrant: returns msg ID when fake client returns a matching message (ready-421)
 //   - pollForRoleGrant: times out when no matching message arrives (ready-421)
+//   - pollForRoleGrant: ignores fake role-grants from unauthorized senders (ready-9ce)
 //   - resolveName: returns hex ID unchanged when input is already 64-char hex (ready-421)
 //   - TOFU beacon root: all five paths via applyBeaconRootTOFU / resetBeaconRoot (ready-c3a)
 //   - Open campfire join: non-member joins open campfire via client.Join() (ready-1b5)
@@ -109,16 +110,19 @@ func TestGrantTargets(t *testing.T) {
 // "work:for:<pubkey>". This exercises the containsTag path.
 func TestPollForRoleGrant_FoundViaTag(t *testing.T) {
 	myPubKey := pubkeyHex("ab")
+	ownerKey := pubkeyHex("dd")
 	campfire := pubkeyHex("cc")
 	msgID := "grant-msg-0001"
 
+	msg := makeGrantMsgForTag(msgID, myPubKey, "member")
+	msg.Sender = ownerKey
+
 	fake := &fakeReadClient{
-		messages: []protocol.Message{
-			makeGrantMsgForTag(msgID, myPubKey, "member"),
-		},
+		messages: []protocol.Message{msg},
 	}
 
-	got, err := pollForRoleGrant(fake, campfire, myPubKey, 5*time.Second)
+	authorizedSenders := map[string]bool{ownerKey: true}
+	got, err := pollForRoleGrant(fake, campfire, myPubKey, authorizedSenders, 5*time.Second)
 	if err != nil {
 		t.Fatalf("pollForRoleGrant: unexpected error: %v", err)
 	}
@@ -132,16 +136,19 @@ func TestPollForRoleGrant_FoundViaTag(t *testing.T) {
 // (via grantTargets), even without a "work:for:<pubkey>" tag.
 func TestPollForRoleGrant_FoundViaPayload(t *testing.T) {
 	myPubKey := pubkeyHex("ab")
+	ownerKey := pubkeyHex("dd")
 	campfire := pubkeyHex("cc")
 	msgID := "grant-msg-0002"
 
+	msg := makeGrantMsg(msgID, myPubKey, "member")
+	msg.Sender = ownerKey
+
 	fake := &fakeReadClient{
-		messages: []protocol.Message{
-			makeGrantMsg(msgID, myPubKey, "member"),
-		},
+		messages: []protocol.Message{msg},
 	}
 
-	got, err := pollForRoleGrant(fake, campfire, myPubKey, 5*time.Second)
+	authorizedSenders := map[string]bool{ownerKey: true}
+	got, err := pollForRoleGrant(fake, campfire, myPubKey, authorizedSenders, 5*time.Second)
 	if err != nil {
 		t.Fatalf("pollForRoleGrant via payload: unexpected error: %v", err)
 	}
@@ -154,24 +161,85 @@ func TestPollForRoleGrant_FoundViaPayload(t *testing.T) {
 // after the timeout when the fake client returns no matching messages.
 func TestPollForRoleGrant_Timeout(t *testing.T) {
 	myPubKey := pubkeyHex("ab")
+	ownerKey := pubkeyHex("dd")
 	campfire := pubkeyHex("cc")
 
 	// Fake returns a message for a different pubkey — never matches.
 	otherKey := pubkeyHex("11")
+	msg := makeGrantMsg("grant-other", otherKey, "member")
+	msg.Sender = ownerKey
+
 	fake := &fakeReadClient{
-		messages: []protocol.Message{
-			makeGrantMsg("grant-other", otherKey, "member"),
-		},
+		messages: []protocol.Message{msg},
 	}
 
+	authorizedSenders := map[string]bool{ownerKey: true}
 	timeout := 50 * time.Millisecond
-	_, err := pollForRoleGrant(fake, campfire, myPubKey, timeout)
+	_, err := pollForRoleGrant(fake, campfire, myPubKey, authorizedSenders, timeout)
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
 	if !strings.Contains(err.Error(), "timed out") {
 		t.Errorf("expected 'timed out' in error, got: %v", err)
 	}
+}
+
+// TestPollForRoleGrant_AttackerFakeGrantIgnored is the security regression test
+// for ready-9ce. An attacker (unauthorized sender) posts a fake work:role-grant
+// targeting the joiner. pollForRoleGrant must ignore the attacker's message and
+// only accept a grant from an authorized sender (the campfire owner).
+//
+// Scenario:
+//   - joinerKey: the pubkey of the identity waiting to be admitted
+//   - ownerKey: the campfire creator (authorized sender)
+//   - attackerKey: a different campfire member (unauthorized sender)
+//
+// The attacker posts a valid-looking role-grant message targeting joinerKey.
+// pollForRoleGrant must not accept it. Only the owner's grant is accepted.
+func TestPollForRoleGrant_AttackerFakeGrantIgnored(t *testing.T) {
+	joinerKey := pubkeyHex("aa")
+	ownerKey := pubkeyHex("bb")
+	attackerKey := pubkeyHex("cc")
+	campfire := pubkeyHex("ee")
+
+	// Attacker's fake grant — valid payload and tag, but wrong sender.
+	attackerGrant := makeGrantMsgForTag("attacker-grant-001", joinerKey, "member")
+	attackerGrant.Sender = attackerKey
+
+	// Owner's legitimate grant — same payload, authorized sender.
+	ownerGrant := makeGrantMsgForTag("owner-grant-001", joinerKey, "member")
+	ownerGrant.Sender = ownerKey
+
+	// Only owner is in the authorized senders set.
+	authorizedSenders := map[string]bool{ownerKey: true}
+
+	t.Run("attacker_grant_only_times_out", func(t *testing.T) {
+		// Client returns only the attacker's fake grant — must time out.
+		fake := &fakeReadClient{
+			messages: []protocol.Message{attackerGrant},
+		}
+		_, err := pollForRoleGrant(fake, campfire, joinerKey, authorizedSenders, 50*time.Millisecond)
+		if err == nil {
+			t.Fatal("pollForRoleGrant accepted attacker's fake role-grant — security violation")
+		}
+		if !strings.Contains(err.Error(), "timed out") {
+			t.Errorf("expected 'timed out' error, got: %v", err)
+		}
+	})
+
+	t.Run("owner_grant_accepted", func(t *testing.T) {
+		// Client returns both attacker's and owner's grant — must accept owner's.
+		fake := &fakeReadClient{
+			messages: []protocol.Message{attackerGrant, ownerGrant},
+		}
+		got, err := pollForRoleGrant(fake, campfire, joinerKey, authorizedSenders, 5*time.Second)
+		if err != nil {
+			t.Fatalf("pollForRoleGrant rejected valid owner grant: %v", err)
+		}
+		if got != ownerGrant.ID {
+			t.Errorf("pollForRoleGrant returned msg ID %q, want owner grant %q", got, ownerGrant.ID)
+		}
+	})
 }
 
 // TestResolveName_DirectHex verifies that resolveName returns a 64-char hex
