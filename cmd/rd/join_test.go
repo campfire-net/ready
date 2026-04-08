@@ -838,3 +838,326 @@ func TestBeaconRoot_FirstUse_WithConfirm_AllowsNonInteractive(t *testing.T) {
 		t.Errorf("cfg.BeaconRoot after validateBeaconRootTOFU should remain empty, got %q", cfg.BeaconRoot)
 	}
 }
+
+// TestResolveName_EdgeCases_EmptyName verifies that resolveName rejects empty names.
+func TestResolveName_EdgeCases_EmptyName(t *testing.T) {
+	dir := t.TempDir()
+	origRDHome := rdHome
+	rdHome = dir
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	client, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient: %v", err)
+	}
+
+	_, err = resolveName(client, "")
+	if err == nil {
+		t.Fatal("resolveName with empty name should error")
+	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("expected 'empty' in error, got: %v", err)
+	}
+}
+
+// TestResolveName_EdgeCases_SpecialCharactersInName verifies that names with
+// special characters (but not path traversal) are accepted or rejected per spec.
+func TestResolveName_EdgeCases_SpecialCharactersInName(t *testing.T) {
+	dir := t.TempDir()
+	origRDHome := rdHome
+	rdHome = dir
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	client, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		// Valid special chars per allowlist (alphanumeric, dot, hyphen, slash, colon)
+		{name: "name_with_dots", input: "my.org.ready.project", wantErr: false},
+		{name: "name_with_hyphens", input: "my-org-ready-project", wantErr: false},
+		{name: "name_with_colons", input: "cf://myorg.ready/myproject", wantErr: false},
+		{name: "name_with_slashes", input: "myorg/myproject/sub", wantErr: false},
+
+		// Invalid special chars (space, @, !, ?, etc.)
+		{name: "name_with_space", input: "my org", wantErr: true},
+		{name: "name_with_at", input: "user@host", wantErr: true},
+		{name: "name_with_exclamation", input: "project!", wantErr: true},
+		{name: "name_with_question", input: "what?", wantErr: true},
+		{name: "name_with_equals", input: "x=y", wantErr: true},
+		{name: "name_with_plus", input: "a+b", wantErr: true},
+		{name: "name_with_ampersand", input: "a&b", wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolveName(client, tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("resolveName(%q): expected error, got nil", tc.input)
+				}
+			} else {
+				if err != nil {
+					// For non-error cases, we expect it to fail on resolver (not client) which is expected
+					// The point is validateNameFormat should not reject it.
+					if strings.Contains(err.Error(), "invalid name") {
+						t.Fatalf("resolveName(%q): validateNameFormat rejected valid name: %v", tc.input, err)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestResolveName_EdgeCases_VeryLongName verifies that resolveName rejects
+// names longer than the maximum allowed (256 chars).
+func TestResolveName_EdgeCases_VeryLongName(t *testing.T) {
+	dir := t.TempDir()
+	origRDHome := rdHome
+	rdHome = dir
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	client, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient: %v", err)
+	}
+
+	// Create a name exactly at boundary (256 chars) — should be OK
+	validLongName := strings.Repeat("a", 256)
+	_, err = resolveName(client, validLongName)
+	if err != nil && strings.Contains(err.Error(), "too long") {
+		t.Fatalf("resolveName with 256-char name should not reject for length: %v", err)
+	}
+
+	// Create a name over the limit (257 chars) — should error
+	tooLongName := strings.Repeat("a", 257)
+	_, err = resolveName(client, tooLongName)
+	if err == nil {
+		t.Fatal("resolveName with 257-char name should error")
+	}
+	if !strings.Contains(err.Error(), "too long") {
+		t.Errorf("expected 'too long' in error, got: %v", err)
+	}
+}
+
+// TestResolveName_EdgeCases_HexLikeName verifies that names that resemble
+// hex but are not exactly 64 chars are handled correctly.
+func TestResolveName_EdgeCases_HexLikeName(t *testing.T) {
+	dir := t.TempDir()
+	origRDHome := rdHome
+	rdHome = dir
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	client, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		input   string
+		wantErr bool // expect validation error or resolver error
+	}{
+		// 63 hex chars — looks like ID but is one char short
+		{name: "hex_63_chars", input: "bcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890", wantErr: true},
+		// 65 hex chars — looks like ID but is one char too long
+		{name: "hex_65_chars", input: "aabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890", wantErr: true},
+		// 64 chars but not all hex (letter 'g' is not hex)
+		{name: "64_chars_non_hex", input: "abcdefg234567890abcdef1234567890abcdef1234567890abcdef1234567890", wantErr: true},
+		// 64 hex chars (valid) — treated as direct ID
+		{name: "valid_64_hex", input: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890", wantErr: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolveName(client, tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("resolveName(%q): expected error, got nil", tc.input)
+				}
+			} else {
+				// Valid 64-char hex should return without error
+				if err != nil {
+					t.Fatalf("resolveName(%q): unexpected error: %v", tc.input, err)
+				}
+			}
+		})
+	}
+}
+
+// TestResolveName_EdgeCases_NullBytesRejected verifies that names containing
+// null bytes are rejected before any network call.
+func TestResolveName_EdgeCases_NullBytesRejected(t *testing.T) {
+	dir := t.TempDir()
+	origRDHome := rdHome
+	rdHome = dir
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	client, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient: %v", err)
+	}
+
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{name: "null_at_start", input: "\x00foo"},
+		{name: "null_in_middle", input: "foo\x00bar"},
+		{name: "null_at_end", input: "foo\x00"},
+		{name: "multiple_nulls", input: "foo\x00bar\x00baz"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolveName(client, tc.input)
+			if err == nil {
+				t.Fatalf("resolveName with null byte should error")
+			}
+			if !strings.Contains(err.Error(), "null byte") {
+				t.Errorf("expected 'null byte' in error, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestResolveName_EdgeCases_PathTraversalRejected verifies that names with
+// path traversal sequences are rejected before any network call.
+func TestResolveName_EdgeCases_PathTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+	origRDHome := rdHome
+	rdHome = dir
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	client, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient: %v", err)
+	}
+
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{name: "unix_traversal_prefix", input: "../etc/passwd"},
+		{name: "unix_traversal_middle", input: "foo/../bar"},
+		{name: "unix_traversal_bare", input: ".."},
+		{name: "unix_traversal_suffix", input: "foo/.."},
+		{name: "windows_traversal", input: `foo..\bar`},
+		{name: "windows_traversal_suffix", input: `foo\..\`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolveName(client, tc.input)
+			if err == nil {
+				t.Fatalf("resolveName with path traversal should error")
+			}
+			if !strings.Contains(err.Error(), "path traversal") {
+				t.Errorf("expected 'path traversal' in error, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestResolveName_EdgeCases_MixedCaseHex verifies that both uppercase and
+// lowercase hex IDs (and mixed case) are accepted when they are exactly 64 chars.
+func TestResolveName_EdgeCases_MixedCaseHex(t *testing.T) {
+	dir := t.TempDir()
+	origRDHome := rdHome
+	rdHome = dir
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+	})
+
+	client, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient: %v", err)
+	}
+
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{name: "lowercase_hex", input: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"},
+		{name: "uppercase_hex", input: "ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890"},
+		{name: "mixed_case_hex", input: "AbCdEf1234567890aBcDeF1234567890AbCdEf1234567890aBcDeF1234567890"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveName(client, tc.input)
+			if err != nil {
+				t.Fatalf("resolveName(%q): unexpected error: %v", tc.input, err)
+			}
+			if got != tc.input {
+				t.Errorf("resolveName(%q) = %q, want same value", tc.input, got)
+			}
+		})
+	}
+}
