@@ -79,7 +79,7 @@ EXAMPLES
 		if len(displayKey) > 12 {
 			displayKey = displayKey[:12] + "..."
 		}
-		fmt.Fprintf(os.Stdout, "revoked %s (msg %s)\n", displayKey, result.MessageID[:12]+"...")
+		fmt.Fprintf(os.Stdout, "revoked %s (msg %s)\n", displayKey, truncateID(result.MessageID, 12))
 
 		if !retroactive {
 			return nil
@@ -115,10 +115,10 @@ EXAMPLES
 				"granted_at": now2,
 			})
 			if err2 != nil {
-				fmt.Fprintf(os.Stderr, "warning: could not revoke %s...: %v\n", memberKey[:12], err2)
+				fmt.Fprintf(os.Stderr, "warning: could not revoke %s...: %v\n", truncateID(memberKey, 12), err2)
 				continue
 			}
-			fmt.Fprintf(os.Stdout, "retroactive revoke %s... (msg %s)\n", memberKey[:12], r2.MessageID[:12]+"...")
+			fmt.Fprintf(os.Stdout, "retroactive revoke %s... (msg %s)\n", truncateID(memberKey, 12), truncateID(r2.MessageID, 12))
 		}
 
 		return nil
