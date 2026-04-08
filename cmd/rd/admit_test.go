@@ -589,3 +589,205 @@ func TestByIDFromJSONLOrStore_StorePathUsedWhenNoJSONL(t *testing.T) {
 		t.Fatal("expected ErrNotFound for unknown item ID, got nil")
 	}
 }
+
+// TestAdmitByPubKeyWithConfig_Member_RoutesCorrectly verifies that admitByPubKeyWithConfig
+// with role="member" routes to CampfireID and calls admitMember correctly.
+func TestAdmitByPubKeyWithConfig_Member_RoutesCorrectly(t *testing.T) {
+	campfireID := pubkeyHex("aa")
+	pubKey := pubkeyHex("bb")
+	transportDir := "/tmp/transport-member"
+
+	fake := &fakeAdmitClient{
+		membership: &store.Membership{
+			CampfireID:   campfireID,
+			TransportDir: transportDir,
+		},
+	}
+	syncCfg := &rdconfig.SyncConfig{
+		CampfireID:        campfireID,
+		SummaryCampfireID: pubkeyHex("cc"),
+	}
+
+	err := admitByPubKeyWithConfig(fake, syncCfg, pubKey, "member")
+	if err != nil {
+		t.Fatalf("admitByPubKeyWithConfig member: unexpected error: %v", err)
+	}
+
+	// Verify Admit was called with the main campfire, not summary.
+	if len(fake.admitCalls) != 1 {
+		t.Fatalf("Admit called %d times, want 1", len(fake.admitCalls))
+	}
+	req := fake.admitCalls[0]
+	if req.CampfireID != campfireID {
+		t.Errorf("member role should target CampfireID = %q, got %q", campfireID, req.CampfireID)
+	}
+	if req.MemberPubKeyHex != pubKey {
+		t.Errorf("member role should admit pubkey = %q, got %q", pubKey, req.MemberPubKeyHex)
+	}
+	if req.Role != "" { // member role passes empty string to admitMemberWithRole
+		t.Errorf("member role should pass empty role string, got %q", req.Role)
+	}
+}
+
+// TestAdmitByPubKeyWithConfig_Member_ErrorWhenNoCampfire verifies that role="member"
+// returns a clear error when CampfireID is not configured.
+func TestAdmitByPubKeyWithConfig_Member_ErrorWhenNoCampfire(t *testing.T) {
+	pubKey := pubkeyHex("bb")
+
+	fake := &fakeAdmitClient{}
+	syncCfg := &rdconfig.SyncConfig{
+		CampfireID:        "", // not configured
+		SummaryCampfireID: pubkeyHex("cc"),
+	}
+
+	err := admitByPubKeyWithConfig(fake, syncCfg, pubKey, "member")
+	if err == nil {
+		t.Fatal("expected error for missing CampfireID with member role, got nil")
+	}
+	if !strings.Contains(err.Error(), "no campfire configured") {
+		t.Errorf("error should mention 'no campfire configured', got: %v", err)
+	}
+}
+
+// TestAdmitByPubKeyWithConfig_OrgObserver_RoutesCorrectly verifies that admitByPubKeyWithConfig
+// with role="org-observer" routes to SummaryCampfireID, not CampfireID.
+func TestAdmitByPubKeyWithConfig_OrgObserver_RoutesCorrectly(t *testing.T) {
+	mainCampfireID := pubkeyHex("aa")
+	summaryCampfireID := pubkeyHex("dd")
+	pubKey := pubkeyHex("bb")
+	transportDir := "/tmp/transport-observer"
+
+	fake := &fakeAdmitClient{
+		membership: &store.Membership{
+			CampfireID:   summaryCampfireID,
+			TransportDir: transportDir,
+		},
+	}
+	syncCfg := &rdconfig.SyncConfig{
+		CampfireID:        mainCampfireID,
+		SummaryCampfireID: summaryCampfireID,
+	}
+
+	err := admitByPubKeyWithConfig(fake, syncCfg, pubKey, "org-observer")
+	if err != nil {
+		t.Fatalf("admitByPubKeyWithConfig org-observer: unexpected error: %v", err)
+	}
+
+	// Verify Admit was called with the summary campfire, not main.
+	if len(fake.admitCalls) != 1 {
+		t.Fatalf("Admit called %d times, want 1", len(fake.admitCalls))
+	}
+	req := fake.admitCalls[0]
+	if req.CampfireID != summaryCampfireID {
+		t.Errorf("org-observer role should target SummaryCampfireID = %q, got %q",
+			summaryCampfireID, req.CampfireID)
+	}
+	if req.CampfireID == mainCampfireID {
+		t.Errorf("org-observer role must NOT target main CampfireID = %q", mainCampfireID)
+	}
+	if req.MemberPubKeyHex != pubKey {
+		t.Errorf("org-observer role should admit pubkey = %q, got %q", pubKey, req.MemberPubKeyHex)
+	}
+}
+
+// TestAdmitByPubKeyWithConfig_OrgObserver_ErrorWhenNoSummaryCampfire verifies that
+// role="org-observer" returns a clear error when SummaryCampfireID is not configured.
+func TestAdmitByPubKeyWithConfig_OrgObserver_ErrorWhenNoSummaryCampfire(t *testing.T) {
+	pubKey := pubkeyHex("bb")
+
+	fake := &fakeAdmitClient{}
+	syncCfg := &rdconfig.SyncConfig{
+		CampfireID:        pubkeyHex("aa"),
+		SummaryCampfireID: "", // not configured
+	}
+
+	err := admitByPubKeyWithConfig(fake, syncCfg, pubKey, "org-observer")
+	if err == nil {
+		t.Fatal("expected error for missing SummaryCampfireID with org-observer role, got nil")
+	}
+	if !strings.Contains(err.Error(), "no summary campfire configured") {
+		t.Errorf("error should mention 'no summary campfire configured', got: %v", err)
+	}
+}
+
+// TestAdmitByPubKeyWithConfig_Agent_RoutesCorrectly verifies that admitByPubKeyWithConfig
+// with role="agent" routes to CampfireID with role="agent" passed to Admit.
+func TestAdmitByPubKeyWithConfig_Agent_RoutesCorrectly(t *testing.T) {
+	campfireID := pubkeyHex("aa")
+	pubKey := pubkeyHex("bb")
+	transportDir := "/tmp/transport-agent"
+
+	fake := &fakeAdmitClient{
+		membership: &store.Membership{
+			CampfireID:   campfireID,
+			TransportDir: transportDir,
+		},
+	}
+	syncCfg := &rdconfig.SyncConfig{
+		CampfireID:        campfireID,
+		SummaryCampfireID: pubkeyHex("cc"),
+	}
+
+	err := admitByPubKeyWithConfig(fake, syncCfg, pubKey, "agent")
+	if err != nil {
+		t.Fatalf("admitByPubKeyWithConfig agent: unexpected error: %v", err)
+	}
+
+	// Verify Admit was called with the main campfire and "agent" role.
+	if len(fake.admitCalls) != 1 {
+		t.Fatalf("Admit called %d times, want 1", len(fake.admitCalls))
+	}
+	req := fake.admitCalls[0]
+	if req.CampfireID != campfireID {
+		t.Errorf("agent role should target CampfireID = %q, got %q", campfireID, req.CampfireID)
+	}
+	if req.MemberPubKeyHex != pubKey {
+		t.Errorf("agent role should admit pubkey = %q, got %q", pubKey, req.MemberPubKeyHex)
+	}
+	if req.Role != "agent" {
+		t.Errorf("agent role should pass Role = %q, got %q", "agent", req.Role)
+	}
+}
+
+// TestAdmitByPubKeyWithConfig_Agent_ErrorWhenNoCampfire verifies that role="agent"
+// returns a clear error when CampfireID is not configured.
+func TestAdmitByPubKeyWithConfig_Agent_ErrorWhenNoCampfire(t *testing.T) {
+	pubKey := pubkeyHex("bb")
+
+	fake := &fakeAdmitClient{}
+	syncCfg := &rdconfig.SyncConfig{
+		CampfireID:        "", // not configured
+		SummaryCampfireID: pubkeyHex("cc"),
+	}
+
+	err := admitByPubKeyWithConfig(fake, syncCfg, pubKey, "agent")
+	if err == nil {
+		t.Fatal("expected error for missing CampfireID with agent role, got nil")
+	}
+	if !strings.Contains(err.Error(), "no campfire configured") {
+		t.Errorf("error should mention 'no campfire configured', got: %v", err)
+	}
+}
+
+// TestAdmitByPubKeyWithConfig_UnknownRole_ReturnsError verifies that admitByPubKeyWithConfig
+// rejects unknown role values with a clear error message.
+func TestAdmitByPubKeyWithConfig_UnknownRole_ReturnsError(t *testing.T) {
+	pubKey := pubkeyHex("bb")
+
+	fake := &fakeAdmitClient{}
+	syncCfg := &rdconfig.SyncConfig{
+		CampfireID:        pubkeyHex("aa"),
+		SummaryCampfireID: pubkeyHex("cc"),
+	}
+
+	err := admitByPubKeyWithConfig(fake, syncCfg, pubKey, "superadmin")
+	if err == nil {
+		t.Fatal("expected error for unknown role, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown role") {
+		t.Errorf("error should mention 'unknown role', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "superadmin") {
+		t.Errorf("error should mention the bad role 'superadmin', got: %v", err)
+	}
+}
