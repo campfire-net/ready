@@ -100,8 +100,8 @@ EXAMPLES
 		if len(admitted) > retroactiveCap {
 			fmt.Fprintf(os.Stderr, "warning: %d admitted members found — retroactive revocation capped at %d\n", len(admitted), retroactiveCap)
 			fmt.Fprintf(os.Stderr, "  review the full list manually with: rd list --type role-grant\n")
-			admitted = admitted[:retroactiveCap]
 		}
+		admitted = capAdmitted(admitted, retroactiveCap)
 
 		for _, memberKey := range admitted {
 			now2 := time.Now().UTC().Format(time.RFC3339)
@@ -124,6 +124,10 @@ EXAMPLES
 // findMembersAdmittedBy reads the campfire message log and returns the set of
 // pubkeys that were granted roles (via work:role-grant) by the given senderKey.
 // Only non-revocation grants are returned — this finds who the revokedKey admitted.
+//
+// Security: only the pubkey field is extracted from each message payload.
+// Extra payload fields (title, description, or any other item content) are
+// intentionally discarded — audit entries reference pubkeys only, not item content.
 func findMembersAdmittedBy(client campfireReader, campfireID, senderKey string) ([]string, error) {
 	result, err := client.Read(protocol.ReadRequest{
 		CampfireID: campfireID,
@@ -137,6 +141,8 @@ func findMembersAdmittedBy(client campfireReader, campfireID, senderKey string) 
 	seen := map[string]bool{}
 	var admitted []string
 	for _, msg := range result.Messages {
+		// Extract only pubkey and role — any extra fields in the payload are
+		// intentionally ignored to prevent content leaking into audit output.
 		var payload struct {
 			Pubkey string `json:"pubkey"`
 			Role   string `json:"role"`
@@ -154,6 +160,16 @@ func findMembersAdmittedBy(client campfireReader, campfireID, senderKey string) 
 		}
 	}
 	return admitted, nil
+}
+
+// capAdmitted returns at most maxCap entries from the admitted slice.
+// This enforces a hard upper bound on retroactive revocations to prevent
+// DoS from a compromised key that issued thousands of grants.
+func capAdmitted(admitted []string, maxCap int) []string {
+	if len(admitted) > maxCap {
+		return admitted[:maxCap]
+	}
+	return admitted
 }
 
 func init() {
