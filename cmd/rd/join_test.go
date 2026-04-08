@@ -838,3 +838,94 @@ func TestBeaconRoot_FirstUse_WithConfirm_AllowsNonInteractive(t *testing.T) {
 		t.Errorf("cfg.BeaconRoot after validateBeaconRootTOFU should remain empty, got %q", cfg.BeaconRoot)
 	}
 }
+
+// TestValidateCampfireID verifies input validation for campfire IDs (ready-124).
+// campfire IDs must be exactly 64 hex characters; malformed IDs are rejected early.
+func TestValidateCampfireID(t *testing.T) {
+	// validHexID is a well-formed 64-char campfire ID.
+	validHexID := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+	cases := []struct {
+		name    string
+		input   string
+		wantErr bool
+		errFrag string // substring that must appear in the error message
+	}{
+		// Valid inputs — must not error.
+		{name: "valid_hex_id", input: validHexID, wantErr: false},
+		{name: "uppercase_hex", input: "ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890", wantErr: false},
+		{name: "mixed_case_hex", input: "AbCdEf1234567890AbCdEf1234567890AbCdEf1234567890AbCdEf1234567890", wantErr: false},
+
+		// Empty input — must error.
+		{name: "empty", input: "", wantErr: true, errFrag: "empty"},
+
+		// Wrong length — must error.
+		{name: "too_short_63", input: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef123456789", wantErr: true, errFrag: "exactly 64 characters"},
+		{name: "too_long_65", input: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890a", wantErr: true, errFrag: "exactly 64 characters"},
+		{name: "way_too_long", input: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890", wantErr: true, errFrag: "exactly 64 characters"},
+
+		// Invalid characters (within 64 chars) — must error.
+		{name: "space_char", input: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef123456789 ", wantErr: true, errFrag: "hex characters"},
+		{name: "non_hex_g", input: "gbcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890", wantErr: true, errFrag: "hex characters"},
+		{name: "non_hex_z", input: "zbcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890", wantErr: true, errFrag: "hex characters"},
+		{name: "dash_char", input: "abcdef1234567890-bcdef1234567890abcdef1234567890abcdef1234567890", wantErr: true, errFrag: "hex characters"},
+		{name: "underscore", input: "abcdef1234567890_bcdef1234567890abcdef1234567890abcdef1234567890", wantErr: true, errFrag: "hex characters"},
+		{name: "null_byte", input: "abcdef1234567890\x00bcdef1234567890abcdef1234567890abcdef1234567890", wantErr: true, errFrag: "hex characters"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateCampfireID(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("validateCampfireID(%q) error = %v, wantErr %v", tc.input, err, tc.wantErr)
+			}
+			if tc.wantErr && tc.errFrag != "" && err != nil && !strings.Contains(err.Error(), tc.errFrag) {
+				t.Errorf("validateCampfireID(%q) error %q should contain %q", tc.input, err.Error(), tc.errFrag)
+			}
+		})
+	}
+}
+
+// TestValidateBeaconRootFormat verifies input validation for beacon roots (ready-124).
+// Beacon roots must be exactly 64 hex characters; malformed roots are rejected early.
+func TestValidateBeaconRootFormat(t *testing.T) {
+	// validRoot is a well-formed 64-char beacon root.
+	validRoot := "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+	cases := []struct {
+		name    string
+		input   string
+		wantErr bool
+		errFrag string // substring that must appear in the error message
+	}{
+		// Valid inputs — must not error.
+		{name: "valid_root", input: validRoot, wantErr: false},
+		{name: "uppercase_root", input: "FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210", wantErr: false},
+		{name: "mixed_case_root", input: "FeDcBa9876543210FeDcBa9876543210FeDcBa9876543210FeDcBa9876543210", wantErr: false},
+
+		// Empty input — must error.
+		{name: "empty", input: "", wantErr: true, errFrag: "empty"},
+
+		// Wrong length — must error.
+		{name: "too_short_63", input: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba987654321", wantErr: true, errFrag: "exactly 64 characters"},
+		{name: "too_long_65", input: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba98765432100", wantErr: true, errFrag: "exactly 64 characters"},
+
+		// Invalid characters (within 64 chars) — must error.
+		{name: "space_char", input: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba98765432 0", wantErr: true, errFrag: "hex characters"},
+		{name: "non_hex_g", input: "gedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210", wantErr: true, errFrag: "hex characters"},
+		{name: "dash_char", input: "fedcba9876543210-edcba9876543210fedcba9876543210fedcba9876543210", wantErr: true, errFrag: "hex characters"},
+		{name: "null_byte", input: "fedcba9876543210fedcba9876543210\x00edcba9876543210fedcba9876543210", wantErr: true, errFrag: "hex characters"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateBeaconRootFormat(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("validateBeaconRootFormat(%q) error = %v, wantErr %v", tc.input, err, tc.wantErr)
+			}
+			if tc.wantErr && tc.errFrag != "" && err != nil && !strings.Contains(err.Error(), tc.errFrag) {
+				t.Errorf("validateBeaconRootFormat(%q) error %q should contain %q", tc.input, err.Error(), tc.errFrag)
+			}
+		})
+	}
+}

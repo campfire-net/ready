@@ -357,3 +357,67 @@ func TestDerive_RoleGrant_RFC3339GrantedAt(t *testing.T) {
 		t.Errorf("expected By to be empty after revocation, got %q", task.By)
 	}
 }
+
+// TestDerive_CrossCampfireRef_BlockedIsCross verifies that when the blocked item
+// is a cross-campfire reference (and blocker is local), the warning is attached
+// to the correct local item with the correct cross-campfire ref.
+func TestDerive_CrossCampfireRef_BlockedIsCross(t *testing.T) {
+	ts := now()
+	msgs := []store.MessageRecord{
+		// Item A is local in acme.backend.
+		makeMsg("msg-a01", []string{"work:create"}, map[string]interface{}{
+			"id": "backend-a01", "title": "Item A", "type": "task",
+			"for": "baron@3dl.dev", "priority": "p1",
+		}, nil, ts),
+		// Block message: blocker is local (backend-a01), blocked is cross-campfire ref.
+		// This is an unusual but valid case: a local item is explicitly blocking a
+		// remote item (e.g., "our work must complete before they can finish their task").
+		makeMsg("msg-block-1", []string{"work:block"}, map[string]interface{}{
+			"blocker_id":  "backend-a01",
+			"blocked_id":  "acme.frontend.item-b01",
+			"blocker_msg": "msg-a01",
+			"blocked_msg": "some-remote-msg",
+		}, []string{"msg-a01"}, ts+100),
+	}
+
+	items := state.Derive(testCampfire, msgs)
+
+	a01 := items["backend-a01"]
+	if a01 == nil {
+		t.Fatal("backend-a01 not found")
+	}
+
+	// The blocker (a01) should NOT be blocked by the cross-campfire blocked reference.
+	if a01.Status == state.StatusBlocked {
+		t.Errorf("blocker should not be blocked when blocking a cross-campfire item, got %q", a01.Status)
+	}
+
+	// Warning should be recorded on the blocker (a01), mentioning the blocked cross-campfire ref.
+	if len(a01.CrossCampfireWarnings) == 0 {
+		t.Fatal("expected CrossCampfireWarnings on blocker when blocked_id is cross-campfire ref")
+	}
+
+	// Warning should mention the blocked cross-campfire ref (acme.frontend.item-b01).
+	found := false
+	var actualWarning string
+	for _, w := range a01.CrossCampfireWarnings {
+		actualWarning = w
+		if strings.Contains(w, "acme.frontend.item-b01") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected warning mentioning 'acme.frontend.item-b01', got: %q", actualWarning)
+	}
+
+	// Explicitly verify the warning does NOT mention backend-a01 (the blocker's ID)
+	// when the cross-ref is shown. The warning should reference only the cross-campfire dep.
+	for _, w := range a01.CrossCampfireWarnings {
+		// Extract just the ref part of the warning message format:
+		// "unresolved cross-campfire dep: <ref> (not a member — non-blocking)"
+		if !strings.Contains(w, "acme.frontend.item-b01") && strings.Contains(w, "backend-a01") {
+			t.Errorf("warning references wrong item ID: %s", w)
+		}
+	}
+}

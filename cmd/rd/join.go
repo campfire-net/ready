@@ -58,6 +58,13 @@ EXAMPLES
 		_, _ = cmd.Flags().GetDuration("timeout")
 		_, _ = cmd.Flags().GetString("role")
 
+		// Validate beacon root format before any further processing (ready-124).
+		if beaconRootFlag != "" {
+			if err := validateBeaconRootFormat(beaconRootFlag); err != nil {
+				return fmt.Errorf("invalid beacon root: %w", err)
+			}
+		}
+
 		cfg, err := rdconfig.Load(CFHome())
 		if err != nil {
 			return fmt.Errorf("loading config: %w", err)
@@ -98,6 +105,11 @@ EXAMPLES
 		campfireID, err := resolveName(client, nameOrID)
 		if err != nil {
 			return fmt.Errorf("resolving name %q: %w", nameOrID, err)
+		}
+
+		// Validate the resolved campfire ID before use (ready-124).
+		if err := validateCampfireID(campfireID); err != nil {
+			return fmt.Errorf("invalid campfire ID %q: %w", campfireID, err)
 		}
 
 		// Attempt to join.
@@ -338,6 +350,40 @@ func resetBeaconRoot(cfHome string) (prev string, err error) {
 		return "", fmt.Errorf("saving config: %w", err)
 	}
 	return prev, nil
+}
+
+// validateCampfireID rejects malformed campfire IDs.
+// Valid campfire IDs are exactly 64 hex characters.
+// This validation ensures that IDs stored in config and passed to client.Join()
+// are well-formed, preventing future use in paths or protocol operations (ready-124).
+func validateCampfireID(id string) error {
+	if len(id) == 0 {
+		return fmt.Errorf("campfire ID must not be empty")
+	}
+	if len(id) != 64 {
+		return fmt.Errorf("campfire ID must be exactly 64 characters (got %d)", len(id))
+	}
+	if !isHex(id) {
+		return fmt.Errorf("campfire ID must contain only hex characters [0-9a-f]")
+	}
+	return nil
+}
+
+// validateBeaconRootFormat rejects malformed beacon root IDs.
+// Valid beacon roots are exactly 64 hex characters.
+// This validation ensures that beacon roots stored in config are well-formed,
+// preventing future use in paths or protocol operations (ready-124).
+func validateBeaconRootFormat(root string) error {
+	if len(root) == 0 {
+		return fmt.Errorf("beacon root must not be empty")
+	}
+	if len(root) != 64 {
+		return fmt.Errorf("beacon root must be exactly 64 characters (got %d)", len(root))
+	}
+	if !isHex(root) {
+		return fmt.Errorf("beacon root must contain only hex characters [0-9a-f]")
+	}
+	return nil
 }
 
 // validateNameFormat rejects malformed names before any network or resolution
