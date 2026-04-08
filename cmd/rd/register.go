@@ -53,7 +53,7 @@ discoverability. Run this whenever you're ready to add naming.`,
 			return fmt.Errorf("no .campfire/root found — run 'rd init' first")
 		}
 
-		return withAgentAndStore(func(agentID, s) error {
+		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			client, err := requireClient()
 			if err != nil {
 				return err
