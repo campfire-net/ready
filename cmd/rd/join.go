@@ -290,7 +290,12 @@ type campfireReader interface {
 
 // pollForRoleGrant polls the campfire for a work:role-grant message targeting
 // myPubKey, returning the message ID when found, or an error on timeout.
-func pollForRoleGrant(client campfireReader, campfireID, myPubKey string, timeout time.Duration) (string, error) {
+//
+// authorizedSenders is the set of pubkeys (hex) whose role-grant messages are
+// trusted. Only messages whose Sender field is in this set are accepted.
+// Messages from unauthorized senders are silently ignored, preventing a
+// malicious campfire member from posting a fake role-grant (ready-9ce).
+func pollForRoleGrant(client campfireReader, campfireID, myPubKey string, authorizedSenders map[string]bool, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	interval := 3 * time.Second
 
@@ -301,6 +306,12 @@ func pollForRoleGrant(client campfireReader, campfireID, myPubKey string, timeou
 		})
 		if err == nil {
 			for _, msg := range result.Messages {
+				// Security: only accept role-grants from authorized senders
+				// (campfire creator or maintainer). Ignore messages from
+				// unauthorized senders to prevent fake role-grant injection.
+				if !authorizedSenders[msg.Sender] {
+					continue
+				}
 				if containsTag(msg.Tags, "work:for:"+myPubKey) {
 					return msg.ID, nil
 				}
