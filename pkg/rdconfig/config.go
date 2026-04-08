@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // Config holds rd-specific configuration persisted across sessions.
@@ -56,6 +57,48 @@ func Save(cfHome string, c *Config) error {
 		return fmt.Errorf("encoding config: %w", err)
 	}
 	return os.WriteFile(Path(cfHome), data, 0600)
+}
+
+// PinBeaconRoot atomically pins the beacon root in the config if not already set.
+// Returns true if the pin was set by this call, false if another process set it first.
+// Uses file locking to prevent TOCTOU races on concurrent rd join (ready-2dc).
+func PinBeaconRoot(cfHome string, beaconRoot string) (bool, error) {
+	configPath := Path(cfHome)
+
+	// Create or open the lock file (distinct from the config file to avoid
+	// holding an exclusive lock while doing I/O).
+	lockPath := configPath + ".lock"
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return false, fmt.Errorf("opening lock file: %w", err)
+	}
+	defer lockFile.Close()
+
+	// Acquire exclusive lock. This blocks until we hold the lock.
+	fd := int(lockFile.Fd())
+	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+		return false, fmt.Errorf("acquiring lock: %w", err)
+	}
+	defer syscall.Flock(fd, syscall.LOCK_UN)
+
+	// Load config under lock. Another process may have updated it while we waited.
+	cfg, err := Load(cfHome)
+	if err != nil {
+		return false, err
+	}
+
+	// If another process already pinned the root, return false (not set by us).
+	if cfg.BeaconRoot != "" {
+		return false, nil
+	}
+
+	// Pin this beacon root.
+	cfg.BeaconRoot = beaconRoot
+	if err := Save(cfHome, cfg); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 // DurabilityAssessment holds the result of a durability evaluation stored

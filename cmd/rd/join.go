@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/beacon"
@@ -106,14 +107,17 @@ EXAMPLES
 		})
 		if err == nil {
 			// Join succeeded. Now pin the beacon root if needed (TOFU).
-			if beaconRootFlag != "" && cfg.BeaconRoot == "" {
-				// First use of a non-default beacon root — pin it now that join succeeded.
-				cfg.BeaconRoot = beaconRootFlag
-				if err := rdconfig.Save(CFHome(), cfg); err != nil {
+			if beaconRootFlag != "" {
+				// Atomically pin the beacon root (with file locking to prevent
+				// concurrent TOCTOU race — ready-2dc).
+				pinned, err := rdconfig.PinBeaconRoot(CFHome(), beaconRootFlag)
+				if err != nil {
 					fmt.Fprintf(os.Stderr, "warning: could not pin beacon root after successful join: %v\n", err)
-				} else {
+				} else if pinned {
 					fmt.Fprintf(os.Stderr, "pinned beacon root: %s...\n", beaconRootFlag[:minInt(12, len(beaconRootFlag))])
 				}
+				// If pinned=false, another process set the root first. Either way,
+				// join succeeded and we're done.
 			}
 
 			displayID := campfireID
@@ -303,7 +307,24 @@ func applyBeaconRootTOFU(cfHome string, cfg *rdconfig.Config, beaconRoot string,
 
 // resetBeaconRoot clears the pinned beacon root from the config at cfHome.
 // Returns the previous value (empty string if nothing was pinned).
+// Uses file locking to prevent TOCTOU race (ready-2dc).
 func resetBeaconRoot(cfHome string) (prev string, err error) {
+	configPath := rdconfig.Path(cfHome)
+	lockPath := configPath + ".lock"
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return "", fmt.Errorf("opening lock file: %w", err)
+	}
+	defer lockFile.Close()
+
+	// Acquire exclusive lock.
+	fd := int(lockFile.Fd())
+	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+		return "", fmt.Errorf("acquiring lock: %w", err)
+	}
+	defer syscall.Flock(fd, syscall.LOCK_UN)
+
+	// Load under lock.
 	cfg, err := rdconfig.Load(cfHome)
 	if err != nil {
 		return "", fmt.Errorf("loading config: %w", err)
