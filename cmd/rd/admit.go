@@ -162,6 +162,12 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 		return fmt.Errorf("pubkey in item %s is not a valid 64-char hex key: %q", itemID, pubKeyHex)
 	}
 
+	// Print resolved identity before taking any admission action so the admin
+	// can confirm the correct item was matched (guards against prefix collisions
+	// and TOCTOU substitution — the admin sees exactly who they are admitting).
+	fmt.Fprintf(os.Stdout, "resolved: %s — %s\n", item.ID, item.Title)
+	fmt.Fprintf(os.Stdout, "pubkey:   %s\n", pubKeyHex)
+
 	exec, _, execErr := requireExecutor()
 	if execErr != nil {
 		return fmt.Errorf("initializing executor: %w", execErr)
