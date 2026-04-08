@@ -13,8 +13,11 @@ package main
 //   - admitMemberWithRole propagates Admit errors (ready-421)
 //   - ErrAmbiguous when prefix matches multiple join-request items (ready-afa5)
 //   - full-ID resolves unambiguously, item.For holds requester's pubkey (ready-afa5)
+//   - admitThenGrant: no role-grant posted when Admit() fails (ready-f45)
+//   - admitThenGrant: role-grant posted exactly once when Admit() succeeds (ready-f45)
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/campfire-net/campfire/pkg/convention"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/rdconfig"
@@ -367,5 +371,70 @@ func TestAdmit_FullID_ResolvesItemAndHoldsPubkey(t *testing.T) {
 	// is being admitted. It must carry the requester's pubkey, not be empty or wrong.
 	if item.For != wantPubkey {
 		t.Errorf("item.For = %q, want requester pubkey %q", item.For, wantPubkey)
+	}
+}
+
+// TestAdmitThenGrant_AdmitFailure_NoRoleGrantPosted is the regression test for
+// ready-f45: when Admit() fails, no work:role-grant must be posted. This was
+// the dangling role-grant vulnerability — the fix reorders the operations so
+// role-grant is posted only after Admit() succeeds.
+func TestAdmitThenGrant_AdmitFailure_NoRoleGrantPosted(t *testing.T) {
+	campfireID := pubkeyHex("aa")
+	pubKey := pubkeyHex("bb")
+	selfKey := "test-key-hex"
+
+	fake := &fakeAdmitClient{
+		membership: &store.Membership{
+			CampfireID:   campfireID,
+			TransportDir: "/tmp/campfire-transport",
+		},
+		admitErr: fmt.Errorf("permission denied"),
+	}
+
+	backend := &countingSendBackend{}
+	exec := convention.NewExecutorForTest(backend, selfKey).
+		WithProvenance(&staticProvenanceChecker{levels: map[string]int{selfKey: 2}})
+	ctx := context.Background()
+
+	_, err := admitThenGrant(ctx, fake, exec, campfireID, pubKey, "member")
+	if err == nil {
+		t.Fatal("expected error from Admit(), got nil")
+	}
+
+	// The critical assertion: no role-grant was posted.
+	if backend.sendCount != 0 {
+		t.Errorf("ready-f45 regression: role-grant posted even though Admit() failed — "+
+			"got %d SendMessage call(s), want 0", backend.sendCount)
+	}
+}
+
+// TestAdmitThenGrant_AdmitSuccess_RoleGrantPosted verifies the happy path:
+// when Admit() succeeds, the role-grant is posted exactly once.
+func TestAdmitThenGrant_AdmitSuccess_RoleGrantPosted(t *testing.T) {
+	campfireID := pubkeyHex("aa")
+	pubKey := pubkeyHex("bb")
+	selfKey := "test-key-hex"
+
+	fake := &fakeAdmitClient{
+		membership: &store.Membership{
+			CampfireID:   campfireID,
+			TransportDir: "/tmp/campfire-transport",
+		},
+	}
+
+	backend := &countingSendBackend{}
+	exec := convention.NewExecutorForTest(backend, selfKey).
+		WithProvenance(&staticProvenanceChecker{levels: map[string]int{selfKey: 2}})
+	ctx := context.Background()
+
+	msgID, err := admitThenGrant(ctx, fake, exec, campfireID, pubKey, "member")
+	if err != nil {
+		t.Fatalf("admitThenGrant: unexpected error: %v", err)
+	}
+	if msgID == "" {
+		t.Error("expected non-empty grant message ID")
+	}
+	if backend.sendCount != 1 {
+		t.Errorf("expected exactly 1 SendMessage call for role-grant, got %d", backend.sendCount)
 	}
 }

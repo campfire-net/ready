@@ -5,9 +5,13 @@ package main
 // interfaces.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
+	"time"
 
+	"github.com/campfire-net/campfire/pkg/convention"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 )
@@ -87,4 +91,30 @@ func pubkeyHex(hex2 string) string {
 		result[i+1] = hex2[1]
 	}
 	return string(result)
+}
+
+// countingSendBackend is an ExecutorBackend that counts SendMessage calls.
+// Used in ready-f45 regression tests to verify that role-grant is not posted
+// when Admit() fails.
+type countingSendBackend struct {
+	sendCount int32 // atomic
+}
+
+func (b *countingSendBackend) SendMessage(_ context.Context, campfireID string, _ []byte, _ []string, _ []string) (string, error) {
+	atomic.AddInt32(&b.sendCount, 1)
+	return "msg-test-" + campfireID[:8], nil
+}
+
+func (b *countingSendBackend) SendCampfireKeySigned(_ context.Context, campfireID string, _ []byte, _ []string, _ []string) (string, error) {
+	atomic.AddInt32(&b.sendCount, 1)
+	return "msg-test-" + campfireID[:8], nil
+}
+
+func (b *countingSendBackend) ReadMessages(_ context.Context, _ string, _ []string) ([]convention.MessageRecord, error) {
+	return nil, nil
+}
+
+func (b *countingSendBackend) SendFutureAndAwait(_ context.Context, campfireID string, _ []byte, _ []string, _ []string, _ time.Duration) (string, []byte, error) {
+	atomic.AddInt32(&b.sendCount, 1)
+	return "msg-test-" + campfireID[:8], nil, nil
 }
