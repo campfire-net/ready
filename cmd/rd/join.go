@@ -216,15 +216,14 @@ func validateBeaconRootTOFU(cfHome string, cfg *rdconfig.Config, beaconRoot stri
 
 		if !confirm {
 			if !isInteractive() {
-				fmt.Fprintf(os.Stderr, "  non-interactive: beacon root will be pinned automatically after join\n")
-			} else {
-				fmt.Fprint(os.Stderr, "proceed? [Y/n] ")
-				scanner := bufio.NewScanner(os.Stdin)
-				if scanner.Scan() {
-					answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
-					if answer == "n" || answer == "no" {
-						return fmt.Errorf("aborted: beacon root not pinned")
-					}
+				return fmt.Errorf("TOFU first use: non-interactive mode requires --confirm flag to pin beacon root")
+			}
+			fmt.Fprint(os.Stderr, "proceed? [Y/n] ")
+			scanner := bufio.NewScanner(os.Stdin)
+			if scanner.Scan() {
+				answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+				if answer == "n" || answer == "no" {
+					return fmt.Errorf("aborted: beacon root not pinned")
 				}
 			}
 		}
