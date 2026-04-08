@@ -91,17 +91,6 @@ func resolveSingle(parsed *state.CrossCampfireRef, memberMap map[string]map[stri
 		}
 	}
 
-	// If no alias, try the last segment of the campfire name as an alias too.
-	if campfireID == "" && aliases != nil {
-		segments := strings.Split(parsed.CampfireName, ".")
-		if len(segments) > 0 {
-			lastSeg := segments[len(segments)-1]
-			if id, err := aliases.Get(lastSeg); err == nil && id != "" {
-				campfireID = id
-			}
-		}
-	}
-
 	if campfireID == "" {
 		dep.Warning = fmt.Sprintf("unresolved cross-campfire dep: %s (campfire not in local aliases — not a member or not discovered)", parsed.Raw)
 		return dep
