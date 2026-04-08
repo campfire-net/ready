@@ -8,27 +8,30 @@ import (
 	"github.com/campfire-net/ready/pkg/views"
 )
 
-// TestReadyFilter_ETAExactBoundary tests the strict < boundary for the 4h threshold.
-func TestReadyFilter_ETAExactBoundary(t *testing.T) {
-	// Capture the baseline "now" for this test.
-	baseline := time.Now()
-
-	// ETA more than 4h in the future should NOT be ready.
-	// Use 4h and 1 minute to ensure it's strictly beyond the boundary.
-	future4h1m := baseline.Add(4*time.Hour + 1*time.Minute).UTC().Format(time.RFC3339)
+// TestReadyFilter_ETADoesNotFilter tests that ETA no longer gates the ready view.
+// ETA is for urgency sorting, not for filtering. Scheduled status is the gate
+// for work that literally can't be done yet.
+func TestReadyFilter_ETADoesNotFilter(t *testing.T) {
 	f := views.ReadyFilter()
-	item := makeItem("t1", state.StatusInbox, "p1", future4h1m, "a@b.com", "")
-	if f(item) {
-		t.Error("expected item with ETA 4h1m away to NOT be ready (beyond strict < boundary)")
+
+	// Item with ETA far in the future is still ready — it CAN be worked now.
+	future := time.Now().Add(720 * time.Hour).UTC().Format(time.RFC3339) // 30 days
+	item := makeItem("t1", state.StatusInbox, "p1", future, "a@b.com", "")
+	if !f(item) {
+		t.Error("expected item with ETA 30 days away to be ready (ETA is for sorting)")
 	}
 
-	// ETA just before 4h (3h59m) should be ready.
-	baseline2 := time.Now()
-	justBefore := baseline2.Add(4*time.Hour - 1*time.Minute).UTC().Format(time.RFC3339)
-	f2 := views.ReadyFilter()
-	item2 := makeItem("t2", state.StatusInbox, "p1", justBefore, "a@b.com", "")
-	if !f2(item2) {
-		t.Error("expected item with ETA 3h59m away to be ready")
+	// Item with ETA in the near future is also ready.
+	near := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)
+	item2 := makeItem("t2", state.StatusInbox, "p1", near, "a@b.com", "")
+	if !f(item2) {
+		t.Error("expected item with ETA 1h away to be ready")
+	}
+
+	// Only scheduled status excludes from ready.
+	item3 := makeItem("t3", state.StatusScheduled, "p1", near, "a@b.com", "")
+	if f(item3) {
+		t.Error("expected scheduled item to NOT be ready regardless of ETA")
 	}
 }
 

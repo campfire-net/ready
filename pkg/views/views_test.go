@@ -56,10 +56,20 @@ func TestReadyFilter_Blocked(t *testing.T) {
 
 func TestReadyFilter_ETAFarFuture(t *testing.T) {
 	f := views.ReadyFilter()
-	// ETA more than 4h away — should not be in ready view.
+	// ETA 10h away — still ready. ETA is for sorting, not filtering.
+	// Work due in the future is still workable now.
 	item := makeItem("t1", state.StatusInbox, "p2", futureETA(10*time.Hour), "a@b.com", "")
+	if !f(item) {
+		t.Error("expected item with ETA 10h away to still be ready (ETA is for sorting)")
+	}
+}
+
+func TestReadyFilter_ScheduledExcluded(t *testing.T) {
+	f := views.ReadyFilter()
+	// Scheduled items are pending a future date — state isn't accurate yet.
+	item := makeItem("t1", state.StatusScheduled, "p1", futureETA(1*time.Hour), "a@b.com", "")
 	if f(item) {
-		t.Error("expected item with ETA 10h away to not be ready")
+		t.Error("expected scheduled item to not be ready")
 	}
 }
 
@@ -208,10 +218,16 @@ func TestFocusFilter_NoGate(t *testing.T) {
 		t.Error("expected done item to not appear in focus view")
 	}
 
-	// Item with far ETA — should not appear.
+	// Item with far ETA — still appears (ETA is for sorting, not filtering).
 	far := makeItem("t3", state.StatusActive, "p1", futureETA(10*time.Hour), "a@b.com", "")
-	if f(far) {
-		t.Error("expected far-ETA item to not appear in focus view")
+	if !f(far) {
+		t.Error("expected far-ETA active item to appear in focus view (ETA is for sorting)")
+	}
+
+	// Scheduled item — should NOT appear (pending a date).
+	sched := makeItem("t4", state.StatusScheduled, "p1", futureETA(1*time.Hour), "a@b.com", "")
+	if f(sched) {
+		t.Error("expected scheduled item to not appear in focus view")
 	}
 }
 

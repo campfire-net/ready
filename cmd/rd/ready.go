@@ -66,15 +66,17 @@ Example:
 		}
 		items = views.Apply(items, filter)
 
-		// For views that don't filter by identity internally, apply --for as a
-		// secondary filter on item.For when set.
+		// For views that don't filter by identity internally, scope to
+		// items where the current identity is involved — either as the
+		// outcome owner (for) or the performer (by). This covers items
+		// you created, items delegated to you, and items you own.
 		switch viewName {
 		case views.ViewDelegated, views.ViewMyWork:
 			// Already filtered by identity in the view function.
 		default:
 			if forFilter != "" {
 				items = views.Apply(items, func(item *state.Item) bool {
-					return item.For == forFilter
+					return item.For == forFilter || item.By == forFilter
 				})
 			}
 		}

@@ -102,12 +102,10 @@ func TestFocusViewNoGate(t *testing.T) {
 	filter := views.FocusFilter("")
 	result := views.Apply(items, filter)
 
-	// Only t1 should match: active, near ETA, not terminal.
-	if len(result) != 1 {
-		t.Errorf("expected 1 item (near ETA, not terminal), got %d", len(result))
-	}
-	if result[0].ID != "t1" {
-		t.Errorf("expected t1, got %s", result[0].ID)
+	// t1 and t2 should match: active, not terminal. ETA is for sorting, not filtering.
+	// t3 is terminal (done) so excluded.
+	if len(result) != 2 {
+		t.Errorf("expected 2 items (active, not terminal), got %d", len(result))
 	}
 }
 
@@ -133,62 +131,71 @@ func TestFocusViewWithGateFilter(t *testing.T) {
 	}
 }
 
-// TestFocusViewGateNotReady verifies that gate items with far ETAs don't appear.
-func TestFocusViewGateNotReady(t *testing.T) {
+// TestFocusViewGateScheduled verifies that scheduled gate items don't appear.
+func TestFocusViewGateScheduled(t *testing.T) {
 	now := time.Now()
 	farETA := now.Add(10 * time.Hour).UTC().Format(time.RFC3339)
 
 	items := []*state.Item{
-		{ID: "t1", Status: state.StatusActive, Priority: "p1", ETA: farETA, Title: "far design gate", Gate: "design"},
+		{ID: "t1", Status: state.StatusScheduled, Priority: "p1", ETA: farETA, Title: "scheduled design gate", Gate: "design"},
+		{ID: "t2", Status: state.StatusActive, Priority: "p1", ETA: farETA, Title: "active design gate", Gate: "design"},
 	}
 
 	filter := views.FocusFilter("design")
 	result := views.Apply(items, filter)
 
-	if len(result) != 0 {
-		t.Errorf("expected 0 items (ETA too far), got %d", len(result))
+	// t1 is scheduled (pending a future date) so excluded. t2 is active so included.
+	if len(result) != 1 {
+		t.Errorf("expected 1 item (active gate, not scheduled), got %d", len(result))
+	}
+	if len(result) > 0 && result[0].ID != "t2" {
+		t.Errorf("expected t2 (active), got %s", result[0].ID)
 	}
 }
 
-// TestReadyViewForFilter verifies the secondary --for filter applied after ReadyFilter.
-// This models the behavior in readyCmd where --for defaults to the current identity and
-// items with a different For party are excluded.
+// TestReadyViewForFilter verifies the secondary identity filter applied after ReadyFilter.
+// The filter matches items where the identity is either the outcome owner (For)
+// or the performer (By) — covering both owned and delegated work.
 func TestReadyViewForFilter(t *testing.T) {
 	now := time.Now()
 	nearETA := now.Add(1 * time.Hour).UTC().Format(time.RFC3339)
 
 	items := []*state.Item{
-		{ID: "t1", Status: state.StatusActive, Priority: "p1", ETA: nearETA, For: "me@test.com", Title: "mine"},
-		{ID: "t2", Status: state.StatusActive, Priority: "p1", ETA: nearETA, For: "other@test.com", Title: "theirs"},
+		{ID: "t1", Status: state.StatusActive, Priority: "p1", ETA: nearETA, For: "me@test.com", Title: "mine (owner)"},
+		{ID: "t2", Status: state.StatusActive, Priority: "p1", ETA: nearETA, For: "other@test.com", By: "me@test.com", Title: "delegated to me"},
 		{ID: "t3", Status: state.StatusInbox, Priority: "p1", ETA: nearETA, For: "me@test.com", Title: "mine inbox"},
+		{ID: "t4", Status: state.StatusActive, Priority: "p1", ETA: nearETA, For: "other@test.com", By: "other@test.com", Title: "not mine at all"},
 	}
 
 	myIdentity := "me@test.com"
 	filter := views.ReadyFilter()
 	result := views.Apply(items, filter)
-	// Secondary for-filter (mirrors readyCmd behavior).
+	// Secondary identity filter (mirrors readyCmd behavior): For OR By.
 	var forFiltered []*state.Item
 	for _, item := range result {
-		if item.For == myIdentity {
+		if item.For == myIdentity || item.By == myIdentity {
 			forFiltered = append(forFiltered, item)
 		}
 	}
 
-	if len(forFiltered) != 2 {
-		t.Errorf("expected 2 items for me@test.com (t1 active + t3 inbox), got %d", len(forFiltered))
+	if len(forFiltered) != 3 {
+		t.Errorf("expected 3 items for me@test.com (t1 owner + t2 delegated + t3 inbox), got %d", len(forFiltered))
 	}
 	ids := map[string]bool{}
 	for _, item := range forFiltered {
 		ids[item.ID] = true
 	}
 	if !ids["t1"] {
-		t.Errorf("expected t1 (active, mine) in result")
+		t.Errorf("expected t1 (active, owner) in result")
+	}
+	if !ids["t2"] {
+		t.Errorf("expected t2 (delegated to me) in result")
 	}
 	if !ids["t3"] {
-		t.Errorf("expected t3 (inbox, mine) in result")
+		t.Errorf("expected t3 (inbox, owner) in result")
 	}
-	if ids["t2"] {
-		t.Errorf("t2 (other party) must not appear when --for is set to me@test.com")
+	if ids["t4"] {
+		t.Errorf("t4 (not mine) must not appear")
 	}
 }
 

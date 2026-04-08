@@ -50,10 +50,13 @@ func Named(viewName, identity string) Filter {
 	}
 }
 
-// ReadyFilter returns items that need attention now:
+// ReadyFilter returns items that can be worked right now:
 //   - not in a terminal status (done, cancelled, failed)
 //   - not blocked
-//   - eta < now + 4h
+//   - not scheduled (scheduled = pending a future date, state not yet accurate)
+//
+// ETA is for sorting (urgency), not filtering. Work due in October is still
+// workable today — we don't sit idle because nothing is due within 4 hours.
 func ReadyFilter() Filter {
 	return func(item *state.Item) bool {
 		if state.IsTerminal(item) {
@@ -62,14 +65,10 @@ func ReadyFilter() Filter {
 		if state.IsBlocked(item) {
 			return false
 		}
-		if item.ETA == "" {
-			return true // no ETA = always ready
+		if item.Status == state.StatusScheduled {
+			return false
 		}
-		eta, err := time.Parse(time.RFC3339, item.ETA)
-		if err != nil {
-			return true // unparseable ETA = treat as ready
-		}
-		return eta.Before(time.Now().Add(4 * time.Hour))
+		return true
 	}
 }
 
