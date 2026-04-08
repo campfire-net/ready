@@ -98,7 +98,12 @@ func requireConventionServer(ctx context.Context, client *protocol.Client) {
 	var opts []conventionserver.ServerOption
 	if syncCfg, err := rdconfig.LoadSyncConfig(projectDir); err == nil && syncCfg != nil {
 		if syncCfg.InboxCampfireID != "" {
-			opts = append(opts, conventionserver.WithInboxCampfireID(syncCfg.InboxCampfireID))
+			// Only enable inbox watcher if we're a member of the inbox campfire.
+			// Non-owner joiners are not members of the owner's inbox campfire, and
+			// attempting to validate membership would produce a confusing warning.
+			if m, err := client.GetMembership(syncCfg.InboxCampfireID); err == nil && m != nil {
+				opts = append(opts, conventionserver.WithInboxCampfireID(syncCfg.InboxCampfireID))
+			}
 		}
 		if syncCfg.SummaryCampfireID != "" {
 			opts = append(opts, conventionserver.WithSummaryCampfireID(syncCfg.SummaryCampfireID))
