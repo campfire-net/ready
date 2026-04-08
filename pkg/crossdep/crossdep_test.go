@@ -4,8 +4,12 @@ package crossdep_test
 //
 // Done conditions covered:
 // 5. item A in acme.backend deps on item B in acme.frontend; user is member
-//    of both → B's status shown
-// 6. item A deps on B; user is NOT a member → warning shown, A not blocked
+//    of both -> B's status shown
+// 6. item A deps on B; user is NOT a member -> warning shown, A not blocked
+// 7. ApplyBlocking: member of both, blocker non-terminal -> item blocked
+// 8. ApplyBlocking: member of both, blocker terminal -> item NOT blocked
+// 9. ApplyBlocking: alias resolution -> item blocked via named ref
+// 10. ApplyBlocking: not a member -> item NOT blocked
 
 import (
 	"encoding/json"
@@ -111,7 +115,7 @@ func TestResolveDeps_MemberOfBoth(t *testing.T) {
 		t.Fatal("backend-a01 not found after Derive")
 	}
 
-	// Item A must NOT be blocked (cross-campfire dep is non-blocking).
+	// Item A must NOT be blocked (cross-campfire dep is non-blocking in single-campfire Derive).
 	if itemA.Status == state.StatusBlocked {
 		t.Errorf("item A should not be blocked by cross-campfire dep, got %q", itemA.Status)
 	}
@@ -121,7 +125,7 @@ func TestResolveDeps_MemberOfBoth(t *testing.T) {
 		t.Fatal("expected CrossCampfireWarnings for cross-campfire dep")
 	}
 
-	// Set up alias: "acme.frontend" → frontendCampfire.
+	// Set up alias: "acme.frontend" -> frontendCampfire.
 	aliasDir := t.TempDir()
 	aliases := naming.NewAliasStore(aliasDir)
 	if err := aliases.Set("acme.frontend", frontendCampfire); err != nil {
@@ -496,6 +500,269 @@ func TestResolveDeps_LastSegmentFallbackDisabled(t *testing.T) {
 	}
 }
 
+// TestApplyBlocking_MemberOfBoth verifies that when the user is a member of
+// both campfires, ApplyBlocking resolves cross-campfire deps and blocks items
+// whose blocker is non-terminal.
+func TestApplyBlocking_MemberOfBoth(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(dir + "/store.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	ts := time.Now().UnixNano()
+
+	joinCampfire(t, s, backendCampfire)
+	joinCampfire(t, s, frontendCampfire)
+
+	// Item B in frontend campfire -- active (non-terminal).
+	addMsgToStore(t, s, frontendCampfire, "msg-b01", "work:create", map[string]interface{}{
+		"id": "frontend-b01", "title": "Frontend item B", "type": "task",
+		"for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts)
+
+	// Item A in backend campfire -- cross-campfire dep on B via campfire ID ref.
+	addMsgToStore(t, s, backendCampfire, "msg-a01", "work:create", map[string]interface{}{
+		"id": "backend-a01", "title": "Backend item A", "type": "task",
+		"for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts+200)
+	addMsgToStore(t, s, backendCampfire, "msg-block-cross", "work:block", map[string]interface{}{
+		"blocker_id":  frontendCampfire + ".frontend-b01",
+		"blocked_id":  "backend-a01",
+		"blocker_msg": "msg-b01",
+		"blocked_msg": "msg-a01",
+	}, []string{"msg-a01"}, ts+300)
+
+	var items []*state.Item
+	for _, cfID := range []string{backendCampfire, frontendCampfire} {
+		derived, err := state.DeriveFromStore(s, cfID)
+		if err != nil {
+			t.Fatalf("DeriveFromStore %s: %v", cfID[:8], err)
+		}
+		for _, item := range derived {
+			items = append(items, item)
+		}
+	}
+
+	var itemA *state.Item
+	for _, item := range items {
+		if item.ID == "backend-a01" {
+			itemA = item
+			break
+		}
+	}
+	if itemA == nil {
+		t.Fatal("backend-a01 not found")
+	}
+	if itemA.Status == state.StatusBlocked {
+		t.Error("item A should not be blocked before ApplyBlocking")
+	}
+
+	aliasDir := t.TempDir()
+	aliases := naming.NewAliasStore(aliasDir)
+
+	crossdep.ApplyBlocking(items, s, aliases)
+
+	if itemA.Status != state.StatusBlocked {
+		t.Errorf("expected item A status %q after ApplyBlocking, got %q", state.StatusBlocked, itemA.Status)
+	}
+	if len(itemA.BlockedBy) == 0 {
+		t.Fatal("expected BlockedBy to contain cross-campfire ref")
+	}
+	found := false
+	for _, b := range itemA.BlockedBy {
+		if strings.Contains(b, "frontend-b01") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected BlockedBy to reference frontend-b01, got: %v", itemA.BlockedBy)
+	}
+}
+
+// TestApplyBlocking_BlockerTerminal verifies that when the blocker is done,
+// ApplyBlocking does NOT block the item.
+func TestApplyBlocking_BlockerTerminal(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(dir + "/store.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	ts := time.Now().UnixNano()
+
+	joinCampfire(t, s, backendCampfire)
+	joinCampfire(t, s, frontendCampfire)
+
+	addMsgToStore(t, s, frontendCampfire, "msg-b01", "work:create", map[string]interface{}{
+		"id": "frontend-b01", "title": "Frontend item B", "type": "task",
+		"for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts)
+	addMsgToStore(t, s, frontendCampfire, "msg-b01-close", "work:close", map[string]interface{}{
+		"target":     "msg-b01",
+		"resolution": "done",
+		"reason":     "completed",
+	}, []string{"msg-b01"}, ts+100)
+
+	addMsgToStore(t, s, backendCampfire, "msg-a01", "work:create", map[string]interface{}{
+		"id": "backend-a01", "title": "Backend item A", "type": "task",
+		"for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts+200)
+	addMsgToStore(t, s, backendCampfire, "msg-block-cross", "work:block", map[string]interface{}{
+		"blocker_id":  frontendCampfire + ".frontend-b01",
+		"blocked_id":  "backend-a01",
+		"blocker_msg": "msg-b01",
+		"blocked_msg": "msg-a01",
+	}, []string{"msg-a01"}, ts+300)
+
+	var items []*state.Item
+	for _, cfID := range []string{backendCampfire, frontendCampfire} {
+		derived, err := state.DeriveFromStore(s, cfID)
+		if err != nil {
+			t.Fatalf("DeriveFromStore: %v", err)
+		}
+		for _, item := range derived {
+			items = append(items, item)
+		}
+	}
+
+	aliasDir := t.TempDir()
+	aliases := naming.NewAliasStore(aliasDir)
+	crossdep.ApplyBlocking(items, s, aliases)
+
+	var itemA *state.Item
+	for _, item := range items {
+		if item.ID == "backend-a01" {
+			itemA = item
+			break
+		}
+	}
+	if itemA == nil {
+		t.Fatal("backend-a01 not found")
+	}
+	if itemA.Status == state.StatusBlocked {
+		t.Errorf("item A should NOT be blocked when blocker is terminal, got status %q", itemA.Status)
+	}
+}
+
+// TestApplyBlocking_AliasResolution verifies that ApplyBlocking resolves
+// named cross-campfire refs via aliases.
+func TestApplyBlocking_AliasResolution(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(dir + "/store.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	ts := time.Now().UnixNano()
+
+	joinCampfire(t, s, backendCampfire)
+	joinCampfire(t, s, frontendCampfire)
+
+	addMsgToStore(t, s, frontendCampfire, "msg-b01", "work:create", map[string]interface{}{
+		"id": "frontend-b01", "title": "Frontend item B", "type": "task",
+		"for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts)
+
+	addMsgToStore(t, s, backendCampfire, "msg-a01", "work:create", map[string]interface{}{
+		"id": "backend-a01", "title": "Backend item A", "type": "task",
+		"for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts+200)
+	addMsgToStore(t, s, backendCampfire, "msg-block-cross", "work:block", map[string]interface{}{
+		"blocker_id":  "acme.frontend.frontend-b01",
+		"blocked_id":  "backend-a01",
+		"blocker_msg": "msg-b01",
+		"blocked_msg": "msg-a01",
+	}, []string{"msg-a01"}, ts+300)
+
+	var items []*state.Item
+	for _, cfID := range []string{backendCampfire, frontendCampfire} {
+		derived, err := state.DeriveFromStore(s, cfID)
+		if err != nil {
+			t.Fatalf("DeriveFromStore: %v", err)
+		}
+		for _, item := range derived {
+			items = append(items, item)
+		}
+	}
+
+	aliasDir := t.TempDir()
+	aliases := naming.NewAliasStore(aliasDir)
+	if err := aliases.Set("acme.frontend", frontendCampfire); err != nil {
+		t.Fatalf("setting alias: %v", err)
+	}
+
+	crossdep.ApplyBlocking(items, s, aliases)
+
+	var itemA *state.Item
+	for _, item := range items {
+		if item.ID == "backend-a01" {
+			itemA = item
+			break
+		}
+	}
+	if itemA == nil {
+		t.Fatal("backend-a01 not found")
+	}
+	if itemA.Status != state.StatusBlocked {
+		t.Errorf("expected item A to be blocked via alias resolution, got status %q", itemA.Status)
+	}
+}
+
+// TestApplyBlocking_NotMember verifies that when the user is NOT a member of
+// the blocker's campfire, ApplyBlocking does NOT block the item.
+func TestApplyBlocking_NotMember(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(dir + "/store.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	ts := time.Now().UnixNano()
+
+	joinCampfire(t, s, backendCampfire)
+
+	addMsgToStore(t, s, backendCampfire, "msg-a01", "work:create", map[string]interface{}{
+		"id": "backend-a01", "title": "Backend item A", "type": "task",
+		"for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts)
+	addMsgToStore(t, s, backendCampfire, "msg-block-cross", "work:block", map[string]interface{}{
+		"blocker_id":  frontendCampfire + ".frontend-b01",
+		"blocked_id":  "backend-a01",
+		"blocker_msg": "msg-b01",
+		"blocked_msg": "msg-a01",
+	}, []string{"msg-a01"}, ts+100)
+
+	var items []*state.Item
+	derived, _ := state.DeriveFromStore(s, backendCampfire)
+	for _, item := range derived {
+		items = append(items, item)
+	}
+
+	aliasDir := t.TempDir()
+	aliases := naming.NewAliasStore(aliasDir)
+	crossdep.ApplyBlocking(items, s, aliases)
+
+	var itemA *state.Item
+	for _, item := range items {
+		if item.ID == "backend-a01" {
+			itemA = item
+			break
+		}
+	}
+	if itemA == nil {
+		t.Fatal("backend-a01 not found")
+	}
+	if itemA.Status == state.StatusBlocked {
+		t.Error("item A should NOT be blocked when not a member of blocker's campfire")
+	}
+}
+
 // TestShortID verifies that shortID returns the full string for short IDs
 // and truncates to 12 chars with "..." for longer ones.
 func TestShortID(t *testing.T) {
@@ -504,8 +771,8 @@ func TestShortID(t *testing.T) {
 		want  string
 	}{
 		{"abc", "abc"},
-		{"1234567890ab", "1234567890ab"},  // exactly 12 — no truncation
-		{"1234567890abc", "1234567890ab..."}, // 13 chars — truncate
+		{"1234567890ab", "1234567890ab"},     // exactly 12 -- no truncation
+		{"1234567890abc", "1234567890ab..."}, // 13 chars -- truncate
 		{"", ""},
 		{backendCampfire, backendCampfire[:12] + "..."},
 	}
