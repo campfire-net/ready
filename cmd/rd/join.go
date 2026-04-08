@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/beacon"
+	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/naming"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/spf13/cobra"
@@ -83,6 +86,12 @@ EXAMPLES
 		}
 
 		nameOrID := args[0]
+		force, _ := cmd.Flags().GetBool("force")
+
+		// Detect invite token (rdx1_ prefix) — takes a completely different path.
+		if strings.HasPrefix(nameOrID, inviteTokenPrefix) {
+			return joinViaInviteToken(nameOrID, force)
+		}
 
 		// TOFU pinning: validate beacon root before resolving, but do not save yet.
 		// If the join fails, we must roll back to avoid pinning an untrusted root.
@@ -575,11 +584,85 @@ func bootstrapJoinedProject(projectDir, campfireID string, client *protocol.Clie
 	return nil
 }
 
+// joinViaInviteToken handles the invite-token join path. It decodes the token,
+// writes the pre-provisioned identity to CF_HOME/identity.json, then performs
+// the normal join + bootstrap flow using that identity.
+func joinViaInviteToken(token string, force bool) error {
+	payload, err := decodeInviteToken(token)
+	if err != nil {
+		return fmt.Errorf("invalid invite token: %w", err)
+	}
+
+	// Reconstruct the ed25519 private key from the seed.
+	seed, err := hex.DecodeString(payload.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("decoding private key from token: %w", err)
+	}
+	privKey := ed25519.NewKeyFromSeed(seed)
+	pubKey := privKey.Public().(ed25519.PublicKey)
+
+	// Write the pre-provisioned identity to CF_HOME.
+	cfHome := CFHome()
+	idPath := filepath.Join(cfHome, "identity.json")
+
+	if identity.Exists(idPath) && !force {
+		return fmt.Errorf("identity already exists at %s — use --force to overwrite", idPath)
+	}
+
+	id := &identity.Identity{
+		PublicKey:  pubKey,
+		PrivateKey: privKey,
+		CreatedAt:  time.Now().UnixNano(),
+	}
+	if err := id.Save(idPath); err != nil {
+		return fmt.Errorf("writing invite identity: %w", err)
+	}
+
+	// Reset the cached protocol client so it picks up the new identity.
+	protocolClient = nil
+
+	client, err := requireClient()
+	if err != nil {
+		return fmt.Errorf("initializing client with invite identity: %w", err)
+	}
+
+	campfireID := payload.CampfireID
+
+	// Attempt to join the campfire.
+	_, err = client.Join(protocol.JoinRequest{
+		CampfireID: campfireID,
+		Transport:  protocol.FilesystemTransport{Dir: resolveTransportDir(campfireID)},
+	})
+	if err != nil {
+		return fmt.Errorf("joining campfire via invite token: %w", err)
+	}
+
+	// Bootstrap local project state and auto-sync items.
+	cwd, cwdErr := os.Getwd()
+	if cwdErr == nil {
+		if bootstrapErr := bootstrapJoinedProject(cwd, campfireID, client); bootstrapErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not bootstrap project state: %v\n", bootstrapErr)
+		}
+	}
+
+	// Calculate remaining TTL for display.
+	remaining := time.Until(time.Unix(payload.ExpiresAt, 0))
+	remainingStr := remaining.Truncate(time.Minute).String()
+
+	displayID := campfireID
+	if len(displayID) > 12 {
+		displayID = displayID[:12] + "..."
+	}
+	fmt.Fprintf(os.Stdout, "joined %s via invite token (expires in %s)\n", displayID, remainingStr)
+	return nil
+}
+
 func init() {
 	joinCmd.Flags().Duration("timeout", 5*time.Minute, "how long to wait for admission grant")
 	joinCmd.Flags().String("role", "member", "role to request: member or agent")
 	joinCmd.Flags().String("root", "", "beacon root campfire ID to use for TOFU pinning")
 	joinCmd.Flags().Bool("reset-beacon-root", false, "clear the pinned beacon root")
 	joinCmd.Flags().Bool("confirm", false, "confirm beacon root deviation without prompting")
+	joinCmd.Flags().Bool("force", false, "overwrite existing identity when joining via invite token")
 	rootCmd.AddCommand(joinCmd)
 }
