@@ -82,8 +82,9 @@ EXAMPLES
 
 		nameOrID := args[0]
 
-		// TOFU pinning: check beacon root before resolving.
-		if err := applyBeaconRootTOFU(CFHome(), cfg, beaconRootFlag, confirm); err != nil {
+		// TOFU pinning: validate beacon root before resolving, but do not save yet.
+		// If the join fails, we must roll back to avoid pinning an untrusted root.
+		if err := validateBeaconRootTOFU(CFHome(), cfg, beaconRootFlag, confirm); err != nil {
 			return err
 		}
 
@@ -104,6 +105,17 @@ EXAMPLES
 			Transport:  protocol.FilesystemTransport{Dir: resolveTransportDir(campfireID)},
 		})
 		if err == nil {
+			// Join succeeded. Now pin the beacon root if needed (TOFU).
+			if beaconRootFlag != "" && cfg.BeaconRoot == "" {
+				// First use of a non-default beacon root — pin it now that join succeeded.
+				cfg.BeaconRoot = beaconRootFlag
+				if err := rdconfig.Save(CFHome(), cfg); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: could not pin beacon root after successful join: %v\n", err)
+				} else {
+					fmt.Fprintf(os.Stderr, "pinned beacon root: %s...\n", beaconRootFlag[:minInt(12, len(beaconRootFlag))])
+				}
+			}
+
 			displayID := campfireID
 			if len(displayID) > 12 {
 				displayID = displayID[:12] + "..."
@@ -178,9 +190,65 @@ func resolveTransportDir(campfireID string) string {
 	return filepath.Join(localCampfireBaseDir(), campfireID)
 }
 
+// validateBeaconRootTOFU validates the TOFU beacon root pinning logic without saving.
+// cfg is read but NOT modified; validation only.
+// Returns an error if the user aborts or the root mismatches without --confirm.
+//
+// Paths:
+//   - beaconRoot empty: no-op
+//   - cfg.BeaconRoot empty (first use): warn, prompt if interactive and !confirm
+//   - cfg.BeaconRoot matches beaconRoot: no-op
+//   - cfg.BeaconRoot mismatches beaconRoot + !confirm: error
+//   - cfg.BeaconRoot mismatches beaconRoot + confirm: proceed (no error)
+//
+// Note: The actual pin save is deferred to AFTER a successful join (see joinCmd.RunE).
+// This prevents pinning an untrusted beacon root if the join fails (ready-f43).
+func validateBeaconRootTOFU(cfHome string, cfg *rdconfig.Config, beaconRoot string, confirm bool) error {
+	if beaconRoot == "" {
+		return nil
+	}
+
+	if cfg.BeaconRoot == "" {
+		// First use of a non-default beacon root — warn and prompt.
+		fmt.Fprintf(os.Stderr, "warning: first use of non-default beacon root %s...\n", beaconRoot[:minInt(12, len(beaconRoot))])
+		fmt.Fprintf(os.Stderr, "  this root will be pinned (TOFU) in the config after a successful join\n")
+		fmt.Fprintf(os.Stderr, "  future joins using a different root will require --confirm\n")
+
+		if !confirm {
+			if !isInteractive() {
+				fmt.Fprintf(os.Stderr, "  non-interactive: beacon root will be pinned automatically after join\n")
+			} else {
+				fmt.Fprint(os.Stderr, "proceed? [Y/n] ")
+				scanner := bufio.NewScanner(os.Stdin)
+				if scanner.Scan() {
+					answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+					if answer == "n" || answer == "no" {
+						return fmt.Errorf("aborted: beacon root not pinned")
+					}
+				}
+			}
+		}
+		return nil
+	}
+
+	if cfg.BeaconRoot != beaconRoot {
+		// Deviation from pinned root — warn, require confirmation.
+		fmt.Fprintf(os.Stderr, "warning: beacon root mismatch\n")
+		fmt.Fprintf(os.Stderr, "  pinned:    %s...\n", cfg.BeaconRoot[:minInt(12, len(cfg.BeaconRoot))])
+		fmt.Fprintf(os.Stderr, "  requested: %s...\n", beaconRoot[:minInt(12, len(beaconRoot))])
+		if !confirm {
+			return fmt.Errorf("beacon root does not match pinned root — pass --confirm to proceed or use 'rd join --reset-beacon-root' to re-pin")
+		}
+	}
+	return nil
+}
+
 // applyBeaconRootTOFU applies the TOFU beacon root pinning logic.
 // cfg is read and updated in-place; if a pin is saved, cfHome is used for rdconfig.Save.
 // Returns an error if the user aborts or the root mismatches without --confirm.
+//
+// DEPRECATED: Use validateBeaconRootTOFU + manual save instead to avoid pinning on failed join.
+// This function is kept for backwards compatibility with tests.
 //
 // Paths:
 //   - beaconRoot empty: no-op

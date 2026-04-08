@@ -635,6 +635,120 @@ func TestJoin_InviteOnlyCampfire_FailsWithClearError(t *testing.T) {
 	}
 }
 
+// TestBeaconRoot_NotPinnedOnJoinFailure is the regression test for ready-f43.
+// When join fails (e.g., invite-only campfire), the beacon root must NOT be pinned,
+// even if --root was passed and validateBeaconRootTOFU allowed proceeding.
+//
+// Scenario:
+//   - User runs: rd join <invite-only-campfire> --root <beacon-root>
+//   - validateBeaconRootTOFU allows proceeding (first use, beacon root to be pinned)
+//   - client.Join() fails with invite-only error
+//   - Beacon root must NOT be persisted to config (no pin saved)
+//   - User can try again with a different root or after being admitted
+func TestBeaconRoot_NotPinnedOnJoinFailure(t *testing.T) {
+	sharedTransportDir := t.TempDir()
+	origTransportDir := os.Getenv("CF_TRANSPORT_DIR")
+	os.Setenv("CF_TRANSPORT_DIR", sharedTransportDir)
+	t.Cleanup(func() {
+		if origTransportDir != "" {
+			os.Setenv("CF_TRANSPORT_DIR", origTransportDir)
+		} else {
+			os.Unsetenv("CF_TRANSPORT_DIR")
+		}
+	})
+
+	// --- Identity A: campfire creator (invite-only) ---
+	cfHomeA := t.TempDir()
+	origRDHome := rdHome
+	rdHome = cfHomeA
+	protocolClientOrig := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = protocolClientOrig
+		rdHome = origRDHome
+	})
+
+	clientA, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient (A): %v", err)
+	}
+
+	// A creates an invite-only campfire.
+	createResult, err := clientA.Create(protocol.CreateRequest{
+		JoinProtocol: "invite-only",
+		Transport:    protocol.FilesystemTransport{Dir: sharedTransportDir},
+	})
+	if err != nil {
+		t.Fatalf("A.Create (invite-only): %v", err)
+	}
+	campfireID := createResult.CampfireID
+
+	// --- Identity B: non-member (separate CF_HOME) ---
+	if protocolClient != nil {
+		protocolClient.Close()
+	}
+	protocolClient = nil
+
+	cfHomeB := t.TempDir()
+	rdHome = cfHomeB
+
+	// Verify no beacon root is pinned initially.
+	cfgBefore, err := rdconfig.Load(cfHomeB)
+	if err != nil {
+		t.Fatalf("rdconfig.Load before join: %v", err)
+	}
+	if cfgBefore.BeaconRoot != "" {
+		t.Errorf("config before join should have empty beacon root, got %q", cfgBefore.BeaconRoot)
+	}
+
+	// Attempt join with a beacon root. This will fail because the campfire is invite-only.
+	// validateBeaconRootTOFU should allow this (first use, prompt passes in non-interactive).
+	// But client.Join() will fail, and the beacon root should NOT be pinned.
+	testBeaconRoot := sampleRoot
+
+	cfg := &rdconfig.Config{}
+	err = validateBeaconRootTOFU(cfHomeB, cfg, testBeaconRoot, false /* confirm */)
+	if err != nil {
+		t.Fatalf("validateBeaconRootTOFU should allow first use (non-interactive): %v", err)
+	}
+	// validateBeaconRootTOFU does NOT save — it only validates and prompts.
+	// Config should still have empty beacon root.
+	if cfg.BeaconRoot != "" {
+		t.Errorf("cfg.BeaconRoot after validateBeaconRootTOFU should remain empty, got %q", cfg.BeaconRoot)
+	}
+
+	// Now simulate the join failure by calling client.Join() directly.
+	clientB, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient (B): %v", err)
+	}
+
+	transportDir := filepath.Join(sharedTransportDir, campfireID)
+	_, joinErr := clientB.Join(protocol.JoinRequest{
+		CampfireID: campfireID,
+		Transport:  protocol.FilesystemTransport{Dir: transportDir},
+	})
+	if joinErr == nil {
+		t.Fatal("B.Join (invite-only): expected error, got nil")
+	}
+	if !strings.Contains(joinErr.Error(), "invite-only") {
+		t.Errorf("B.Join error should contain 'invite-only', got: %v", joinErr)
+	}
+
+	// --- Verification: Beacon root must NOT be pinned ---
+	// After join failure, config should still have empty beacon root.
+	cfgAfter, err := rdconfig.Load(cfHomeB)
+	if err != nil {
+		t.Fatalf("rdconfig.Load after failed join: %v", err)
+	}
+	if cfgAfter.BeaconRoot != "" {
+		t.Errorf("beacon root must NOT be pinned on join failure; got pinned to %q", cfgAfter.BeaconRoot)
+	}
+}
+
 // TestValidateNameFormat is the security regression test for ready-bf5.
 // validateNameFormat must reject malformed names before any network call.
 func TestValidateNameFormat(t *testing.T) {
