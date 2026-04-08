@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/campfire-net/campfire/pkg/protocol"
+	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/spf13/cobra"
 
 	rdSync "github.com/campfire-net/ready/pkg/sync"
@@ -189,6 +191,51 @@ Use --json for machine-readable output.`,
 		fmt.Println()
 		return nil
 	},
+}
+
+// clientLister adapts protocol.Client to the rdSync.MessageLister interface.
+// It uses client.Read() which fetches messages through the transport layer
+// (filesystem or remote), ensuring campfire messages are accessible even if they
+// predate the local join (ready-5cd).
+type clientLister struct {
+	client *protocol.Client
+}
+
+func (cl *clientLister) ListMessages(campfireID string, afterTimestamp int64, filter ...store.MessageFilter) ([]store.MessageRecord, error) {
+	// Extract tags from filter if provided.
+	var tags []string
+	if len(filter) > 0 && len(filter[0].Tags) > 0 {
+		tags = filter[0].Tags
+	}
+
+	// Read all messages with the requested tags. For hosted campfires this
+	// fetches from the remote server; for filesystem transport it reads the
+	// local campfire directory.
+	result, err := cl.client.Read(protocol.ReadRequest{
+		CampfireID: campfireID,
+		Tags:       tags,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reading campfire messages: %w", err)
+	}
+
+	// Convert protocol.Message to store.MessageRecord and apply timestamp filter.
+	var records []store.MessageRecord
+	for _, msg := range result.Messages {
+		if afterTimestamp > 0 && msg.Timestamp <= afterTimestamp {
+			continue
+		}
+		records = append(records, store.MessageRecord{
+			ID:         msg.ID,
+			CampfireID: campfireID,
+			Timestamp:  msg.Timestamp,
+			ReceivedAt: msg.Timestamp,
+			Payload:    msg.Payload,
+			Tags:       msg.Tags,
+			Sender:     msg.Sender,
+		})
+	}
+	return records, nil
 }
 
 func init() {
