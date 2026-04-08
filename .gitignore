@@ -14,3 +14,8 @@ CLAUDE.md
 # Internal docs
 docs/migration-brief.md
 docs/resonant/
+
+# Local state (not committed)
+.cf/
+.ready/pending.jsonl
+cover.out
