@@ -41,26 +41,50 @@ var depAddCmd = &cobra.Command{
 		blockedArg := args[0]
 		blockerArg := args[1]
 
-		// Detect cross-campfire refs and reject them with a clear error.
-		// Cross-project deps (e.g. "acme.frontend.item-abc") are not supported
-		// by rd dep add/remove. Use rd join to establish cross-campfire membership
-		// and rely on cross-campfire warning resolution instead.
+		// Reject explicitly dotted cross-campfire refs for the blocked item.
+		// The blocked item must always be local to the current project.
 		if state.IsCrossCampfireRef(blockedArg) {
-			return fmt.Errorf("cross-project deps not supported: %q looks like a cross-campfire reference (use rd join to establish membership)", blockedArg)
-		}
-		if state.IsCrossCampfireRef(blockerArg) {
-			return fmt.Errorf("cross-project deps not supported: %q looks like a cross-campfire reference (use rd join to establish membership)", blockerArg)
+			return fmt.Errorf("cross-project deps not supported for blocked item: %q looks like a cross-campfire reference", blockedArg)
 		}
 
 		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
-			// Resolve both items.
+			// Resolve blocked item (must be local).
 			blocked, err := byIDFromJSONLOrStore(s, blockedArg)
 			if err != nil {
 				return fmt.Errorf("resolving blocked item %q: %w", blockedArg, err)
 			}
-			blocker, err := byIDFromJSONLOrStore(s, blockerArg)
-			if err != nil {
-				return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
+
+			// Resolve blocker: try local first, then cross-campfire.
+			// If the user passes a dotted cross-campfire ref, search all campfires directly.
+			// If they pass a plain ID, try local first, then all campfires in the store.
+			var blocker *state.Item
+			isCrossRef := state.IsCrossCampfireRef(blockerArg)
+
+			if !isCrossRef {
+				// Plain ID -- try local resolution first.
+				blocker, err = byIDFromJSONLOrStore(s, blockerArg)
+			}
+
+			if isCrossRef || (err != nil && blocker == nil) {
+				// Not found locally (or explicit cross-ref) -- search all campfires.
+				blocker, err = resolveAcrossCampfires(s, blockerArg)
+				if err != nil {
+					if isCrossRef {
+						return fmt.Errorf("resolving cross-campfire blocker %q: %w (are you a member of that campfire?)", blockerArg, err)
+					}
+					return fmt.Errorf("resolving blocker item %q: %w", blockerArg, err)
+				}
+			}
+
+			// Determine if this is a cross-campfire dep by comparing campfire IDs.
+			blockerID := blocker.ID
+			isCrossDep := blocked.CampfireID != "" && blocker.CampfireID != "" &&
+				blocked.CampfireID != blocker.CampfireID
+
+			if isCrossDep {
+				// Use cross-campfire ref format: <campfireID>.<itemID>
+				// This is recognized by IsCrossCampfireRef and parsed by ParseCrossCampfireRef.
+				blockerID = blocker.CampfireID + "." + blocker.ID
 			}
 
 			exec, _, err := requireExecutor()
@@ -73,7 +97,7 @@ var depAddCmd = &cobra.Command{
 			}
 
 			argsMap := map[string]any{
-				"blocker_id":  blocker.ID,
+				"blocker_id":  blockerID,
 				"blocked_id":  blocked.ID,
 				"blocker_msg": blocker.MsgID,
 				"blocked_msg": blocked.MsgID,
@@ -88,15 +112,20 @@ var depAddCmd = &cobra.Command{
 				out := map[string]interface{}{
 					"msg_id":      msg.ID,
 					"campfire_id": campfireID,
-					"blocker_id":  blocker.ID,
+					"blocker_id":  blockerID,
 					"blocked_id":  blocked.ID,
+					"cross":       isCrossDep,
 				}
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(out)
 			}
 
-			fmt.Printf("blocked: %s is now blocked by %s\n", blocked.ID, blocker.ID)
+			if isCrossDep {
+				fmt.Printf("blocked: %s is now blocked by %s [cross]\n", blocked.ID, blockerID)
+			} else {
+				fmt.Printf("blocked: %s is now blocked by %s\n", blocked.ID, blocker.ID)
+			}
 			return nil
 		})
 	},
@@ -278,9 +307,18 @@ func printDepTree(item *state.Item, items map[string]*state.Item, prefix string,
 	visited[item.ID] = true
 
 	// Format: <id>  [<status>]  <title>  (blocked by: X, Y)
+	// Cross-campfire blockers are annotated with [cross].
 	line := fmt.Sprintf("%s  [%s]  %s", item.ID, item.Status, item.Title)
 	if len(item.BlockedBy) > 0 {
-		line += fmt.Sprintf("  (blocked by: %s)", strings.Join(item.BlockedBy, ", "))
+		blockerStrs := make([]string, len(item.BlockedBy))
+		for i, b := range item.BlockedBy {
+			if state.IsCrossCampfireRef(b) {
+				blockerStrs[i] = b + " [cross]"
+			} else {
+				blockerStrs[i] = b
+			}
+		}
+		line += fmt.Sprintf("  (blocked by: %s)", strings.Join(blockerStrs, ", "))
 	}
 	fmt.Println(prefix + line)
 
@@ -312,6 +350,53 @@ func printDepTree(item *state.Item, items map[string]*state.Item, prefix string,
 	}
 
 	delete(visited, item.ID)
+}
+
+// resolveAcrossCampfires resolves an item ID by searching all campfires the
+// user is a member of. This supports cross-campfire dep add when the blocker
+// is in a different project campfire.
+func resolveAcrossCampfires(s store.Store, itemID string) (*state.Item, error) {
+	memberships, err := s.ListMemberships()
+	if err != nil {
+		return nil, fmt.Errorf("listing memberships: %w", err)
+	}
+
+	// First pass: exact match across all campfires.
+	for _, m := range memberships {
+		items, err := state.DeriveFromStore(s, m.CampfireID)
+		if err != nil {
+			continue
+		}
+		if item, ok := items[itemID]; ok {
+			return item, nil
+		}
+	}
+
+	// Second pass: prefix match.
+	var matches []*state.Item
+	for _, m := range memberships {
+		items, err := state.DeriveFromStore(s, m.CampfireID)
+		if err != nil {
+			continue
+		}
+		for id, item := range items {
+			if strings.HasPrefix(id, itemID) {
+				matches = append(matches, item)
+			}
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("item %q not found in any campfire", itemID)
+	case 1:
+		return matches[0], nil
+	default:
+		ids := make([]string, len(matches))
+		for i, m := range matches {
+			ids[i] = m.ID
+		}
+		return nil, fmt.Errorf("prefix %q is ambiguous: matches %s", itemID, strings.Join(ids, ", "))
+	}
 }
 
 // findBlockMessage scans all campfire messages for a work:block message

@@ -10,11 +10,13 @@ import (
 
 	"github.com/campfire-net/campfire/pkg/convention"
 	"github.com/campfire-net/campfire/pkg/identity"
+	"github.com/campfire-net/campfire/pkg/naming"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/conventionserver"
+	"github.com/campfire-net/ready/pkg/crossdep"
 	"github.com/campfire-net/ready/pkg/declarations"
 	"github.com/campfire-net/ready/pkg/provenance"
 	"github.com/campfire-net/ready/pkg/rdconfig"
@@ -340,7 +342,17 @@ func allItemsFromJSONLOrStore(s store.Store) ([]*state.Item, error) {
 		campfireID, _, _ := projectRoot()
 		return resolve.AllItemsFromJSONL(path, campfireID)
 	}
-	return resolve.AllItems(s)
+	items, err := resolve.AllItems(s)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply cross-campfire blocking: resolve cross-campfire deps and
+	// mark items as blocked when the blocker is non-terminal.
+	aliases := naming.NewAliasStore(CFHome())
+	crossdep.ApplyBlocking(items, s, aliases)
+
+	return items, nil
 }
 
 // byIDFromJSONLOrStore resolves an item by ID, preferring JSONL when available.
