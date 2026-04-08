@@ -223,7 +223,7 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 		_, closeErr := exec.Execute(ctx, closeDecl, campfireID, map[string]any{
 			"target":     item.MsgID,
 			"resolution": "done",
-			"reason":     fmt.Sprintf("admitted as %s (role-grant: %s)", grantRole, grantMsgID[:12]+"..."),
+			"reason":     fmt.Sprintf("admitted as %s (role-grant: %s)", grantRole, truncateID(grantMsgID, 12)),
 		})
 		if closeErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not close join-request item: %v\n", closeErr)
@@ -234,7 +234,7 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 	if len(displayKey) > 12 {
 		displayKey = displayKey[:12] + "..."
 	}
-	fmt.Fprintf(os.Stdout, "admitted %s as %s (role-grant: %s)\n", displayKey, role, grantMsgID[:12]+"...")
+	fmt.Fprintf(os.Stdout, "admitted %s as %s (role-grant: %s)\n", displayKey, role, truncateID(grantMsgID, 12))
 
 	_ = agentID // used via requireAgentAndStore, may be needed for future audit
 	return nil
