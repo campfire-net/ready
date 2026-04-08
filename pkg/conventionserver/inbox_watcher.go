@@ -213,10 +213,10 @@ func (r *joinRateLimiter) Allow(pubkey string) bool {
 	return true
 }
 
-// isHexString returns true if s consists entirely of lowercase hex characters.
+// isHexString returns true if s consists entirely of hex characters (0-9, a-f, A-F).
 func isHexString(s string) bool {
 	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
 			return false
 		}
 	}

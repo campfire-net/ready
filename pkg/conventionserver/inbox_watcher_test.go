@@ -12,6 +12,64 @@ import (
 	"github.com/campfire-net/campfire/pkg/protocol"
 )
 
+// --- isHexString tests ---
+
+func TestIsHexString_ValidLowercaseHex(t *testing.T) {
+	cases := []string{
+		"0123456789abcdef",
+		"aaaaaaaaaaaaaaaa",
+		"0000000000000000",
+		"abcdef1234567890",
+	}
+	for _, s := range cases {
+		if !isHexString(s) {
+			t.Errorf("isHexString(%q) = false, want true", s)
+		}
+	}
+}
+
+func TestIsHexString_ValidUppercaseHex(t *testing.T) {
+	cases := []string{
+		"0123456789ABCDEF",
+		"AAAAAAAAAAAAAAAA",
+		"0000000000000000",
+		"ABCDEF1234567890",
+	}
+	for _, s := range cases {
+		if !isHexString(s) {
+			t.Errorf("isHexString(%q) = false, want true", s)
+		}
+	}
+}
+
+func TestIsHexString_ValidMixedCaseHex(t *testing.T) {
+	cases := []string{
+		"0123456789AbCdEf",
+		"AaBbCcDdEeFf0011",
+		"aBcDeF1234567890",
+	}
+	for _, s := range cases {
+		if !isHexString(s) {
+			t.Errorf("isHexString(%q) = false, want true", s)
+		}
+	}
+}
+
+func TestIsHexString_InvalidNonHexChars(t *testing.T) {
+	cases := []string{
+		"gggggggggggggggg", // non-hex chars
+		"0123456789abcdeG", // G is not hex
+		"0123456789ABCDEG", // G is not hex
+		"0x1234",           // has '0x' prefix
+		"12 34 56 78",      // has spaces
+	}
+	for _, s := range cases {
+		if isHexString(s) {
+			t.Errorf("isHexString(%q) = true, want false", s)
+		}
+	}
+}
+
 // --- Rate limiter tests ---
 
 func TestJoinRateLimiter_AllowsUpToMax(t *testing.T) {
@@ -313,7 +371,6 @@ func TestInboxWatcher_InvalidPubkeyRejected(t *testing.T) {
 	}{
 		{"too short", "abcdef1234"},
 		{"non-hex chars", "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"},
-		{"uppercase", "ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890AB"},
 		{"empty pubkey", ""},
 	}
 	for _, tc := range cases {
@@ -340,6 +397,114 @@ func TestInboxWatcher_InvalidPubkeyRejected(t *testing.T) {
 				t.Fatalf("expected error for invalid pubkey %q, got nil", tc.pubkey)
 			}
 		})
+	}
+}
+
+// TestInboxWatcher_UppercaseHexPubkeyAccepted is a regression test verifying that
+// join requests with uppercase hex pubkeys are now accepted (not silently dropped).
+// Previously, isHexString only accepted lowercase hex [0-9a-f], causing valid
+// uppercase pubkeys [0-9A-F] to be rejected.
+func TestInboxWatcher_UppercaseHexPubkeyAccepted(t *testing.T) {
+	const inboxID = "inbox-campfire-id"
+	const projectID = "project-campfire-id"
+
+	// A valid 64-char hex string using uppercase letters.
+	const uppercasePubkey = "ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890"
+
+	payload := JoinRequestPayload{
+		Pubkey:        uppercasePubkey,
+		RequestedRole: "member",
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	fake := &fakeInboxClient{
+		msgs: []protocol.Message{
+			{
+				ID:      "msg-001",
+				Sender:  "sender-pubkey-001",
+				Payload: payloadBytes,
+				Tags:    []string{"work:join-request"},
+			},
+		},
+	}
+
+	w := &inboxWatcher{
+		reader:          fake,
+		inboxCampfire:   inboxID,
+		projectCampfire: projectID,
+		rateLimit:       newJoinRateLimiter(10),
+	}
+
+	w.poll(context.Background())
+
+	fake.mu.Lock()
+	sent := make([]protocol.SendRequest, len(fake.sent))
+	copy(sent, fake.sent)
+	fake.mu.Unlock()
+
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 materialized message, got %d", len(sent))
+	}
+
+	var materialized map[string]any
+	if err := json.Unmarshal(sent[0].Payload, &materialized); err != nil {
+		t.Fatalf("parsing materialized payload: %v", err)
+	}
+	if materialized["pubkey"] != uppercasePubkey {
+		t.Errorf("pubkey mismatch: got %v, want %v", materialized["pubkey"], uppercasePubkey)
+	}
+}
+
+// TestInboxWatcher_MixedCaseHexPubkeyAccepted is a regression test verifying that
+// join requests with mixed-case hex pubkeys are accepted.
+func TestInboxWatcher_MixedCaseHexPubkeyAccepted(t *testing.T) {
+	const inboxID = "inbox-campfire-id"
+	const projectID = "project-campfire-id"
+
+	// A valid 64-char hex string using mixed case.
+	const mixedCasePubkey = "AbCdEf1234567890AbCdEf1234567890AbCdEf1234567890AbCdEf1234567890"
+
+	payload := JoinRequestPayload{
+		Pubkey:        mixedCasePubkey,
+		RequestedRole: "member",
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	fake := &fakeInboxClient{
+		msgs: []protocol.Message{
+			{
+				ID:      "msg-001",
+				Sender:  "sender-pubkey-001",
+				Payload: payloadBytes,
+				Tags:    []string{"work:join-request"},
+			},
+		},
+	}
+
+	w := &inboxWatcher{
+		reader:          fake,
+		inboxCampfire:   inboxID,
+		projectCampfire: projectID,
+		rateLimit:       newJoinRateLimiter(10),
+	}
+
+	w.poll(context.Background())
+
+	fake.mu.Lock()
+	sent := make([]protocol.SendRequest, len(fake.sent))
+	copy(sent, fake.sent)
+	fake.mu.Unlock()
+
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 materialized message, got %d", len(sent))
+	}
+
+	var materialized map[string]any
+	if err := json.Unmarshal(sent[0].Payload, &materialized); err != nil {
+		t.Fatalf("parsing materialized payload: %v", err)
+	}
+	if materialized["pubkey"] != mixedCasePubkey {
+		t.Errorf("pubkey mismatch: got %v, want %v", materialized["pubkey"], mixedCasePubkey)
 	}
 }
 
