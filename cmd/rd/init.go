@@ -185,10 +185,22 @@ DURABILITY
 		}
 
 		// --- Evaluate durability and store sync config ---
-
-		syncCfg, durabilityWarnings, err := evaluateCampfireDurability(campfireID, confirm)
-		if err != nil {
-			return err
+		// Local filesystem campfires don't expire — skip durability evaluation.
+		// Hosted (remote) campfires still go through the full durability check.
+		var (
+			syncCfg            *rdconfig.SyncConfig
+			durabilityWarnings []string
+		)
+		if !isRemoteTransport() {
+			syncCfg = &rdconfig.SyncConfig{
+				CampfireID: campfireID,
+				Durability: &rdconfig.DurabilityAssessment{MeetsMinimum: true},
+			}
+		} else {
+			syncCfg, durabilityWarnings, err = evaluateCampfireDurability(campfireID, confirm)
+			if err != nil {
+				return err
+			}
 		}
 
 		// --- Register project name in beacon root if configured ---
@@ -417,6 +429,19 @@ func campfireTagsFromEnv() []string {
 		}
 	}
 	return tags
+}
+
+// isRemoteTransport reports whether the campfire home directory is configured
+// for a remote (hosted) transport. A remote transport is detected by the
+// presence of a remote.json file in the CF_HOME directory, which is written
+// by cf init when connecting to a hosted campfire server (e.g. getcampfire.dev).
+//
+// When no remote.json exists, the transport is local filesystem — messages are
+// stored as files and never expire, so durability evaluation is unnecessary.
+func isRemoteTransport() bool {
+	remotePath := filepath.Join(CFHome(), "remote.json")
+	_, err := os.Stat(remotePath)
+	return err == nil
 }
 
 // localCampfireBaseDir returns a persistent base directory for

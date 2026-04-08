@@ -488,6 +488,155 @@ func TestDC2_InitRegistersNamingAliasForProjectName(t *testing.T) {
 	}
 }
 
+// --- Local filesystem transport durability skip (ready-b56) ---
+
+// TestIsRemoteTransport_LocalFilesystemReturnsFalse verifies that isRemoteTransport
+// returns false when CF_HOME contains no remote.json file (local filesystem transport).
+func TestIsRemoteTransport_LocalFilesystemReturnsFalse(t *testing.T) {
+	cfHome := t.TempDir()
+
+	origRDHome := rdHome
+	rdHome = cfHome
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	// No remote.json in cfHome — this is a local filesystem campfire.
+	if isRemoteTransport() {
+		t.Error("isRemoteTransport() = true, want false when no remote.json exists")
+	}
+}
+
+// TestIsRemoteTransport_RemoteConfigReturnsTrueWhenFilePresent verifies that
+// isRemoteTransport returns true when a remote.json file exists in CF_HOME,
+// indicating a hosted (remote) transport is configured.
+func TestIsRemoteTransport_RemoteConfigReturnsTrueWhenFilePresent(t *testing.T) {
+	cfHome := t.TempDir()
+
+	origRDHome := rdHome
+	rdHome = cfHome
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	// Create a remote.json file to simulate a hosted campfire configuration.
+	remotePath := cfHome + "/remote.json"
+	if err := os.WriteFile(remotePath, []byte(`{"url":"https://mcp.example.com"}`), 0600); err != nil {
+		t.Fatalf("writing remote.json: %v", err)
+	}
+
+	if !isRemoteTransport() {
+		t.Error("isRemoteTransport() = false, want true when remote.json exists")
+	}
+}
+
+// TestLocalFilesystemCampfire_NoDurabilityWarning verifies that when CF_HOME has
+// no remote.json (local filesystem transport), the durability evaluation is skipped:
+// no warning is printed to stderr even without RD_CAMPFIRE_TAGS or RD_PROVENANCE,
+// and the returned SyncConfig has MeetsMinimum=true.
+//
+// This is the key behavior for ready-b56: local campfire files don't expire, so
+// durability warnings are irrelevant and confusing.
+func TestLocalFilesystemCampfire_NoDurabilityWarning(t *testing.T) {
+	cfHome := t.TempDir()
+
+	origRDHome := rdHome
+	rdHome = cfHome
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	// No remote.json — local filesystem transport.
+	// No RD_CAMPFIRE_TAGS or RD_PROVENANCE — would normally trigger warnings.
+	t.Setenv("RD_CAMPFIRE_TAGS", "")
+	t.Setenv("RD_PROVENANCE", "")
+
+	// Capture stderr to verify no warning is printed.
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = origStderr })
+
+	// Simulate what initCmd.RunE does: check local transport, skip durability.
+	var syncCfg *rdconfig.SyncConfig
+	if !isRemoteTransport() {
+		syncCfg = &rdconfig.SyncConfig{
+			CampfireID: fakeCampfireID,
+			Durability: &rdconfig.DurabilityAssessment{MeetsMinimum: true},
+		}
+	} else {
+		// Remote path — not exercised in this test.
+		syncCfg, _, _ = evaluateCampfireDurability(fakeCampfireID, true)
+	}
+
+	w.Close()
+	os.Stderr = origStderr
+
+	// Read any stderr output.
+	stderrBuf := make([]byte, 4096)
+	n, _ := r.Read(stderrBuf)
+	stderrOutput := string(stderrBuf[:n])
+
+	if strings.Contains(stderrOutput, "durability") || strings.Contains(stderrOutput, "warning") {
+		t.Errorf("durability warning printed for local filesystem campfire:\n%s", stderrOutput)
+	}
+
+	if syncCfg == nil {
+		t.Fatal("syncCfg is nil, want non-nil")
+	}
+	if syncCfg.Durability == nil {
+		t.Fatal("syncCfg.Durability is nil, want non-nil")
+	}
+	if !syncCfg.Durability.MeetsMinimum {
+		t.Error("MeetsMinimum = false, want true for local filesystem campfire")
+	}
+	if syncCfg.CampfireID != fakeCampfireID {
+		t.Errorf("CampfireID = %q, want %q", syncCfg.CampfireID, fakeCampfireID)
+	}
+}
+
+// TestRemoteCampfire_DurabilityWarningPreserved verifies that when CF_HOME has
+// a remote.json (hosted transport), the durability evaluation is still performed.
+// Without durability tags, the existing warning behavior is preserved.
+//
+// This ensures ready-b56 does NOT suppress warnings for hosted campfires.
+func TestRemoteCampfire_DurabilityWarningPreserved(t *testing.T) {
+	cfHome := t.TempDir()
+
+	origRDHome := rdHome
+	rdHome = cfHome
+	t.Cleanup(func() { rdHome = origRDHome })
+
+	// Create remote.json to simulate hosted transport.
+	remotePath := cfHome + "/remote.json"
+	if err := os.WriteFile(remotePath, []byte(`{"url":"https://mcp.example.com"}`), 0600); err != nil {
+		t.Fatalf("writing remote.json: %v", err)
+	}
+
+	// No durability tags — hosted campfire without durability info should warn.
+	t.Setenv("RD_CAMPFIRE_TAGS", "")
+	t.Setenv("RD_PROVENANCE", "")
+
+	// isRemoteTransport must return true.
+	if !isRemoteTransport() {
+		t.Fatal("isRemoteTransport() = false, want true (remote.json present)")
+	}
+
+	// evaluateCampfireDurability must NOT meet minimum for an untagged hosted campfire.
+	// Use confirm=true to skip interactive prompt.
+	syncCfg, warnings, err := evaluateCampfireDurability(fakeCampfireID, true)
+	if err != nil {
+		t.Fatalf("evaluateCampfireDurability: %v", err)
+	}
+	if syncCfg == nil {
+		t.Fatal("syncCfg is nil")
+	}
+	// Hosted campfire without tags does not meet minimum — warnings must exist.
+	if syncCfg.Durability.MeetsMinimum {
+		t.Error("MeetsMinimum = true, want false for hosted campfire with no durability tags")
+	}
+	if len(warnings) == 0 {
+		t.Error("expected warnings for hosted campfire with no durability tags, got none")
+	}
+}
+
 // --- DC3: Environment Variable Handling for Beacon Root ---
 
 // TestDC3_NoBeaconRootFromEnvironmentAndEmptyFlag verifies that when neither
