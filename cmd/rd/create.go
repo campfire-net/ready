@@ -14,6 +14,7 @@ import (
 	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/timeparse"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
 
@@ -237,7 +238,13 @@ Note: use --context for descriptions, not --description.`,
 				return enc.Encode(out)
 			}
 
-			fmt.Printf("created %s (msg: %s)\n", id, msg.ID)
+			// Pipe-friendly output: print bare ID when stdout is not a TTY so
+			// scripts can do: ITEM=$(rd create 'Title' --type task --priority p1)
+			if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+				fmt.Printf("created %s (msg: %s)\n", id, msg.ID)
+			} else {
+				fmt.Println(id)
+			}
 			return nil
 		})
 	},
