@@ -103,12 +103,22 @@ func TestStore_Ready_NearETAAppears(t *testing.T) {
 	}
 }
 
-func TestStore_Ready_FarETAExcluded(t *testing.T) {
+func TestStore_Ready_FarETAIncluded(t *testing.T) {
 	h := storetest.New(t)
 	h.Create("item-1", "Far ETA", "p2", storetest.WithETA(farETA()))
 	ready := h.Ready()
+	if !containsID(ready, "item-1") {
+		t.Error("expected item-1 with far ETA to appear in Ready (ETA is for sorting only)")
+	}
+}
+
+func TestStore_Ready_ScheduledExcluded(t *testing.T) {
+	h := storetest.New(t)
+	createMsgID := h.Create("item-1", "Scheduled Item", "p2", storetest.WithETA(nearETA()))
+	h.UpdateStatus(createMsgID, "scheduled")
+	ready := h.Ready()
 	if containsID(ready, "item-1") {
-		t.Error("expected item-1 with far ETA to be excluded from Ready")
+		t.Error("expected scheduled item-1 to be excluded from Ready")
 	}
 }
 
@@ -492,9 +502,9 @@ func TestStore_Ready_RealisticQueue(t *testing.T) {
 	if containsID(ready, "done-1") {
 		t.Error("done-1 should not be in Ready")
 	}
-	// Far ETA items must not appear
-	if containsID(ready, "far-eta-1") {
-		t.Error("far-eta-1 should not be in Ready")
+	// Far ETA items ARE ready (ETA is for sorting only)
+	if !containsID(ready, "far-eta-1") {
+		t.Error("far-eta-1 should be in Ready (ETA is for sorting only)")
 	}
 	// Near ETA, non-terminal, non-blocked items must appear
 	if !containsID(ready, "inbox-near-1") {

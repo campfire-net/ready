@@ -81,6 +81,7 @@ func TestViewReadyFilter_FromJSONL(t *testing.T) {
 
 	// ready-vr1 should be in ready (past ETA, not terminal, not blocked)
 	foundVR1 := false
+	foundVR2 := false
 	for _, item := range readyItems {
 		if item.ID == "ready-vr1" {
 			foundVR1 = true
@@ -89,13 +90,16 @@ func TestViewReadyFilter_FromJSONL(t *testing.T) {
 		if item.ID == "ready-vr3" {
 			t.Error("ready-vr3 (closed) should not appear in ready view")
 		}
-		// ready-vr2 should NOT appear (ETA 48h in future)
+		// ready-vr2 SHOULD appear (ETA is for sorting, not filtering)
 		if item.ID == "ready-vr2" {
-			t.Error("ready-vr2 (future ETA) should not appear in ready view")
+			foundVR2 = true
 		}
 	}
 	if !foundVR1 {
 		t.Error("ready-vr1 (past ETA, open) should appear in ready view")
+	}
+	if !foundVR2 {
+		t.Error("ready-vr2 (future ETA, open) should appear in ready view (ETA is for sorting only)")
 	}
 }
 

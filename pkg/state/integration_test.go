@@ -776,8 +776,8 @@ func TestIntegration_PriorityETAReadyVisibility(t *testing.T) {
 	if !views.ReadyFilter()(p0) {
 		t.Errorf("P0 item should be in ready view (eta ~1h from now)")
 	}
-	if views.ReadyFilter()(p3) {
-		t.Errorf("P3 item should NOT be in ready view (eta ~72h from now)")
+	if !views.ReadyFilter()(p3) {
+		t.Errorf("P3 item should be in ready view (ETA is for sorting, not filtering)")
 	}
 
 	// P3 should be overdue-safe (ETA ~72h from now)
@@ -803,13 +803,13 @@ func TestIntegration_ETAOverrideAffectsReadyView(t *testing.T) {
 		}, nil, ts),
 	}
 
-	// With far-future ETA: NOT ready
+	// With far-future ETA: still ready (ETA is for sorting, not filtering)
 	items := state.Derive(testCampfire, msgs)
-	if views.ReadyFilter()(items["ready-b01"]) {
-		t.Error("item with far-future ETA should not be ready")
+	if !views.ReadyFilter()(items["ready-b01"]) {
+		t.Error("item with far-future ETA should still be ready (ETA is for sorting only)")
 	}
 
-	// Update ETA to near-future: should become ready
+	// Update ETA to near-future: still ready
 	msgs = append(msgs, makeMsg("msg-u", []string{"work:update"}, map[string]interface{}{
 		"target": "msg-c",
 		"eta":    nearFuture,
