@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"testing"
 	"time"
 
@@ -37,7 +36,7 @@ func TestDerive_FulfillmentWithValidServerBinding(t *testing.T) {
 			"convention":   "work",
 			"operation":    "close",
 			"server_pubkey": boundServerPubkey,
-			"valid_from":   fmt.Sprintf("%d", ts/int64(time.Second)), // Unix seconds
+			"valid_from": ts/int64(time.Second), // Unix seconds
 		}, nil, bindingTime),
 		// Issue the close operation
 		makeMsg("msg-close-1", []string{"work:close"}, map[string]interface{}{
@@ -92,7 +91,7 @@ func TestDerive_FulfillmentRejectedWrongSender(t *testing.T) {
 			"convention":   "work",
 			"operation":    "close",
 			"server_pubkey": boundServerPubkey,
-			"valid_from":   fmt.Sprintf("%d", ts/int64(time.Second)),
+			"valid_from": ts/int64(time.Second),
 		}, nil, bindingTime),
 		// Close issued
 		makeMsg("msg-close-1", []string{"work:close"}, map[string]interface{}{
@@ -179,7 +178,7 @@ func TestDerive_PreBindingItemsAccepted(t *testing.T) {
 			"convention":   "work",
 			"operation":    "close",
 			"server_pubkey": serverPubKeyHex,
-			"valid_from":   fmt.Sprintf("%d", bindingValidFrom),
+			"valid_from": bindingValidFrom,
 		}, nil, bindingTime),
 	}
 
@@ -217,7 +216,7 @@ func TestDerive_DelegateWithServerBinding(t *testing.T) {
 			"convention":   "work",
 			"operation":    "delegate",
 			"server_pubkey": boundServerPubkey,
-			"valid_from":   fmt.Sprintf("%d", ts/int64(time.Second)),
+			"valid_from": ts/int64(time.Second),
 		}, nil, bindingTime),
 		// Delegate operation
 		makeMsg("msg-delegate-1", []string{"work:delegate"}, map[string]interface{}{
@@ -272,7 +271,7 @@ func TestDerive_GateResolveWithServerBinding(t *testing.T) {
 			"convention":   "work",
 			"operation":    "gate-resolve",
 			"server_pubkey": boundServerPubkey,
-			"valid_from":   fmt.Sprintf("%d", (ts+2000)/int64(time.Second)),
+			"valid_from": (ts+2000)/int64(time.Second),
 		}, nil, bindingTime),
 		// Resolve the gate
 		makeMsg("msg-resolve-1", []string{"work:gate-resolve"}, map[string]interface{}{

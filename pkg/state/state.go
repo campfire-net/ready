@@ -203,12 +203,14 @@ type gateResolvePayload struct {
 }
 
 // serverBindingPayload mirrors the fields in a convention:server-binding message payload.
+// ValidFrom and ValidUntil are Unix timestamps in seconds (int64), matching the
+// JSON numbers written by conventionserver/server.go.
 type serverBindingPayload struct {
-	Convention string `json:"convention"`
-	Operation  string `json:"operation"`
+	Convention   string `json:"convention"`
+	Operation    string `json:"operation"`
 	ServerPubkey string `json:"server_pubkey"`
-	ValidFrom  string `json:"valid_from"`
-	ValidUntil string `json:"valid_until,omitempty"`
+	ValidFrom    int64  `json:"valid_from"`
+	ValidUntil   int64  `json:"valid_until,omitempty"`
 }
 
 // capabilityTokenPayload represents an offline capability token embedded in an operation.
@@ -311,12 +313,12 @@ func findActiveServerBinding(msgs []store.MessageRecord, convention, operation s
 		if p.Convention != convention || p.Operation != operation {
 			continue
 		}
-		validFrom := parseTimestamp(p.ValidFrom)
+		validFrom := p.ValidFrom * int64(time.Second)
 		if validFrom == 0 || validFrom > atTime {
 			// Binding not yet valid at this message's timestamp
 			continue
 		}
-		validUntil := parseTimestamp(p.ValidUntil)
+		validUntil := p.ValidUntil * int64(time.Second)
 		if validUntil != 0 && validUntil < atTime {
 			// Binding has expired
 			continue
@@ -350,13 +352,13 @@ func findFirstServerBinding(msgs []store.MessageRecord, convention, operation st
 		if p.Convention != convention || p.Operation != operation {
 			continue
 		}
-		validFrom := parseTimestamp(p.ValidFrom)
+		validFrom := p.ValidFrom * int64(time.Second)
 		if validFrom == 0 {
 			// No valid_from — skip; can't determine pre-binding boundary.
 			continue
 		}
 		if first == nil || validFrom < first.validFrom {
-			validUntil := parseTimestamp(p.ValidUntil)
+			validUntil := p.ValidUntil * int64(time.Second)
 			first = &serverBinding{
 				serverPubkey: p.ServerPubkey,
 				validFrom:    validFrom,
