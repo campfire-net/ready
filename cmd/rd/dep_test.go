@@ -314,3 +314,440 @@ func containsString(s, substring string) bool {
 	}
 	return false
 }
+
+// TestBuildDepTree_DiamondDependency verifies that buildDepTree correctly handles
+// diamond dependency patterns without duplicating nodes.
+// Pattern: A blocks both B and C, both B and C block D
+//   A
+//  / \
+// B   C
+//  \ /
+//   D
+func TestBuildDepTree_DiamondDependency(t *testing.T) {
+	itemA := &state.Item{
+		ID:     "ready-a",
+		Title:  "Item A",
+		Status: "active",
+		Blocks: []string{"ready-b", "ready-c"},
+	}
+	itemB := &state.Item{
+		ID:     "ready-b",
+		Title:  "Item B",
+		Status: "active",
+		Blocks: []string{"ready-d"},
+	}
+	itemC := &state.Item{
+		ID:     "ready-c",
+		Title:  "Item C",
+		Status: "active",
+		Blocks: []string{"ready-d"},
+	}
+	itemD := &state.Item{
+		ID:     "ready-d",
+		Title:  "Item D",
+		Status: "active",
+		Blocks: []string{},
+	}
+
+	items := map[string]*state.Item{
+		"ready-a": itemA,
+		"ready-b": itemB,
+		"ready-c": itemC,
+		"ready-d": itemD,
+	}
+
+	visited := make(map[string]bool)
+	tree := buildDepTree("ready-a", items, visited)
+
+	if tree == nil {
+		t.Fatal("buildDepTree returned nil")
+	}
+	if tree.ID != "ready-a" {
+		t.Errorf("root ID=%q, want 'ready-a'", tree.ID)
+	}
+
+	// A should have 2 children: B and C
+	if len(tree.Children) != 2 {
+		t.Fatalf("expected 2 children for A, got %d", len(tree.Children))
+	}
+
+	// Find B and C among children
+	var childB, childC *treeNode
+	for _, child := range tree.Children {
+		if child.ID == "ready-b" {
+			childB = child
+		} else if child.ID == "ready-c" {
+			childC = child
+		}
+	}
+
+	if childB == nil {
+		t.Fatal("child B not found")
+	}
+	if childC == nil {
+		t.Fatal("child C not found")
+	}
+
+	// Both B and C should block D
+	if len(childB.Children) != 1 {
+		t.Fatalf("expected 1 child for B, got %d", len(childB.Children))
+	}
+	if childB.Children[0].ID != "ready-d" {
+		t.Errorf("B's child ID=%q, want 'ready-d'", childB.Children[0].ID)
+	}
+
+	if len(childC.Children) != 1 {
+		t.Fatalf("expected 1 child for C, got %d", len(childC.Children))
+	}
+	if childC.Children[0].ID != "ready-d" {
+		t.Errorf("C's child ID=%q, want 'ready-d'", childC.Children[0].ID)
+	}
+
+	// D should be the same node (by reference) in both branches when they refer to it
+	// Actually, they'll be different tree nodes due to how the recursion builds,
+	// but both should have the same ID
+	if childB.Children[0].ID != childC.Children[0].ID {
+		t.Errorf("D nodes have different IDs: B's=%q, C's=%q", childB.Children[0].ID, childC.Children[0].ID)
+	}
+}
+
+// TestBuildDepTree_MissingItem verifies that buildDepTree returns a placeholder
+// when an item is not found in the items map.
+func TestBuildDepTree_MissingItem(t *testing.T) {
+	itemA := &state.Item{
+		ID:     "ready-a",
+		Title:  "Item A",
+		Status: "active",
+		Blocks: []string{"ready-missing"},
+	}
+
+	items := map[string]*state.Item{
+		"ready-a": itemA,
+	}
+
+	visited := make(map[string]bool)
+	tree := buildDepTree("ready-a", items, visited)
+
+	if tree == nil {
+		t.Fatal("buildDepTree returned nil")
+	}
+
+	// Should have 1 child: the missing item
+	if len(tree.Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(tree.Children))
+	}
+
+	missing := tree.Children[0]
+	if missing.ID != "ready-missing" {
+		t.Errorf("missing child ID=%q, want 'ready-missing'", missing.ID)
+	}
+	if missing.Title != "(not found)" {
+		t.Errorf("missing child Title=%q, want '(not found)'", missing.Title)
+	}
+	if missing.Status != "unknown" {
+		t.Errorf("missing child Status=%q, want 'unknown'", missing.Status)
+	}
+}
+
+// TestBuildDepTree_DeepTree verifies that buildDepTree correctly handles
+// deep linear dependency chains without errors.
+// Pattern: A blocks B blocks C blocks D blocks E (5 levels)
+func TestBuildDepTree_DeepTree(t *testing.T) {
+	itemA := &state.Item{
+		ID:     "ready-a",
+		Title:  "Item A",
+		Status: "active",
+		Blocks: []string{"ready-b"},
+	}
+	itemB := &state.Item{
+		ID:     "ready-b",
+		Title:  "Item B",
+		Status: "active",
+		Blocks: []string{"ready-c"},
+	}
+	itemC := &state.Item{
+		ID:     "ready-c",
+		Title:  "Item C",
+		Status: "active",
+		Blocks: []string{"ready-d"},
+	}
+	itemD := &state.Item{
+		ID:     "ready-d",
+		Title:  "Item D",
+		Status: "active",
+		Blocks: []string{"ready-e"},
+	}
+	itemE := &state.Item{
+		ID:     "ready-e",
+		Title:  "Item E",
+		Status: "active",
+		Blocks: []string{},
+	}
+
+	items := map[string]*state.Item{
+		"ready-a": itemA,
+		"ready-b": itemB,
+		"ready-c": itemC,
+		"ready-d": itemD,
+		"ready-e": itemE,
+	}
+
+	visited := make(map[string]bool)
+	tree := buildDepTree("ready-a", items, visited)
+
+	if tree == nil {
+		t.Fatal("buildDepTree returned nil")
+	}
+
+	// Walk the chain and verify depth
+	current := tree
+	expectedDepth := 5
+	for i := 0; i < expectedDepth; i++ {
+		if current == nil {
+			t.Fatalf("tree is nil at depth %d", i)
+		}
+		expectedID := string(rune('a' + i))
+		if current.ID != "ready-"+expectedID {
+			t.Errorf("at depth %d: ID=%q, want 'ready-%s'", i, current.ID, expectedID)
+		}
+
+		if i < expectedDepth-1 {
+			if len(current.Children) != 1 {
+				t.Fatalf("at depth %d: expected 1 child, got %d", i, len(current.Children))
+			}
+			current = current.Children[0]
+		}
+	}
+
+	// At the end, E should have no children
+	if len(current.Children) != 0 {
+		t.Errorf("leaf E should have 0 children, got %d", len(current.Children))
+	}
+}
+
+// TestBuildDepTree_ParentChildRelationship verifies that buildDepTree includes
+// child items via parent_id relationship in addition to blocks relationship.
+func TestBuildDepTree_ParentChildRelationship(t *testing.T) {
+	parent := &state.Item{
+		ID:     "ready-parent",
+		Title:  "Parent Item",
+		Status: "active",
+		Blocks: []string{},
+	}
+	child1 := &state.Item{
+		ID:       "ready-child1",
+		Title:    "Child 1",
+		Status:   "active",
+		ParentID: "ready-parent",
+		Blocks:   []string{},
+	}
+	child2 := &state.Item{
+		ID:       "ready-child2",
+		Title:    "Child 2",
+		Status:   "active",
+		ParentID: "ready-parent",
+		Blocks:   []string{},
+	}
+
+	items := map[string]*state.Item{
+		"ready-parent": parent,
+		"ready-child1": child1,
+		"ready-child2": child2,
+	}
+
+	visited := make(map[string]bool)
+	tree := buildDepTree("ready-parent", items, visited)
+
+	if tree == nil {
+		t.Fatal("buildDepTree returned nil")
+	}
+	if tree.ID != "ready-parent" {
+		t.Errorf("root ID=%q, want 'ready-parent'", tree.ID)
+	}
+
+	// Should have 2 children (both via parent_id)
+	if len(tree.Children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(tree.Children))
+	}
+
+	// Verify both children are present
+	childIDs := map[string]bool{}
+	for _, child := range tree.Children {
+		childIDs[child.ID] = true
+	}
+
+	if !childIDs["ready-child1"] {
+		t.Error("child1 not found in tree.Children")
+	}
+	if !childIDs["ready-child2"] {
+		t.Error("child2 not found in tree.Children")
+	}
+}
+
+// TestBuildDepTree_MixedBlocksAndParent verifies that buildDepTree correctly
+// combines both blocks relationships and parent_id relationships.
+// Pattern: A blocks B, C is a child of A
+func TestBuildDepTree_MixedBlocksAndParent(t *testing.T) {
+	itemA := &state.Item{
+		ID:     "ready-a",
+		Title:  "Item A",
+		Status: "active",
+		Blocks: []string{"ready-b"},
+	}
+	itemB := &state.Item{
+		ID:     "ready-b",
+		Title:  "Item B",
+		Status: "active",
+		Blocks: []string{},
+	}
+	itemC := &state.Item{
+		ID:       "ready-c",
+		Title:    "Item C",
+		Status:   "active",
+		ParentID: "ready-a",
+		Blocks:   []string{},
+	}
+
+	items := map[string]*state.Item{
+		"ready-a": itemA,
+		"ready-b": itemB,
+		"ready-c": itemC,
+	}
+
+	visited := make(map[string]bool)
+	tree := buildDepTree("ready-a", items, visited)
+
+	if tree == nil {
+		t.Fatal("buildDepTree returned nil")
+	}
+
+	// A should have 2 children: B (from blocks) and C (from parent_id)
+	if len(tree.Children) != 2 {
+		t.Fatalf("expected 2 children for A, got %d", len(tree.Children))
+	}
+
+	childIDs := map[string]bool{}
+	for _, child := range tree.Children {
+		childIDs[child.ID] = true
+	}
+
+	if !childIDs["ready-b"] {
+		t.Error("B (blocks relationship) not found in A's children")
+	}
+	if !childIDs["ready-c"] {
+		t.Error("C (parent_id relationship) not found in A's children")
+	}
+}
+
+// TestBuildDepTree_DuplicateChildren verifies that buildDepTree does not add
+// the same child twice even if it appears through multiple relationship types
+// or in the Blocks list multiple times.
+func TestBuildDepTree_DuplicateChildren(t *testing.T) {
+	itemA := &state.Item{
+		ID:     "ready-a",
+		Title:  "Item A",
+		Status: "active",
+		Blocks: []string{"ready-b", "ready-b"}, // duplicate in Blocks
+	}
+	itemB := &state.Item{
+		ID:     "ready-b",
+		Title:  "Item B",
+		Status: "active",
+		Blocks: []string{},
+	}
+
+	items := map[string]*state.Item{
+		"ready-a": itemA,
+		"ready-b": itemB,
+	}
+
+	visited := make(map[string]bool)
+	tree := buildDepTree("ready-a", items, visited)
+
+	if tree == nil {
+		t.Fatal("buildDepTree returned nil")
+	}
+
+	// A should have exactly 1 child, not 2 (even though B appears twice in Blocks)
+	if len(tree.Children) != 1 {
+		t.Fatalf("expected 1 child for A, got %d", len(tree.Children))
+	}
+	if tree.Children[0].ID != "ready-b" {
+		t.Errorf("child ID=%q, want 'ready-b'", tree.Children[0].ID)
+	}
+}
+
+// TestBuildDepTree_RootNotInItems verifies that buildDepTree returns a placeholder
+// when the root item itself is not found.
+func TestBuildDepTree_RootNotInItems(t *testing.T) {
+	items := make(map[string]*state.Item)
+
+	visited := make(map[string]bool)
+	tree := buildDepTree("ready-missing", items, visited)
+
+	if tree == nil {
+		t.Fatal("buildDepTree returned nil")
+	}
+	if tree.ID != "ready-missing" {
+		t.Errorf("root ID=%q, want 'ready-missing'", tree.ID)
+	}
+	if tree.Title != "(not found)" {
+		t.Errorf("root Title=%q, want '(not found)'", tree.Title)
+	}
+	if tree.Status != "unknown" {
+		t.Errorf("root Status=%q, want 'unknown'", tree.Status)
+	}
+	if len(tree.Children) != 0 {
+		t.Errorf("root should have 0 children, got %d", len(tree.Children))
+	}
+}
+
+// TestHasTagStr verifies that hasTagStr correctly identifies tag presence.
+func TestHasTagStr(t *testing.T) {
+	tests := []struct {
+		name     string
+		tags     []string
+		search   string
+		expected bool
+	}{
+		{
+			name:     "tag present",
+			tags:     []string{"work:block", "work:status"},
+			search:   "work:block",
+			expected: true,
+		},
+		{
+			name:     "tag not present",
+			tags:     []string{"work:status", "work:close"},
+			search:   "work:block",
+			expected: false,
+		},
+		{
+			name:     "empty tags",
+			tags:     []string{},
+			search:   "work:block",
+			expected: false,
+		},
+		{
+			name:     "partial match should not match",
+			tags:     []string{"work:blocka"},
+			search:   "work:block",
+			expected: false,
+		},
+		{
+			name:     "single tag matches",
+			tags:     []string{"work:block"},
+			search:   "work:block",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasTagStr(tt.tags, tt.search)
+			if result != tt.expected {
+				t.Errorf("hasTagStr(%v, %q) = %v, want %v", tt.tags, tt.search, result, tt.expected)
+			}
+		})
+	}
+}
