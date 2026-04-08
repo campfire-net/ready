@@ -423,6 +423,79 @@ func TestResolveDeps_ItemNotFound(t *testing.T) {
 	}
 }
 
+// TestResolveDeps_LastSegmentFallbackDisabled verifies that when a full
+// campfire name (e.g. "acme.frontend") has no alias, the resolution does NOT
+// fall back to trying the last segment (e.g. "frontend") as an alias.
+// This is a regression test for a security issue: if the user has a short
+// alias "frontend" pointing to a different campfire, the dep should NOT
+// resolve against that unintended campfire.
+func TestResolveDeps_LastSegmentFallbackDisabled(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(dir + "/store.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	ts := time.Now().UnixNano()
+
+	// Join both campfires.
+	joinCampfire(t, s, backendCampfire)
+	joinCampfire(t, s, frontendCampfire)
+
+	// Create an item in frontend.
+	addMsgToStore(t, s, frontendCampfire, "msg-b01", "work:create", map[string]interface{}{
+		"id": "frontend-b01", "title": "Frontend item B", "type": "task",
+		"for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts)
+
+	// Item A blocks on "acme.frontend.frontend-b01".
+	addMsgToStore(t, s, backendCampfire, "msg-a01", "work:create", map[string]interface{}{
+		"id": "backend-a01", "title": "Backend item A", "type": "task",
+		"for": "baron@3dl.dev", "priority": "p1",
+	}, nil, ts+1)
+	addMsgToStore(t, s, backendCampfire, "msg-block-cross", "work:block", map[string]interface{}{
+		"blocker_id": "acme.frontend.frontend-b01", "blocked_id": "backend-a01",
+		"blocker_msg": "msg-b01", "blocked_msg": "msg-a01",
+	}, []string{"msg-a01"}, ts+2)
+
+	backendItems, _ := state.DeriveFromStore(s, backendCampfire)
+	itemA := backendItems["backend-a01"]
+	if itemA == nil {
+		t.Fatal("backend-a01 not found")
+	}
+
+	// Set up aliases: NO alias for "acme.frontend", but DO have an alias
+	// for the last segment "frontend" pointing to a different campfire ID.
+	aliasDir := t.TempDir()
+	aliases := naming.NewAliasStore(aliasDir)
+	unintendedCampfireID := "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	if err := aliases.Set("frontend", unintendedCampfireID); err != nil {
+		t.Fatalf("setting alias for 'frontend': %v", err)
+	}
+
+	// Resolve deps. Should fail because "acme.frontend" has no alias,
+	// and the last-segment fallback is disabled.
+	results := crossdep.ResolveDeps(itemA, s, aliases)
+	if len(results) == 0 {
+		t.Fatal("expected resolution results")
+	}
+
+	dep := results[0]
+	// Should have a warning (not resolved).
+	if dep.Warning == "" {
+		t.Error("expected warning: full name 'acme.frontend' has no alias, should not fall back to 'frontend'")
+	}
+	// Should not have resolved to any item.
+	if dep.Item != nil {
+		t.Errorf("expected nil item (fallback disabled), but got resolved item: %+v", dep.Item)
+	}
+	// Verify the warning mentions it couldn't find the alias.
+	if !strings.Contains(dep.Warning, "campfire not in local aliases") {
+		t.Errorf("expected 'campfire not in local aliases' in warning, got: %s", dep.Warning)
+	}
+}
+
 // TestShortID verifies that shortID returns the full string for short IDs
 // and truncates to 12 chars with "..." for longer ones.
 func TestShortID(t *testing.T) {
