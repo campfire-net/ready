@@ -185,9 +185,9 @@ func IssueToken(subject, campfireID, role, bindingMsgID string, operations []str
 	now := time.Now()
 	issuedAt := now.Unix()
 	// Use the TTL of the first operation, or 24h as a safe default.
-	ttl := DefaultTTLFor(operations[0])
-	if len(operations) == 0 {
-		ttl = 24 * time.Hour
+	ttl := 24 * time.Hour // safe default
+	if len(operations) > 0 {
+		ttl = DefaultTTLFor(operations[0])
 	}
 	expiresAt := now.Add(ttl).Unix()
 
