@@ -144,10 +144,14 @@ func admitFromJoinRequest(itemID, role, denyReason string) error {
 		return err
 	}
 
-	// Look up the join-request item.
-	item, err := byIDFromJSONLOrStore(s, itemID)
+	// Look up the join-request item using exact-match only (no prefix expansion).
+	// Prefix matching is disabled here because the item.For field is used as a
+	// pubkey for admission — a prefix collision (attacker crafts an item whose
+	// ID is a prefix of the real join-request) could cause the admin to admit
+	// the wrong identity. Full item IDs are required for all admit operations.
+	item, err := byIDFromJSONLOrStoreExact(s, itemID)
 	if err != nil {
-		return fmt.Errorf("looking up item %s: %w", itemID, err)
+		return fmt.Errorf("looking up item %s: %w — use the full item ID for admit (prefix matching is disabled for security)", itemID, err)
 	}
 
 	// Extract the requester's pubkey from item.For — set from the signed

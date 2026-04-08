@@ -375,6 +375,65 @@ func TestAdmit_FullID_ResolvesItemAndHoldsPubkey(t *testing.T) {
 	}
 }
 
+// TestAdmit_ExactMatchOnly_PrefixRejected verifies that the exact-match resolver
+// used in admitFromJoinRequest rejects a prefix that would match via ByIDFromJSONL.
+//
+// Security regression for ready-afa5: byIDFromJSONLOrStoreExact must not expand
+// prefixes — an attacker who crafts "proj-a1b" to prefix-match admin input "proj-a1"
+// must be rejected with ErrNotFound, not silently selected.
+func TestAdmit_ExactMatchOnly_PrefixRejected(t *testing.T) {
+	campfireID := strings.Repeat("ab", 32) // 64-char hex
+
+	// One item whose ID would be matched by prefix "proj-a1b" via ByIDFromJSONL.
+	path := writeJoinRequestJSONL(t, campfireID, []struct{ msgID, itemID, title, forPubkey string }{
+		{"msg-a1bx", "proj-a1bxyz", "Join Request Attacker", pubkeyHex("aa")},
+	})
+
+	// ByIDFromJSONL (prefix-allowing) would return the item for prefix "proj-a1b".
+	item, err := resolve.ByIDFromJSONL(path, campfireID, "proj-a1b")
+	if err != nil || item == nil {
+		t.Fatalf("prerequisite: ByIDFromJSONL should match prefix 'proj-a1b', got err=%v item=%v", err, item)
+	}
+
+	// ByIDFromJSONLExact (no prefix) must NOT match — the prefix is not a full ID.
+	_, err = resolve.ByIDFromJSONLExact(path, campfireID, "proj-a1b")
+	if err == nil {
+		t.Fatal("ByIDFromJSONLExact must reject prefix 'proj-a1b' with ErrNotFound, got nil")
+	}
+	if _, ok := err.(resolve.ErrNotFound); !ok {
+		t.Errorf("expected resolve.ErrNotFound, got %T: %v", err, err)
+	}
+}
+
+// TestAdmit_ExactMatchOnly_FullIDAccepted verifies that ByIDFromJSONLExact resolves
+// a full exact ID correctly — admission still works when the full ID is provided.
+//
+// Security regression for ready-afa5: tightening to exact-match must not break
+// the normal flow when the admin supplies the complete item ID.
+func TestAdmit_ExactMatchOnly_FullIDAccepted(t *testing.T) {
+	campfireID := strings.Repeat("cd", 32) // 64-char hex
+	wantPubkey := pubkeyHex("e5")
+	wantTitle := "Join Request Eve"
+	wantID := "proj-eve42"
+
+	// Two items: target and an unrelated item with a similar prefix.
+	path := writeJoinRequestJSONL(t, campfireID, []struct{ msgID, itemID, title, forPubkey string }{
+		{"msg-eve", wantID, wantTitle, wantPubkey},
+		{"msg-eve2", "proj-eve99", "Join Request Other", pubkeyHex("ff")},
+	})
+
+	item, err := resolve.ByIDFromJSONLExact(path, campfireID, wantID)
+	if err != nil {
+		t.Fatalf("ByIDFromJSONLExact full ID: unexpected error: %v", err)
+	}
+	if item.ID != wantID {
+		t.Errorf("item.ID = %q, want %q", item.ID, wantID)
+	}
+	if item.For != wantPubkey {
+		t.Errorf("item.For = %q, want requester pubkey %q", item.For, wantPubkey)
+	}
+}
+
 // TestAdmitThenGrant_AdmitFailure_NoRoleGrantPosted is the regression test for
 // ready-f45: when Admit() fails, no work:role-grant must be posted. This was
 // the dangling role-grant vulnerability — the fix reorders the operations so

@@ -79,6 +79,26 @@ func ByID(s store.Store, itemID string) (*state.Item, error) {
 	}
 }
 
+// ByIDExact resolves an item by its exact ID only — no prefix expansion.
+// Use this for security-sensitive operations (e.g. admit) where a prefix
+// collision could cause the wrong item to be selected.
+func ByIDExact(s store.Store, itemID string) (*state.Item, error) {
+	memberships, err := s.ListMemberships()
+	if err != nil {
+		return nil, fmt.Errorf("listing memberships: %w", err)
+	}
+	for _, m := range memberships {
+		items, err := state.DeriveFromStore(s, m.CampfireID)
+		if err != nil {
+			continue
+		}
+		if item, ok := items[itemID]; ok {
+			return item, nil
+		}
+	}
+	return nil, ErrNotFound{ID: itemID}
+}
+
 // AllItems returns all items across all campfires the agent is a member of.
 func AllItems(s store.Store) ([]*state.Item, error) {
 	memberships, err := s.ListMemberships()
@@ -149,6 +169,21 @@ func ByIDFromJSONL(path, campfireID, itemID string) (*state.Item, error) {
 		}
 		return nil, ErrAmbiguous{Prefix: itemID, Matches: ids}
 	}
+}
+
+// ByIDFromJSONLExact resolves an item by its exact ID from a local
+// mutations.jsonl file — no prefix expansion.
+// Use this for security-sensitive operations (e.g. admit) where a prefix
+// collision could cause the wrong item to be selected.
+func ByIDFromJSONLExact(path, campfireID, itemID string) (*state.Item, error) {
+	items, err := state.DeriveFromJSONLWithCampfire(path, campfireID)
+	if err != nil {
+		return nil, fmt.Errorf("deriving state from JSONL: %w", err)
+	}
+	if item, ok := items[itemID]; ok {
+		return item, nil
+	}
+	return nil, ErrNotFound{ID: itemID}
 }
 
 // AllItemsFromJSONL returns all items derived from a local mutations.jsonl file.
