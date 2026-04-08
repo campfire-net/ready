@@ -8,7 +8,7 @@
     {"name": "summary_campfire", "type": "string", "required": true, "max_length": 64, "pattern": "^[0-9a-f]{64}$"}
   ],
   "produces_tags": [
-    {"tag": "campfire:summary-bind", "cardinality": "exactly_one"}
+    {"tag": "work:summary-bind", "cardinality": "exactly_one"}
   ],
   "antecedents": "none",
   "signing": "member_key",
