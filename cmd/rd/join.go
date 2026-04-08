@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/campfire-net/ready/pkg/rdconfig"
+	rdSync "github.com/campfire-net/ready/pkg/sync"
 )
 
 // defaultBeaconRoot is the compiled-in default beacon root ID.
@@ -118,6 +119,15 @@ EXAMPLES
 				}
 				// If pinned=false, another process set the root first. Either way,
 				// join succeeded and we're done.
+			}
+
+			// Bootstrap local project state so rd commands work immediately
+			// after join, and pull existing items (ready-5cd).
+			cwd, cwdErr := os.Getwd()
+			if cwdErr == nil {
+				if bootstrapErr := bootstrapJoinedProject(cwd, campfireID, client); bootstrapErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: could not bootstrap project state: %v\n", bootstrapErr)
+				}
 			}
 
 			displayID := campfireID
@@ -511,6 +521,58 @@ func isInteractive() bool {
 		return false
 	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// bootstrapJoinedProject creates .campfire/root, .ready/config.json, and
+// .ready/mutations.jsonl so that rd commands work immediately after joining
+// a campfire (ready-5cd). This mirrors the essential project state that rd init
+// creates, without declarations or summary campfire setup (those belong to the
+// project owner).
+//
+// After writing the local scaffolding, it performs an automatic sync pull using
+// client so that rd list shows existing items without requiring a manual
+// rd sync pull (ready-5cd). Pull failures are non-fatal — a warning is printed
+// to stderr and join succeeds regardless.
+func bootstrapJoinedProject(projectDir, campfireID string, client *protocol.Client) error {
+	// Create .campfire/ dir and write root.
+	campfireDir := filepath.Join(projectDir, ".campfire")
+	if err := os.MkdirAll(campfireDir, 0700); err != nil {
+		return fmt.Errorf("creating .campfire dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(campfireDir, "root"), []byte(campfireID), 0600); err != nil {
+		return fmt.Errorf("writing .campfire/root: %w", err)
+	}
+
+	// Create .ready/ dir and write config.json with the campfire ID.
+	syncCfg := &rdconfig.SyncConfig{
+		CampfireID: campfireID,
+	}
+	if err := rdconfig.SaveSyncConfig(projectDir, syncCfg); err != nil {
+		return fmt.Errorf("saving sync config: %w", err)
+	}
+
+	// Create empty mutations.jsonl so rd ready/rd list work immediately.
+	mutationsPath := filepath.Join(projectDir, ".ready", "mutations.jsonl")
+	if _, err := os.Stat(mutationsPath); os.IsNotExist(err) {
+		if err := os.WriteFile(mutationsPath, nil, 0600); err != nil {
+			return fmt.Errorf("creating mutations.jsonl: %w", err)
+		}
+	}
+
+	// Auto-sync: pull existing items from the campfire so rd list shows them
+	// immediately without requiring a manual rd sync pull (ready-5cd).
+	// Pull failure is non-fatal — join succeeds regardless.
+	if client != nil {
+		lister := &clientLister{client: client}
+		result, pullErr := rdSync.Pull(lister, campfireID, mutationsPath, projectDir, 0)
+		if pullErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: auto-sync pull failed (run 'rd sync pull' manually): %v\n", pullErr)
+		} else if result.Pulled > 0 {
+			fmt.Fprintf(os.Stderr, "synced %d item(s)\n", result.Pulled)
+		}
+	}
+
+	return nil
 }
 
 func init() {
