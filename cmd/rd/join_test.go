@@ -705,14 +705,14 @@ func TestBeaconRoot_NotPinnedOnJoinFailure(t *testing.T) {
 	}
 
 	// Attempt join with a beacon root. This will fail because the campfire is invite-only.
-	// validateBeaconRootTOFU should allow this (first use, prompt passes in non-interactive).
+	// validateBeaconRootTOFU with --confirm should allow this (first use, first-use guard passes).
 	// But client.Join() will fail, and the beacon root should NOT be pinned.
 	testBeaconRoot := sampleRoot
 
 	cfg := &rdconfig.Config{}
-	err = validateBeaconRootTOFU(cfHomeB, cfg, testBeaconRoot, false /* confirm */)
+	err = validateBeaconRootTOFU(cfHomeB, cfg, testBeaconRoot, true /* confirm */)
 	if err != nil {
-		t.Fatalf("validateBeaconRootTOFU should allow first use (non-interactive): %v", err)
+		t.Fatalf("validateBeaconRootTOFU with --confirm should allow first use: %v", err)
 	}
 	// validateBeaconRootTOFU does NOT save — it only validates and prompts.
 	// Config should still have empty beacon root.
@@ -814,5 +814,27 @@ func TestValidateNameFormat(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestBeaconRoot_FirstUse_WithConfirm_AllowsNonInteractive is the regression test for ready-a6c.
+// Security fix: validateBeaconRootTOFU with --confirm=true should allow proceeding in any context
+// (interactive or non-interactive), because the user has explicitly confirmed the beacon root pin.
+// This test verifies the fix: when --confirm is passed, validation succeeds without prompt.
+func TestBeaconRoot_FirstUse_WithConfirm_AllowsNonInteractive(t *testing.T) {
+	cfHome := cfHomeTempDir(t)
+
+	cfg := &rdconfig.Config{} // no pin yet
+	// First use with --confirm flag should proceed without prompting.
+	// The fix ensures this works in both interactive and non-interactive contexts.
+	err := validateBeaconRootTOFU(cfHome, cfg, sampleRoot, true /* confirm */)
+	if err != nil {
+		t.Fatalf("validateBeaconRootTOFU with --confirm should allow first use without error: %v", err)
+	}
+
+	// validateBeaconRootTOFU does not save — it only validates.
+	// Config should still be empty (save happens post-join in joinCmd.RunE).
+	if cfg.BeaconRoot != "" {
+		t.Errorf("cfg.BeaconRoot after validateBeaconRootTOFU should remain empty, got %q", cfg.BeaconRoot)
 	}
 }
