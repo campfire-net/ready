@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/campfire-net/ready/pkg/state"
 )
 
 // buildBlockArgsMap constructs the argsMap for a work:block operation,
@@ -160,4 +162,155 @@ func TestBuildUnblockArgsMap_ReasonOmittedWhenEmpty(t *testing.T) {
 	if _, ok := decoded["reason"]; ok {
 		t.Error("reason should be omitted when empty, but was present in JSON")
 	}
+}
+
+// TestBuildDepTree_CyclicDependencies verifies that buildDepTree handles cyclic
+// dependencies correctly without infinite recursion. The bug occurred when:
+// 1. A blocks B, B blocks A (simple cycle)
+// 2. A third item or reference path leads to a node in the cycle
+// 3. After processing a child and deleting from visited, the same node could be
+//    revisited on another path, causing infinite recursion.
+//
+// Fix: Keep cycle detection state persistent across all branches, not just the
+// current recursion path. Use a separate inPath map for the current recursion path.
+func TestBuildDepTree_CyclicDependencies(t *testing.T) {
+	// Create items with a cycle: A blocks B, B blocks A
+	itemA := &state.Item{
+		ID:     "ready-a",
+		Title:  "Item A",
+		Status: "ready",
+		Blocks: []string{"ready-b"},
+	}
+	itemB := &state.Item{
+		ID:     "ready-b",
+		Title:  "Item B",
+		Status: "ready",
+		Blocks: []string{"ready-a"},
+	}
+
+	items := map[string]*state.Item{
+		"ready-a": itemA,
+		"ready-b": itemB,
+	}
+
+	// buildDepTree should not panic or stack overflow
+	visited := make(map[string]bool)
+	tree := buildDepTree("ready-a", items, visited)
+
+	// Verify the root was processed
+	if tree == nil {
+		t.Fatal("buildDepTree returned nil")
+	}
+	if tree.ID != "ready-a" {
+		t.Errorf("root ID=%q, want 'ready-a'", tree.ID)
+	}
+
+	// Verify we have children (B)
+	if len(tree.Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(tree.Children))
+	}
+	child := tree.Children[0]
+	if child.ID != "ready-b" {
+		t.Errorf("child ID=%q, want 'ready-b'", child.ID)
+	}
+
+	// B should have A as a child, and it should be marked as cycle
+	if len(child.Children) != 1 {
+		t.Fatalf("expected B to have 1 child (A), got %d", len(child.Children))
+	}
+	cycleChild := child.Children[0]
+	if cycleChild.ID != "ready-a" {
+		t.Errorf("B's child ID=%q, want 'ready-a'", cycleChild.ID)
+	}
+	// The second reference to A should be marked as "(cycle)"
+	if !containsString(cycleChild.Status, "(cycle)") {
+		t.Errorf("B's child A status=%q, should contain '(cycle)'", cycleChild.Status)
+	}
+}
+
+// TestBuildDepTree_CyclicDependencies_WithThirdPath verifies that buildDepTree
+// handles the specific case where a cyclic node is reachable via a third path.
+// This tests the original bug: A blocks B, B blocks A, and a third reference to A
+// or B. After deleting visited[B] after processing B's children, if A appears
+// again (directly or through a third reference), visited[A] should not be deleted
+// until the entire traversal completes.
+func TestBuildDepTree_CyclicDependencies_WithThirdPath(t *testing.T) {
+	// A blocks B
+	// B blocks A (creating cycle)
+	// C blocks A (third reference path to node in cycle)
+	itemA := &state.Item{
+		ID:     "ready-a",
+		Title:  "Item A",
+		Status: "ready",
+		Blocks: []string{"ready-b"},
+	}
+	itemB := &state.Item{
+		ID:     "ready-b",
+		Title:  "Item B",
+		Status: "ready",
+		Blocks: []string{"ready-a"},
+	}
+	itemC := &state.Item{
+		ID:     "ready-c",
+		Title:  "Item C",
+		Status: "ready",
+		Blocks: []string{"ready-a"},
+	}
+
+	items := map[string]*state.Item{
+		"ready-a": itemA,
+		"ready-b": itemB,
+		"ready-c": itemC,
+	}
+
+	// Start from C, which references A, which references B, which references A again
+	visited := make(map[string]bool)
+	tree := buildDepTree("ready-c", items, visited)
+
+	if tree == nil {
+		t.Fatal("buildDepTree returned nil")
+	}
+	if tree.ID != "ready-c" {
+		t.Errorf("root ID=%q, want 'ready-c'", tree.ID)
+	}
+
+	// C should have A as a child
+	if len(tree.Children) != 1 {
+		t.Fatalf("expected 1 child for C, got %d", len(tree.Children))
+	}
+	childA := tree.Children[0]
+	if childA.ID != "ready-a" {
+		t.Errorf("child ID=%q, want 'ready-a'", childA.ID)
+	}
+
+	// A should have B as a child
+	if len(childA.Children) != 1 {
+		t.Fatalf("expected 1 child for A, got %d", len(childA.Children))
+	}
+	childB := childA.Children[0]
+	if childB.ID != "ready-b" {
+		t.Errorf("child B ID=%q, want 'ready-b'", childB.ID)
+	}
+
+	// B's child should be A marked as cycle
+	if len(childB.Children) != 1 {
+		t.Fatalf("expected 1 child for B, got %d", len(childB.Children))
+	}
+	childA2 := childB.Children[0]
+	if childA2.ID != "ready-a" {
+		t.Errorf("B's child ID=%q, want 'ready-a'", childA2.ID)
+	}
+	if !containsString(childA2.Status, "(cycle)") {
+		t.Errorf("B's child A status=%q, should contain '(cycle)'", childA2.Status)
+	}
+}
+
+// containsString is a helper to check if a string contains a substring.
+func containsString(s, substring string) bool {
+	for i := 0; i <= len(s)-len(substring); i++ {
+		if s[i:i+len(substring)] == substring {
+			return true
+		}
+	}
+	return false
 }
