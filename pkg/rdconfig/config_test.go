@@ -592,3 +592,88 @@ func TestDC3_BeaconRootEnvironmentVariable(t *testing.T) {
 		t.Logf("DC3 condition verified: no beacon root configured (warning would be emitted)")
 	}
 }
+
+// --- Beacon Root Locking Tests (ready-2dc) ---
+
+// TestPinBeaconRoot_FirstPin_Returns_true verifies that PinBeaconRoot returns
+// true when pinning a beacon root to an empty config (ready-2dc).
+func TestPinBeaconRoot_FirstPin_Returns_true(t *testing.T) {
+	cfHome := t.TempDir()
+	beaconRoot := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	pinned, err := rdconfig.PinBeaconRoot(cfHome, beaconRoot)
+	if err != nil {
+		t.Fatalf("PinBeaconRoot: %v", err)
+	}
+	if !pinned {
+		t.Error("PinBeaconRoot(empty): expected true, got false")
+	}
+
+	// Verify the beacon root was saved.
+	cfg, err := rdconfig.Load(cfHome)
+	if err != nil {
+		t.Fatalf("Load after pin: %v", err)
+	}
+	if cfg.BeaconRoot != beaconRoot {
+		t.Errorf("BeaconRoot after pin: got %q, want %q", cfg.BeaconRoot, beaconRoot)
+	}
+}
+
+// TestPinBeaconRoot_AlreadyPinned_Returns_false verifies that PinBeaconRoot
+// returns false when the beacon root is already set, preventing duplicate pins
+// (ready-2dc race condition mitigation).
+func TestPinBeaconRoot_AlreadyPinned_Returns_false(t *testing.T) {
+	cfHome := t.TempDir()
+	beaconRoot1 := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	beaconRoot2 := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	// Pin the first beacon root.
+	pinned, err := rdconfig.PinBeaconRoot(cfHome, beaconRoot1)
+	if err != nil {
+		t.Fatalf("first PinBeaconRoot: %v", err)
+	}
+	if !pinned {
+		t.Fatal("first PinBeaconRoot should return true")
+	}
+
+	// Attempt to pin a different beacon root. Should return false (already pinned).
+	pinned, err = rdconfig.PinBeaconRoot(cfHome, beaconRoot2)
+	if err != nil {
+		t.Fatalf("second PinBeaconRoot: %v", err)
+	}
+	if pinned {
+		t.Error("second PinBeaconRoot on already-pinned config: expected false, got true")
+	}
+
+	// Verify the first beacon root was not overwritten.
+	cfg, err := rdconfig.Load(cfHome)
+	if err != nil {
+		t.Fatalf("Load after second pin: %v", err)
+	}
+	if cfg.BeaconRoot != beaconRoot1 {
+		t.Errorf("BeaconRoot after second pin: got %q, want %q (should remain first pin)", cfg.BeaconRoot, beaconRoot1)
+	}
+}
+
+// TestPinBeaconRoot_LockFileCreated verifies that PinBeaconRoot creates a
+// lock file (ready-2dc implementation detail).
+func TestPinBeaconRoot_LockFileCreated(t *testing.T) {
+	cfHome := t.TempDir()
+	beaconRoot := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+	_, err := rdconfig.PinBeaconRoot(cfHome, beaconRoot)
+	if err != nil {
+		t.Fatalf("PinBeaconRoot: %v", err)
+	}
+
+	// Verify lock file exists.
+	configPath := rdconfig.Path(cfHome)
+	lockPath := configPath + ".lock"
+	if _, err := os.Stat(lockPath); err != nil {
+		if os.IsNotExist(err) {
+			t.Errorf("lock file not created at %q", lockPath)
+		} else {
+			t.Errorf("stat lock file: %v", err)
+		}
+	}
+}
