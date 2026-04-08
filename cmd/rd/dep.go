@@ -6,9 +6,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/state"
+	"github.com/spf13/cobra"
 )
 
 // blockPayload is the JSON payload for a work:block message.
@@ -51,7 +52,7 @@ var depAddCmd = &cobra.Command{
 			return fmt.Errorf("cross-project deps not supported: %q looks like a cross-campfire reference (use rd join to establish membership)", blockerArg)
 		}
 
-		return withAgentAndStore(func(agentID, s) error {
+		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			// Resolve both items.
 			blocked, err := byIDFromJSONLOrStore(s, blockedArg)
 			if err != nil {
@@ -111,7 +112,7 @@ var depRemoveCmd = &cobra.Command{
 		blockerArg := args[1]
 		reason, _ := cmd.Flags().GetString("reason")
 
-		return withAgentAndStore(func(agentID, s) error {
+		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			// Resolve both items to get their canonical IDs.
 			blocked, err := byIDFromJSONLOrStore(s, blockedArg)
 			if err != nil {

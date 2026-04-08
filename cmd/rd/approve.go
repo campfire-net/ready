@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
+	"github.com/campfire-net/campfire/pkg/identity"
+	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/state"
+	"github.com/spf13/cobra"
 )
 
 var approveCmd = &cobra.Command{
@@ -26,7 +28,7 @@ Example:
 		itemID := args[0]
 		reason, _ := cmd.Flags().GetString("reason")
 
-		return withAgentAndStore(func(agentID, s) error {
+		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			// Resolve the item.
 			item, err := byIDFromJSONLOrStore(s, itemID)
 			if err != nil {

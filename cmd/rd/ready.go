@@ -7,9 +7,11 @@ import (
 	"sort"
 	"time"
 
-	"github.com/spf13/cobra"
+	"github.com/campfire-net/campfire/pkg/identity"
+	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/state"
 	"github.com/campfire-net/ready/pkg/views"
+	"github.com/spf13/cobra"
 )
 
 var readyCmd = &cobra.Command{
@@ -40,7 +42,7 @@ Example:
 		forFilter, _ := cmd.Flags().GetString("for")
 		projectFilter, _ := cmd.Flags().GetString("project")
 
-		return withAgentAndStore(func(agentID, s) error {
+		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			// Default --for to the current session identity when not explicitly set.
 			if !cmd.Flags().Changed("for") {
 				forFilter = agentID.PublicKeyHex()

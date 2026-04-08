@@ -11,8 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
+	"github.com/campfire-net/campfire/pkg/identity"
+	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/timeparse"
+	"github.com/spf13/cobra"
 )
 
 var nonAlphanumHyphen = regexp.MustCompile(`[^a-z0-9]+`)
@@ -144,7 +146,7 @@ Note: use --context for descriptions, not --description.`,
 			due = normalized
 		}
 
-		return withAgentAndStore(func(agentID, s) error {
+		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			// Default --for to the current session identity when not explicitly set.
 			if !cmd.Flags().Changed("for") {
 				forParty = agentID.PublicKeyHex()

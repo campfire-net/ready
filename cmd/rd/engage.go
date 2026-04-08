@@ -6,8 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
+	"github.com/campfire-net/campfire/pkg/identity"
+	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/playbook"
+	"github.com/spf13/cobra"
 )
 
 // engageCmd implements rd engage <playbook-id> --project <project> --for <identity> --var key=value.
@@ -50,7 +52,7 @@ Example:
 			variables[parts[0]] = parts[1]
 		}
 
-		return withAgentAndStore(func(agentID, s) error {
+		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			exec, _, err := requireExecutor()
 			if err != nil {
 				return err
@@ -62,117 +64,117 @@ Example:
 				return err
 			}
 
-		// Expand the template.
-		items, err := playbook.Expand(pb.PlaybookTemplate, project, variables)
-		if err != nil {
-			return fmt.Errorf("expanding playbook: %w", err)
-		}
-
-		createDecl, err := loadDeclaration("create")
-		if err != nil {
-			return err
-		}
-
-		// Maps template index → msg ID of the work:create message sent.
-		createMsgIDs := make(map[int]string, len(items))
-
-		// Send work:create for each item using the executor.
-		for _, item := range items {
-			argsMap := map[string]any{
-				"id":       item.ID,
-				"title":    item.Title,
-				"type":     item.Type,
-				"for":      forParty,
-				"priority": item.Priority,
-				"project":  project,
-			}
-			if item.Context != "" {
-				argsMap["context"] = item.Context
-			}
-			if item.Level != "" {
-				argsMap["level"] = item.Level
-			}
-
-			msg, _, err := executeConventionOp(agentID, s, exec, createDecl, argsMap)
+			// Expand the template.
+			items, err := playbook.Expand(pb.PlaybookTemplate, project, variables)
 			if err != nil {
-				return fmt.Errorf("sending work:create for %s: %w", item.ID, err)
+				return fmt.Errorf("expanding playbook: %w", err)
 			}
-			createMsgIDs[item.TemplateIndex] = msg.ID
-		}
 
-		blockDecl, err := loadDeclaration("block")
-		if err != nil {
-			return err
-		}
+			createDecl, err := loadDeclaration("create")
+			if err != nil {
+				return err
+			}
 
-		// Send work:block for each dependency edge using the executor.
-		for _, item := range items {
-			for _, depID := range item.Deps {
-				// Find the dep item to get its msg ID.
-				var depItem *playbook.ExpandedItem
-				for _, other := range items {
-					if other.ID == depID {
-						depItem = other
-						break
+			// Maps template index → msg ID of the work:create message sent.
+			createMsgIDs := make(map[int]string, len(items))
+
+			// Send work:create for each item using the executor.
+			for _, item := range items {
+				argsMap := map[string]any{
+					"id":       item.ID,
+					"title":    item.Title,
+					"type":     item.Type,
+					"for":      forParty,
+					"priority": item.Priority,
+					"project":  project,
+				}
+				if item.Context != "" {
+					argsMap["context"] = item.Context
+				}
+				if item.Level != "" {
+					argsMap["level"] = item.Level
+				}
+
+				msg, _, err := executeConventionOp(agentID, s, exec, createDecl, argsMap)
+				if err != nil {
+					return fmt.Errorf("sending work:create for %s: %w", item.ID, err)
+				}
+				createMsgIDs[item.TemplateIndex] = msg.ID
+			}
+
+			blockDecl, err := loadDeclaration("block")
+			if err != nil {
+				return err
+			}
+
+			// Send work:block for each dependency edge using the executor.
+			for _, item := range items {
+				for _, depID := range item.Deps {
+					// Find the dep item to get its msg ID.
+					var depItem *playbook.ExpandedItem
+					for _, other := range items {
+						if other.ID == depID {
+							depItem = other
+							break
+						}
+					}
+					if depItem == nil {
+						return fmt.Errorf("internal: dep item %q not found", depID)
+					}
+
+					// item is blocked by depItem (depItem must complete first).
+					argsMap := map[string]any{
+						"blocker_id":  depItem.ID,
+						"blocked_id":  item.ID,
+						"blocker_msg": createMsgIDs[depItem.TemplateIndex],
+						"blocked_msg": createMsgIDs[item.TemplateIndex],
+					}
+					_, _, err = executeConventionOp(agentID, s, exec, blockDecl, argsMap)
+					if err != nil {
+						return fmt.Errorf("sending work:block for %s→%s: %w", depItem.ID, item.ID, err)
 					}
 				}
-				if depItem == nil {
-					return fmt.Errorf("internal: dep item %q not found", depID)
-				}
-
-				// item is blocked by depItem (depItem must complete first).
-				argsMap := map[string]any{
-					"blocker_id":  depItem.ID,
-					"blocked_id":  item.ID,
-					"blocker_msg": createMsgIDs[depItem.TemplateIndex],
-					"blocked_msg": createMsgIDs[item.TemplateIndex],
-				}
-				_, _, err = executeConventionOp(agentID, s, exec, blockDecl, argsMap)
-				if err != nil {
-					return fmt.Errorf("sending work:block for %s→%s: %w", depItem.ID, item.ID, err)
-				}
 			}
-		}
 
-		// Collect all created item IDs.
-		createdIDs := make([]string, len(items))
-		for i, item := range items {
-			createdIDs[i] = item.ID
-		}
+			// Collect all created item IDs.
+			createdIDs := make([]string, len(items))
+			for i, item := range items {
+				createdIDs[i] = item.ID
+			}
 
-		engageDecl, err := loadDeclaration("engage")
-		if err != nil {
-			return err
-		}
+			engageDecl, err := loadDeclaration("engage")
+			if err != nil {
+				return err
+			}
 
-		// Send the work:engage message using the executor.
-		engageArgs := map[string]any{
-			"playbook_id": playbookID,
-			"project":     project,
-			"for":         forParty,
-		}
-		if len(variables) > 0 {
-			engageArgs["variables"] = variables
-		}
-
-		engageMsg, campfireID, err := executeConventionOp(agentID, s, exec, engageDecl, engageArgs)
-		if err != nil {
-			return fmt.Errorf("sending work:engage: %w", err)
-		}
-
-		if jsonOutput {
-			out := map[string]interface{}{
+			// Send the work:engage message using the executor.
+			engageArgs := map[string]any{
 				"playbook_id": playbookID,
 				"project":     project,
 				"for":         forParty,
-				"created_ids": createdIDs,
-				"engage_msg":  engageMsg.ID,
-				"campfire_id": campfireID,
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(out)
-		}
+			if len(variables) > 0 {
+				engageArgs["variables"] = variables
+			}
+
+			engageMsg, campfireID, err := executeConventionOp(agentID, s, exec, engageDecl, engageArgs)
+			if err != nil {
+				return fmt.Errorf("sending work:engage: %w", err)
+			}
+
+			if jsonOutput {
+				out := map[string]interface{}{
+					"playbook_id": playbookID,
+					"project":     project,
+					"for":         forParty,
+					"created_ids": createdIDs,
+					"engage_msg":  engageMsg.ID,
+					"campfire_id": campfireID,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
 
 			// Human-readable output: print the created item tree.
 			fmt.Printf("engaged playbook %s → %d items\n\n", playbookID, len(items))

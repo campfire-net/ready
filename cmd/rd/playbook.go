@@ -7,9 +7,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/store"
-	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/playbook"
+	"github.com/spf13/cobra"
 )
 
 // playbookCreatePayload is the JSON payload for a work:playbook-create message.
@@ -72,7 +73,7 @@ Example:
 			return fmt.Errorf("invalid playbook: %w", err)
 		}
 
-		return withAgentAndStore(func(agentID, s) error {
+		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			// Re-marshal the items as raw JSON for the payload.
 			itemsRaw, err := tmpl.ItemsJSON()
 			if err != nil {

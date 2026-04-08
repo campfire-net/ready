@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
+	"github.com/campfire-net/campfire/pkg/identity"
+	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/state"
+	"github.com/spf13/cobra"
 )
 
 var gateCmd = &cobra.Command{
@@ -36,7 +38,7 @@ Example:
 			return fmt.Errorf("--gate-type is required: choose from budget, design, scope, review, human, stall, periodic")
 		}
 
-		return withAgentAndStore(func(agentID, s) error {
+		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			// Resolve the item.
 			item, err := byIDFromJSONLOrStore(s, itemID)
 			if err != nil {
