@@ -184,6 +184,9 @@
     this.cursorLine.innerHTML = '<span class="t-ps1">$ </span><span class="t-cursor"></span>';
     this.content.appendChild(this.cursorLine);
 
+    this.spacer = document.createElement('div');
+    this.spacer.className = 'term-spacer';
+    this.viewport.appendChild(this.spacer);
     this.viewport.appendChild(this.content);
 
     // Controls

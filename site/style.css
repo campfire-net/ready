@@ -546,7 +546,12 @@ section {
   scrollbar-color: var(--ds-border) transparent;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+}
+
+/* Spacer fills space above content, pushing it to the bottom.
+   As content grows, spacer shrinks to zero and viewport scrolls. */
+.term-spacer {
+  flex: 1;
 }
 .term-viewport::-webkit-scrollbar { width: 8px; }
 .term-viewport::-webkit-scrollbar-track { background: transparent; }
@@ -565,6 +570,7 @@ section {
   line-height: 1.8;
   color: var(--ds-text-secondary);
   flex-shrink: 0;
+  flex-grow: 0;
 }
 
 .term-line {
