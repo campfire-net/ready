@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 // Config holds rd-specific configuration persisted across sessions.
@@ -76,10 +75,10 @@ func PinBeaconRoot(cfHome string, beaconRoot string) (bool, error) {
 
 	// Acquire exclusive lock. This blocks until we hold the lock.
 	fd := int(lockFile.Fd())
-	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+	if err := FlockExclusive(fd); err != nil {
 		return false, fmt.Errorf("acquiring lock: %w", err)
 	}
-	defer syscall.Flock(fd, syscall.LOCK_UN)
+	defer FlockUnlock(fd)
 
 	// Load config under lock. Another process may have updated it while we waited.
 	cfg, err := Load(cfHome)

@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/beacon"
@@ -338,10 +337,10 @@ func resetBeaconRoot(cfHome string) (prev string, err error) {
 
 	// Acquire exclusive lock.
 	fd := int(lockFile.Fd())
-	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+	if err := rdconfig.FlockExclusive(fd); err != nil {
 		return "", fmt.Errorf("acquiring lock: %w", err)
 	}
-	defer syscall.Flock(fd, syscall.LOCK_UN)
+	defer rdconfig.FlockUnlock(fd)
 
 	// Load under lock.
 	cfg, err := rdconfig.Load(cfHome)
