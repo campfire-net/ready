@@ -235,6 +235,11 @@ func TestRequireClient_PicksUpConfigDirViaFilesystemDetection(t *testing.T) {
 		}
 	})
 
+	// Chdir into tmpHome so CFHome walk-up doesn't find the real ~/.cf.
+	oldCwd, _ := os.Getwd()
+	os.Chdir(tmpHome)
+	t.Cleanup(func() { os.Chdir(oldCwd) })
+
 	// Reset the client cache.
 	origClient := protocolClient
 	protocolClient = nil
