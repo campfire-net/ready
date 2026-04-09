@@ -13,6 +13,9 @@ package main
 //   - TOFU beacon root: all five paths via applyBeaconRootTOFU / resetBeaconRoot (ready-c3a)
 //   - Open campfire join: non-member joins open campfire via client.Join() (ready-1b5)
 //   - Invite-only campfire join: client.Join() returns "invite-only" error (ready-1b5)
+//   - joinViaInviteToken: fresh CF_HOME succeeds without --force (ready-167)
+//   - joinViaInviteToken: existing identity + no --force → error "identity already exists" (ready-328)
+//   - joinViaInviteToken: existing identity + --force → succeeds, overwritten identity matches token key (ready-328)
 
 import (
 	"crypto/ed25519"
@@ -26,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/campfire-net/campfire/pkg/identity"
 	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/ready/pkg/rdconfig"
 )
@@ -1280,7 +1284,8 @@ func TestJoinViaInviteToken_FreshCFHome_NoForceRequired(t *testing.T) {
 		}
 	})
 
-	// Scenario 3: Existing identity + force=true → must succeed.
+	// Scenario 3: Existing identity + force=true → must succeed, and the written
+	// identity must match the token's pre-provisioned key (ready-328).
 	t.Run("existing_identity_with_force_succeeds", func(t *testing.T) {
 		rdHome = cfHomeExisting
 		if protocolClient != nil {
@@ -1290,6 +1295,28 @@ func TestJoinViaInviteToken_FreshCFHome_NoForceRequired(t *testing.T) {
 
 		if err := joinViaInviteToken(token, true /* force */); err != nil {
 			t.Fatalf("joinViaInviteToken with existing identity and force=true: %v", err)
+		}
+
+		// Verify the overwritten identity matches the token's pre-provisioned key.
+		payload, err := decodeInviteToken(token)
+		if err != nil {
+			t.Fatalf("decodeInviteToken (for key verification): %v", err)
+		}
+		seed, err := hex.DecodeString(payload.PrivateKey)
+		if err != nil {
+			t.Fatalf("hex-decoding private key seed from token: %v", err)
+		}
+		privKey := ed25519.NewKeyFromSeed(seed)
+		expectedPubHex := hex.EncodeToString(privKey.Public().(ed25519.PublicKey))
+
+		idPath := filepath.Join(cfHomeExisting, "identity.json")
+		loadedID, err := identity.Load(idPath)
+		if err != nil {
+			t.Fatalf("loading identity after force-overwrite: %v", err)
+		}
+		if loadedID.PublicKeyHex() != expectedPubHex {
+			t.Errorf("overwritten identity public key mismatch\n  got:  %s\n  want: %s",
+				loadedID.PublicKeyHex(), expectedPubHex)
 		}
 	})
 }
