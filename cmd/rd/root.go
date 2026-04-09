@@ -57,6 +57,16 @@ DELEGATION
   rd ready --view delegated       see what you've delegated
   rd ready --view my-work         see what's assigned to you
 
+RESUMING WORK (for agents and humans returning to a project)
+  rd ready                        what needs attention — start here
+  rd ready --view work            what's actively being worked on
+  rd show <id>                    full item spec, done condition, audit trail
+  rd ready --view my-work --json  items assigned to your identity
+
+  If you're an agent resuming after context loss: run rd ready --view work
+  to find your in-progress item. Run rd show <id> to read the full spec.
+  The item description is self-contained — it has everything you need.
+
 SETUP
   rd init --name myproject        create a work campfire (one-time)
   rd register --org <name>        add to an org for multi-project (optional)
