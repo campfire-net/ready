@@ -46,16 +46,31 @@ func ResolveDeps(item *state.Item, s store.Store, aliases *naming.AliasStore) []
 		return nil
 	}
 
-	// Build a map of campfire ID -> derived items for campfires we're a member of.
+	// Build membership set so we only derive campfires the user belongs to.
 	memberships, err := s.ListMemberships()
-	memberMap := make(map[string]map[string]*state.Item)
+	memberSet := make(map[string]bool)
 	if err == nil {
 		for _, m := range memberships {
-			derived, deriveErr := state.DeriveFromStore(s, m.CampfireID)
-			if deriveErr == nil {
-				memberMap[m.CampfireID] = derived
-			}
+			memberSet[m.CampfireID] = true
 		}
+	}
+
+	// Lazy-load campfire items: only derive state for campfires actually
+	// referenced by this item's cross-campfire warnings (and that we're a member of).
+	memberMap := make(map[string]map[string]*state.Item)
+	deriveCampfire := func(campfireID string) {
+		if _, ok := memberMap[campfireID]; ok {
+			return
+		}
+		if !memberSet[campfireID] {
+			return // not a member — don't attempt derivation
+		}
+		derived, err := state.DeriveFromStore(s, campfireID)
+		if err != nil {
+			memberMap[campfireID] = nil
+			return
+		}
+		memberMap[campfireID] = derived
 	}
 
 	var results []ResolvedDep
@@ -69,6 +84,14 @@ func ResolveDeps(item *state.Item, s store.Store, aliases *naming.AliasStore) []
 			})
 			continue
 		}
+
+		// Derive only the campfires we need.
+		if aliases != nil {
+			if campfireID, aliasErr := aliases.Get(parsed.CampfireName); aliasErr == nil && campfireID != "" {
+				deriveCampfire(campfireID)
+			}
+		}
+		deriveCampfire(parsed.CampfireName)
 
 		resolved := resolveSingle(parsed, memberMap, aliases)
 		results = append(results, resolved)
@@ -143,18 +166,34 @@ func resolveSingle(parsed *state.CrossCampfireRef, memberMap map[string]map[stri
 // The items slice is modified in place. Cross-campfire blockers are added to
 // BlockedBy with their full cross-campfire ref for display purposes.
 func ApplyBlocking(items []*state.Item, s store.Store, aliases *naming.AliasStore) {
-	// Build a map of all items across all campfires.
-	memberships, err := s.ListMemberships()
-	if err != nil {
+	// Fast path: if no items have cross-campfire warnings, skip entirely.
+	// This avoids deriving state for all campfires (O(memberships × messages))
+	// when there are no cross-campfire deps to resolve.
+	hasCrossDeps := false
+	for _, item := range items {
+		if len(item.CrossCampfireWarnings) > 0 {
+			hasCrossDeps = true
+			break
+		}
+	}
+	if !hasCrossDeps {
 		return
 	}
+
+	// Lazy-load campfire items: only derive state for campfires that are
+	// actually referenced by cross-campfire deps, not all memberships.
 	campfireItems := make(map[string]map[string]*state.Item) // campfireID -> itemID -> item
-	for _, m := range memberships {
-		derived, deriveErr := state.DeriveFromStore(s, m.CampfireID)
-		if deriveErr != nil {
-			continue
+	deriveCampfire := func(campfireID string) map[string]*state.Item {
+		if items, ok := campfireItems[campfireID]; ok {
+			return items // already derived (or failed — nil cached)
 		}
-		campfireItems[m.CampfireID] = derived
+		derived, err := state.DeriveFromStore(s, campfireID)
+		if err != nil {
+			campfireItems[campfireID] = nil // cache the failure
+			return nil
+		}
+		campfireItems[campfireID] = derived
+		return derived
 	}
 
 	for _, item := range items {
@@ -173,13 +212,13 @@ func ApplyBlocking(items []*state.Item, s store.Store, aliases *naming.AliasStor
 			var blockerItem *state.Item
 			if aliases != nil {
 				if campfireID, aliasErr := aliases.Get(parsed.CampfireName); aliasErr == nil && campfireID != "" {
-					blockerItem = findItemInCampfire(campfireItems[campfireID], parsed.ItemID)
+					blockerItem = findItemInCampfire(deriveCampfire(campfireID), parsed.ItemID)
 				}
 			}
 
 			// Also try direct campfire ID lookup (for refs like <campfireID>.<itemID>).
 			if blockerItem == nil {
-				blockerItem = findItemInCampfire(campfireItems[parsed.CampfireName], parsed.ItemID)
+				blockerItem = findItemInCampfire(deriveCampfire(parsed.CampfireName), parsed.ItemID)
 			}
 
 			if blockerItem == nil {
