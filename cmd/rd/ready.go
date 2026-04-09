@@ -43,6 +43,8 @@ Example:
 		forFilter, _ := cmd.Flags().GetString("for")
 		projectFilter, _ := cmd.Flags().GetString("project")
 
+		autoSyncPull()
+
 		return withAgentAndStore(func(agentID *identity.Identity, s store.Store) error {
 			// Default --for to the current session identity when not explicitly set.
 			if !cmd.Flags().Changed("for") {

@@ -206,12 +206,10 @@ tee_section "9. Member closes item (ready-c0c: admitted member can close)"
 run "cd \$PROJ_B && rd done $ITEM_ID --reason 'Staging deployed'" \
     bash -c "cd '$PROJ_B' && '$RD' done '$ITEM_ID' --reason 'Staging deployed'"
 
-# ── 10. Owner syncs back and sees the close ──────────────────────────────────
-tee_section "10. Owner syncs back — sees member's close"
+# ── 10. Owner sees the close — auto-sync on rd list --all ────────────────────
+tee_section "10. Owner sees member's close — auto-synced on rd list --all"
 
-run "cd \$PROJ_A && rd sync pull  (from Machine A)" \
-    bash -c "cd '$PROJ_A' && '$RD' sync pull"
-
+# rd list --all auto-pulls from campfire before displaying (ready-341)
 run "cd \$PROJ_A && rd list --all  (from Machine A)" \
     bash -c "cd '$PROJ_A' && '$RD' list --all"
 
