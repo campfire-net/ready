@@ -600,6 +600,7 @@ func joinViaInviteToken(token string, force bool) error {
 	}
 	privKey := ed25519.NewKeyFromSeed(seed)
 	pubKey := privKey.Public().(ed25519.PublicKey)
+	pubKeyHex := hex.EncodeToString(pubKey)
 
 	// Write the pre-provisioned identity to CF_HOME.
 	cfHome := CFHome()
@@ -608,6 +609,10 @@ func joinViaInviteToken(token string, force bool) error {
 	if identity.Exists(idPath) && !force {
 		return fmt.Errorf("identity already exists at %s — use --force to overwrite", idPath)
 	}
+
+	// Backup the existing identity so we can restore it if the join fails.
+	oldIdentity, readErr := os.ReadFile(idPath)
+	hasOldIdentity := readErr == nil
 
 	id := &identity.Identity{
 		PublicKey:  pubKey,
@@ -621,12 +626,33 @@ func joinViaInviteToken(token string, force bool) error {
 	// Reset the cached protocol client so it picks up the new identity.
 	protocolClient = nil
 
+	// restoreIdentity rolls back to the pre-join identity on failure.
+	restoreIdentity := func() {
+		if hasOldIdentity {
+			_ = os.WriteFile(idPath, oldIdentity, 0600)
+		} else {
+			_ = os.Remove(idPath)
+		}
+		protocolClient = nil
+	}
+
 	client, err := requireClient()
 	if err != nil {
-		return fmt.Errorf("initializing client with invite identity: %w", err)
+		restoreIdentity()
+		return fmt.Errorf("join failed, identity restored: %w", err)
 	}
 
 	campfireID := payload.CampfireID
+
+	// Single-use check: read the campfire for an existing redemption record for
+	// this token's pubkey. The admitted (but not-yet-joined) identity can read
+	// transport state before calling Join() because the filesystem transport
+	// allows reads from admitted members. If a redemption record exists, reject
+	// immediately with a clear error and restore the prior identity.
+	if redeemed, checkErr := isInviteTokenRedeemed(client, campfireID, pubKeyHex); checkErr == nil && redeemed {
+		restoreIdentity()
+		return fmt.Errorf("invite token already redeemed — each token may only be used once")
+	}
 
 	// Attempt to join the campfire.
 	_, err = client.Join(protocol.JoinRequest{
@@ -634,7 +660,15 @@ func joinViaInviteToken(token string, force bool) error {
 		Transport:  protocol.FilesystemTransport{Dir: resolveTransportDir(campfireID)},
 	})
 	if err != nil {
-		return fmt.Errorf("joining campfire via invite token: %w", err)
+		restoreIdentity()
+		return fmt.Errorf("join failed, identity restored: %w", err)
+	}
+
+	// Post a redemption record so subsequent join attempts with the same token
+	// are rejected. Non-fatal: if posting fails, log a warning but do not fail
+	// the join (the joiner is already a member).
+	if postErr := postInviteRedemption(client, campfireID, pubKeyHex); postErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not record invite token redemption: %v\n", postErr)
 	}
 
 	// Bootstrap local project state and auto-sync items.
@@ -655,6 +689,49 @@ func joinViaInviteToken(token string, force bool) error {
 	}
 	fmt.Fprintf(os.Stdout, "joined %s via invite token (expires in %s)\n", displayID, remainingStr)
 	return nil
+}
+
+// inviteRedeemedTag is the campfire message tag used to record invite token redemptions.
+// Format: "work:invite-redeemed:<pubkey-hex>"
+const inviteRedeemedTag = "work:invite-redeemed"
+
+// isInviteTokenRedeemed checks whether the campfire contains a work:invite-redeemed
+// message for the given pubkey. Returns (true, nil) if redeemed, (false, nil) if not,
+// or (false, err) if the check could not be performed (caller treats errors as not
+// redeemed to avoid blocking legitimate first-use joins when the transport is
+// temporarily unreadable).
+func isInviteTokenRedeemed(client campfireReader, campfireID, pubKeyHex string) (bool, error) {
+	redemptionTag := inviteRedeemedTag + ":" + pubKeyHex
+	result, err := client.Read(protocol.ReadRequest{
+		CampfireID: campfireID,
+		Tags:       []string{redemptionTag},
+	})
+	if err != nil {
+		return false, err
+	}
+	return len(result.Messages) > 0, nil
+}
+
+// postInviteRedemption posts a work:invite-redeemed message to the campfire,
+// recording that this token (identified by pubKeyHex) has been consumed.
+// Subsequent join attempts that call isInviteTokenRedeemed will detect this record.
+func postInviteRedemption(client *protocol.Client, campfireID, pubKeyHex string) error {
+	redemptionPayload := map[string]string{
+		"pubkey":      pubKeyHex,
+		"redeemed_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	payloadJSON, err := json.Marshal(redemptionPayload)
+	if err != nil {
+		return fmt.Errorf("encoding redemption payload: %w", err)
+	}
+
+	redemptionTag := inviteRedeemedTag + ":" + pubKeyHex
+	_, err = client.Send(protocol.SendRequest{
+		CampfireID: campfireID,
+		Payload:    payloadJSON,
+		Tags:       []string{inviteRedeemedTag, redemptionTag},
+	})
+	return err
 }
 
 func init() {
