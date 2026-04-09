@@ -1,0 +1,206 @@
+# Ready Filesystem Isolation Demo — Thu Apr  9 01:08:19 UTC 2026
+# Walk-up config: .cf/identity.json anchors identity; .campfire/root anchors project
+
+
+═══════════════════════════════════════════════════════════
+  Setup: Owner initializes project
+═══════════════════════════════════════════════════════════
+
+$ cf init --cf-home $OWNER_CF
+Your identity campfire: 3512007aa48ad2dc0a1d365f509dc7f7a0cf08807003dddc7b139bb4cb7a84cd. Share it like any beacon.
+
+Next: cf discover    find campfires
+      cf create      start one
+      cf join <id>   join one
+
+$ CF_HOME=$OWNER_CF rd init --name iso-project  (in $PROJECT)
+warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
+initialized iso-project
+  campfire: dd57551c09f0...
+  summary campfire: ba2532ae0901...
+  inbox campfire: 0e26e35cc53c...
+  encrypted: true (E2E intent set; SDK encryption enabled when available)
+  declarations: 16 operations published
+
+  home campfire: found (3512007aa48a...)
+  run 'rd register --org <name>' to add naming
+
+# Project campfire ID: dd57551c09f0ad60e08da3e9118f976819c54bf3be96656c0df9eb7306fe1c7b
+# Stored at: $PROJECT/.campfire/root
+
+
+═══════════════════════════════════════════════════════════
+  Scenario 1: Inheritance — subdirectory sees project campfire
+═══════════════════════════════════════════════════════════
+
+# Directory layout:
+#   $PROJECT/                ← rd init wrote .campfire/root here
+#   $PROJECT/src/            ← no .cf/ here; walk-up finds parent's .campfire/root
+
+$ CF_HOME=$OWNER_CF rd create 'Implement login' --type task --priority p1
+Created: rdtestisoproj4m4-79f
+
+# rd ready from subdirectory — campfire resolves via walk-up to parent's .campfire/root
+$ (from $PROJECT/src) CF_HOME=$OWNER_CF rd ready
+rdtestisoproj4m4-79f
+
+# Human-readable (via --json):
+  rdtestisoproj4m4-79f  [inbox   ]  Implement login
+
+✓ assert: item visible from subdirectory via .campfire/root walk-up
+
+
+═══════════════════════════════════════════════════════════
+  Scenario 2: Isolation — sibling worktrees, different identities
+═══════════════════════════════════════════════════════════
+
+# Directory layout:
+#   $PROJECT/                ← .campfire/root (project anchor)
+#   $PROJECT/worktree-a/.cf/ ← agent-A identity (walk-up stops here)
+#   $PROJECT/worktree-b/.cf/ ← agent-B identity (walk-up stops here)
+
+# Owner generates two invite tokens
+$ CF_HOME=$OWNER_CF rd invite  →  rdx1_...  (token for agent-A)
+$ CF_HOME=$OWNER_CF rd invite  →  rdx1_...  (token for agent-B)
+
+# Agent A: CF_HOME=worktree-a/.cf rd join <token>  (one-time identity bootstrap)
+$ cd $PROJECT/worktree-a && CF_HOME=$PROJECT/worktree-a/.cf rd join <token-a>
+synced 1 item(s)
+joined dd57551c09f0... via invite token (expires in 1h59m0s)
+
+# Agent B: CF_HOME=worktree-b/.cf rd join <token>  (one-time identity bootstrap)
+$ cd $PROJECT/worktree-b && CF_HOME=$PROJECT/worktree-b/.cf rd join <token-b>
+synced 1 item(s)
+joined dd57551c09f0... via invite token (expires in 1h59m0s)
+
+# Each worktree now has its own identity — no CF_HOME needed:
+$ ls $PROJECT/worktree-a/.cf/
+identity.json
+store.db
+
+$ ls $PROJECT/worktree-b/.cf/
+identity.json
+store.db
+
+$ (worktree-a identity) cf id --json | .public_key
+e1b8b5984201840f...  ← agent-A
+
+$ (worktree-b identity) cf id --json | .public_key
+cf13159a3ec5eda4...  ← agent-B
+
+✓ assert: agent-A and agent-B have different public keys
+
+# Both agents see all project items via walk-up to parent's .campfire/root:
+$ (from worktree-a) rd list --json  # no CF_HOME
+  rdtestisoproj4m4-79f  [inbox   ]  Implement login
+
+$ (from worktree-b) rd list --json  # no CF_HOME
+  rdtestisoproj4m4-79f  [inbox   ]  Implement login
+
+✓ assert: agent-A sees project items from worktree-a/ (no CF_HOME)
+
+✓ assert: agent-B sees project items from worktree-b/ (no CF_HOME)
+
+
+═══════════════════════════════════════════════════════════
+  Scenario 3: Coordination — two agents claim disjoint work
+═══════════════════════════════════════════════════════════
+
+# Owner creates five work items
+Created: rdtestisoproj4m4-93b
+Created: rdtestisoproj4m4-e95
+Created: rdtestisoproj4m4-f6f
+Created: rdtestisoproj4m4-96d
+Created: rdtestisoproj4m4-20c
+
+$ CF_HOME=$OWNER_CF rd list --json  (all items)
+  rdtestisoproj4m4-79f  [inbox   ]  Implement login
+  rdtestisoproj4m4-93b  [inbox   ]  Set up database schema
+  rdtestisoproj4m4-e95  [inbox   ]  Build REST endpoints
+  rdtestisoproj4m4-96d  [inbox   ]  Add rate limiting
+  rdtestisoproj4m4-f6f  [inbox   ]  Write integration tests
+  rdtestisoproj4m4-20c  [inbox   ]  Deploy to staging
+
+# Agents sync to pick up new items
+$ cd $PROJECT/worktree-a && rd sync pull  # no CF_HOME
+sync pull: 5 message(s) pulled
+
+$ cd $PROJECT/worktree-b && rd sync pull  # no CF_HOME
+sync pull: 5 message(s) pulled
+
+# Agent A claims two items — identity from worktree-a/.cf/ (walk-up), no CF_HOME
+$ cd $PROJECT/worktree-a && rd claim rdtestisoproj4m4-93b  # no CF_HOME
+claimed rdtestisoproj4m4-93b
+
+$ cd $PROJECT/worktree-a && rd claim rdtestisoproj4m4-f6f  # no CF_HOME
+claimed rdtestisoproj4m4-f6f
+
+# Agent B claims two items — identity from worktree-b/.cf/ (walk-up), no CF_HOME
+$ cd $PROJECT/worktree-b && rd claim rdtestisoproj4m4-e95  # no CF_HOME
+claimed rdtestisoproj4m4-e95
+
+$ cd $PROJECT/worktree-b && rd claim rdtestisoproj4m4-96d  # no CF_HOME
+claimed rdtestisoproj4m4-96d
+
+$ cd $PROJECT/worktree-a && rd progress rdtestisoproj4m4-93b --notes 'Schema migrations written'  # no CF_HOME
+progress noted on rdtestisoproj4m4-93b
+
+$ cd $PROJECT/worktree-a && rd progress rdtestisoproj4m4-f6f --notes 'Tests at 80% coverage'  # no CF_HOME
+progress noted on rdtestisoproj4m4-f6f
+
+$ cd $PROJECT/worktree-b && rd progress rdtestisoproj4m4-e95 --notes 'Auth endpoint complete'  # no CF_HOME
+progress noted on rdtestisoproj4m4-e95
+
+$ cd $PROJECT/worktree-b && rd progress rdtestisoproj4m4-96d --notes 'Token bucket implemented'  # no CF_HOME
+progress noted on rdtestisoproj4m4-96d
+
+$ CF_HOME=$OWNER_CF rd sync pull  (owner pulls latest state)
+sync pull: 8 message(s) pulled, 6 duplicate(s) skipped
+
+$ CF_HOME=$OWNER_CF rd list --all --json  (owner views agent activity)
+  rdtestisoproj4m4-79f  [inbox   ]  Implement login
+  rdtestisoproj4m4-93b  [active  ]  Set up database schema
+  rdtestisoproj4m4-e95  [active  ]  Build REST endpoints
+  rdtestisoproj4m4-96d  [active  ]  Add rate limiting
+  rdtestisoproj4m4-f6f  [active  ]  Write integration tests
+  rdtestisoproj4m4-20c  [inbox   ]  Deploy to staging
+
+# 4 items active — claimed and progressed by two isolated agents
+
+✓ assert: owner sees active items claimed by isolated agents
+
+# The 'by' field shows which agent claimed each item:
+  rdtestisoproj4m4-79f      [inbox   ]  (unassigned)        Implement login
+  rdtestisoproj4m4-93b      [active  ]  by=e1b8b5984201...  Set up database schema
+  rdtestisoproj4m4-e95      [active  ]  by=cf13159a3ec5...  Build REST endpoints
+  rdtestisoproj4m4-96d      [active  ]  by=cf13159a3ec5...  Add rate limiting
+  rdtestisoproj4m4-f6f      [active  ]  by=e1b8b5984201...  Write integration tests
+  rdtestisoproj4m4-20c      [inbox   ]  (unassigned)        Deploy to staging
+
+
+═══════════════════════════════════════════════════════════
+  Summary: What the filesystem hierarchy did
+═══════════════════════════════════════════════════════════
+
+# Walk-up resolution gives you zero-config agent isolation:
+#
+#   project/                    ← rd init: .campfire/root, .ready/
+#   project/worktree-a/
+#   project/worktree-a/.cf/     ← agent-A identity (walk-up stops here)
+#   project/worktree-b/
+#   project/worktree-b/.cf/     ← agent-B identity (walk-up stops here)
+#
+# When agent-A runs `rd` from worktree-a/:
+#   CFHome()   → walks up → finds worktree-a/.cf/identity.json  → agent-A identity
+#   campfire   → walks up → finds project/.campfire/root         → shared project
+#
+# When agent-B runs `rd` from worktree-b/:
+#   CFHome()   → walks up → finds worktree-b/.cf/identity.json  → agent-B identity
+#   campfire   → walks up → finds project/.campfire/root         → shared project
+#
+# No CF_HOME=. No --cf-home flags. No env var juggling.
+# The directory you cd into IS your identity configuration.
+
+══════════════════════════════════════════════════════════════
+  Demo complete. Transcript saved to: /home/baron/projects/ready/test/demo/output/11-filesystem-isolation.txt
+══════════════════════════════════════════════════════════════
