@@ -447,7 +447,7 @@ section {
   .tier-grid { grid-template-columns: 1fr; }
   .install-grid { grid-template-columns: 1fr; }
   .ecosystem-links { grid-template-columns: 1fr; }
-  .demo-tab { font-size: 11px; padding: 8px 10px; }
+  .term-accordion-subtitle { display: none; }
 }
 
 /* ── Terminal player ── */
@@ -461,63 +461,92 @@ section {
   margin-right: auto;
 }
 
-/* Tab strip for selecting demos */
-.demo-tabs {
+/* Tab strip — hidden, using accordion instead */
+.demo-tabs { display: none; }
+
+/* Accordion header — clickable row to expand a terminal */
+.term-accordion-header {
   display: flex;
-  gap: 0;
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius) var(--ds-radius) 0 0;
-  overflow: hidden;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
   background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+.term-accordion-header:hover {
+  border-color: var(--ds-accent-primary);
+  background: var(--ds-surface-hover);
+}
+[data-terminal-demo].active .term-accordion-header {
+  border-radius: var(--ds-radius) var(--ds-radius) 0 0;
+  border-bottom-color: transparent;
+  border-color: var(--ds-accent-primary);
 }
 
-.demo-tab {
-  flex: 1;
-  padding: 10px 16px;
-  font-family: var(--ds-font-mono);
-  font-size: 12px;
-  font-weight: 500;
+.term-accordion-arrow {
   color: var(--ds-text-muted);
-  background: none;
-  border: none;
-  border-right: 1px solid var(--ds-border);
-  cursor: pointer;
-  text-align: center;
-  transition: color 0.15s, background 0.15s;
-  white-space: nowrap;
+  font-size: 12px;
+  transition: transform 0.2s;
+  flex-shrink: 0;
 }
-.demo-tab:last-child { border-right: none; }
-.demo-tab:hover { color: var(--ds-text-secondary); background: var(--ds-surface-hover); }
-.demo-tab.active {
+[data-terminal-demo].active .term-accordion-arrow {
+  transform: rotate(90deg);
   color: var(--ds-accent-primary);
+}
+
+.term-accordion-title {
+  font-family: var(--ds-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-secondary);
+  flex: 1;
+}
+[data-terminal-demo].active .term-accordion-title {
+  color: var(--ds-text);
+}
+
+.term-accordion-subtitle {
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+  color: var(--ds-text-muted);
+  flex-shrink: 0;
+}
+
+/* Terminal body — only visible when accordion is open */
+.term-accordion-body {
+  display: none;
+  border: 1px solid var(--ds-accent-primary);
+  border-top: none;
+  border-radius: 0 0 var(--ds-radius) var(--ds-radius);
   background: var(--ds-code-bg);
-  border-bottom: 2px solid var(--ds-accent-primary);
+  overflow: hidden;
+}
+[data-terminal-demo].active .term-accordion-body {
+  display: flex;
+  flex-direction: column;
 }
 
 [data-terminal-demo] {
-  border-radius: 0 0 var(--ds-radius) var(--ds-radius);
-  overflow: hidden;
-  background: var(--ds-code-bg);
-  border: 1px solid var(--ds-border);
-  border-top: none;
-  display: none;            /* hidden by default; JS shows the active one */
-  flex-direction: column;
-}
-[data-terminal-demo].active {
-  display: flex;
+  margin-bottom: 4px;
 }
 
 /* Window chrome — hidden, title is in tab strip now */
 .term-chrome { display: none; }
 
-/* Scrollable viewport — fixed height, text scrolls */
+/* Scrollable viewport — fixed height, content anchored to bottom */
 .term-viewport {
-  flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   height: clamp(280px, 40vh, 440px);
   scrollbar-width: thin;
   scrollbar-color: var(--ds-border) transparent;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 .term-viewport::-webkit-scrollbar { width: 8px; }
 .term-viewport::-webkit-scrollbar-track { background: transparent; }
@@ -535,7 +564,7 @@ section {
   font-size: 13px;
   line-height: 1.8;
   color: var(--ds-text-secondary);
-  min-height: 100%;
+  flex-shrink: 0;
 }
 
 .term-line {

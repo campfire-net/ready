@@ -1,13 +1,11 @@
-// terminal.js — Animated terminal playback from real rd demo transcripts
-// Each demo is a curated sequence from test/demo/output/*.txt
-
+// terminal.js — Accordion terminal playback from real rd demo transcripts
 (function() {
   'use strict';
 
-  const DEMOS = {
+  var DEMOS = {
     solo: {
       title: 'Solo workflow',
-      subtitle: 'test/demo/01-solo.sh',
+      subtitle: '01-solo.sh',
       source: 'https://github.com/campfire-net/ready/blob/main/test/demo/01-solo.sh',
       lines: [
         { type: 'comment', text: '# Initialize a project' },
@@ -34,10 +32,9 @@
         { type: 'output', text: 'closed myproject-e1f (done)' },
       ]
     },
-
     team: {
       title: 'Team with invite tokens',
-      subtitle: 'test/demo/02-team.sh',
+      subtitle: '02-team.sh',
       source: 'https://github.com/campfire-net/ready/blob/main/test/demo/02-team.sh',
       lines: [
         { type: 'comment', text: '# Owner creates project and generates invite' },
@@ -65,10 +62,9 @@
         { type: 'output', text: 'closed backend-776 (done)' },
       ]
     },
-
     gate: {
       title: 'Agent escalation',
-      subtitle: 'test/demo/06-gate-escalation.sh',
+      subtitle: '06-gate-escalation.sh',
       source: 'https://github.com/campfire-net/ready/blob/main/test/demo/06-gate-escalation.sh',
       lines: [
         { type: 'comment', text: '# Agent hits a decision point' },
@@ -94,10 +90,9 @@
         { type: 'output', text: 'Status:   active' },
       ]
     },
-
     isolation: {
       title: 'Walk-up agent isolation',
-      subtitle: 'test/demo/11-filesystem-isolation.sh',
+      subtitle: '11-filesystem-isolation.sh',
       source: 'https://github.com/campfire-net/ready/blob/main/test/demo/11-filesystem-isolation.sh',
       lines: [
         { type: 'comment', text: '# Project directory with two agent worktrees' },
@@ -131,7 +126,6 @@
     }
   };
 
-  // Timing
   var CHAR_DELAY = 20;
   var LINE_PAUSE = 100;
   var CMD_PAUSE = 350;
@@ -142,10 +136,9 @@
     this.el = el;
     this.demo = demo;
     this.lines = demo.lines;
-    this.renderedLines = [];
     this.playing = false;
     this.paused = false;
-    this.step = 0;        // current line index for scrubber
+    this.step = 0;
     this.abortFn = null;
     this.build();
   }
@@ -153,38 +146,39 @@
   TerminalPlayer.prototype.build = function() {
     this.el.innerHTML = '';
 
-    // Chrome
-    var chrome = document.createElement('div');
-    chrome.className = 'term-chrome';
+    // Accordion header
+    var header = document.createElement('div');
+    header.className = 'term-accordion-header';
+    var self = this;
+    header.onclick = function() { toggleAccordion(self.el); };
 
-    var dots = document.createElement('div');
-    dots.className = 'term-dots';
-    dots.innerHTML = '<span></span><span></span><span></span>';
+    var arrow = document.createElement('span');
+    arrow.className = 'term-accordion-arrow';
+    arrow.textContent = '\u25B6';
 
-    var titleEl = document.createElement('div');
-    titleEl.className = 'term-chrome-title';
-    titleEl.textContent = this.demo.title;
+    var title = document.createElement('span');
+    title.className = 'term-accordion-title';
+    title.textContent = this.demo.title;
 
-    var sourceLink = document.createElement('a');
-    sourceLink.href = this.demo.source;
-    sourceLink.className = 'term-chrome-source';
-    sourceLink.textContent = this.demo.subtitle;
-    sourceLink.target = '_blank';
-    sourceLink.rel = 'noopener';
+    var subtitle = document.createElement('span');
+    subtitle.className = 'term-accordion-subtitle';
+    subtitle.textContent = this.demo.subtitle;
 
-    chrome.appendChild(dots);
-    chrome.appendChild(titleEl);
-    chrome.appendChild(sourceLink);
+    header.appendChild(arrow);
+    header.appendChild(title);
+    header.appendChild(subtitle);
+
+    // Accordion body (viewport + controls)
+    this.body = document.createElement('div');
+    this.body.className = 'term-accordion-body';
 
     // Viewport
     this.viewport = document.createElement('div');
     this.viewport.className = 'term-viewport';
 
-    // Content (scrollable)
     this.content = document.createElement('div');
     this.content.className = 'term-content';
 
-    // Cursor line
     this.cursorLine = document.createElement('div');
     this.cursorLine.className = 'term-line';
     this.cursorLine.innerHTML = '<span class="t-ps1">$ </span><span class="t-cursor"></span>';
@@ -192,7 +186,7 @@
 
     this.viewport.appendChild(this.content);
 
-    // Controls bar
+    // Controls
     var controls = document.createElement('div');
     controls.className = 'term-bar';
 
@@ -200,30 +194,25 @@
     this.playBtn.className = 'term-btn';
     this.playBtn.innerHTML = '\u25B6';
     this.playBtn.title = 'Play';
-    var self = this;
-    this.playBtn.onclick = function() { self.togglePlay(); };
+    this.playBtn.onclick = function(e) { e.stopPropagation(); self.togglePlay(); };
 
     this.restartBtn = document.createElement('button');
     this.restartBtn.className = 'term-btn';
     this.restartBtn.innerHTML = '\u23EE';
     this.restartBtn.title = 'Restart';
-    this.restartBtn.onclick = function() { self.restart(); };
+    this.restartBtn.onclick = function(e) { e.stopPropagation(); self.restart(); };
 
-    // Progress bar
     this.progressWrap = document.createElement('div');
     this.progressWrap.className = 'term-progress-wrap';
     this.progressFill = document.createElement('div');
     this.progressFill.className = 'term-progress-fill';
     this.progressWrap.appendChild(this.progressFill);
-
-    // Click on progress bar to scrub
     this.progressWrap.onclick = function(e) {
+      e.stopPropagation();
       var rect = self.progressWrap.getBoundingClientRect();
-      var pct = (e.clientX - rect.left) / rect.width;
-      self.scrubTo(pct);
+      self.scrubTo((e.clientX - rect.left) / rect.width);
     };
 
-    // Step counter
     this.stepLabel = document.createElement('span');
     this.stepLabel.className = 'term-step';
     this.stepLabel.textContent = '0/' + this.lines.length;
@@ -234,6 +223,7 @@
     sourceLink.textContent = 'source';
     sourceLink.target = '_blank';
     sourceLink.rel = 'noopener';
+    sourceLink.onclick = function(e) { e.stopPropagation(); };
 
     controls.appendChild(this.playBtn);
     controls.appendChild(this.restartBtn);
@@ -241,9 +231,11 @@
     controls.appendChild(this.stepLabel);
     controls.appendChild(sourceLink);
 
-    this.el.appendChild(chrome);
-    this.el.appendChild(this.viewport);
-    this.el.appendChild(controls);
+    this.body.appendChild(this.viewport);
+    this.body.appendChild(controls);
+
+    this.el.appendChild(header);
+    this.el.appendChild(this.body);
   };
 
   TerminalPlayer.prototype.updateProgress = function() {
@@ -253,38 +245,30 @@
   };
 
   TerminalPlayer.prototype.togglePlay = function() {
-    if (this.playing && !this.paused) {
-      this.pause();
-    } else if (this.paused) {
-      this.resume();
-    } else {
-      this.play();
-    }
+    if (this.playing && !this.paused) { this.pause(); }
+    else if (this.paused) { this.resume(); }
+    else { this.play(); }
   };
 
   TerminalPlayer.prototype.play = function() {
     this.playing = true;
     this.paused = false;
     this.playBtn.innerHTML = '\u275A\u275A';
-    this.playBtn.title = 'Pause';
     this.step = 0;
     this.content.innerHTML = '';
     this.content.appendChild(this.cursorLine);
-    this.renderedLines = [];
     this.runNext();
   };
 
   TerminalPlayer.prototype.pause = function() {
     this.paused = true;
     this.playBtn.innerHTML = '\u25B6';
-    this.playBtn.title = 'Resume';
     if (this.abortFn) this.abortFn();
   };
 
   TerminalPlayer.prototype.resume = function() {
     this.paused = false;
     this.playBtn.innerHTML = '\u275A\u275A';
-    this.playBtn.title = 'Pause';
     this.runNext();
   };
 
@@ -292,7 +276,6 @@
     this.playing = false;
     this.paused = false;
     this.playBtn.innerHTML = '\u25B6';
-    this.playBtn.title = 'Play';
     if (this.abortFn) this.abortFn();
   };
 
@@ -303,52 +286,27 @@
 
   TerminalPlayer.prototype.scrubTo = function(pct) {
     this.stop();
-    var target = Math.floor(pct * this.lines.length);
-    target = Math.max(0, Math.min(target, this.lines.length));
-
+    var target = Math.max(0, Math.min(Math.floor(pct * this.lines.length), this.lines.length));
     this.content.innerHTML = '';
-    this.renderedLines = [];
     this.step = 0;
-
-    // Render all lines up to target instantly
     for (var i = 0; i < target; i++) {
       this.renderLineInstant(this.lines[i]);
       this.step = i + 1;
     }
-
     this.content.appendChild(this.cursorLine);
     this.updateProgress();
     this.scrollToBottom();
   };
 
   TerminalPlayer.prototype.renderLineInstant = function(line) {
-    if (line.type === 'blank') {
-      var bl = document.createElement('div');
-      bl.className = 'term-line term-blank';
-      bl.innerHTML = '\u00A0';
-      this.content.appendChild(bl);
-      return;
-    }
-
     var el = document.createElement('div');
     el.className = 'term-line';
-
-    if (line.type === 'comment') {
-      el.className += ' t-comment';
-      el.textContent = line.text;
-    } else if (line.type === 'cmd') {
-      el.className += ' t-cmd';
-      el.innerHTML = '<span class="t-ps1">$ </span>' + this.escapeHtml(line.text);
-    } else if (line.type === 'cmd-cont') {
-      el.className += ' t-cmd';
-      el.innerHTML = '<span class="t-ps1">  </span>' + this.escapeHtml(line.text);
-    } else if (line.type === 'output') {
-      el.className += ' t-out';
-      el.textContent = line.text;
-    }
-
+    if (line.type === 'blank') { el.className += ' term-blank'; el.innerHTML = '\u00A0'; }
+    else if (line.type === 'comment') { el.className += ' t-comment'; el.textContent = line.text; }
+    else if (line.type === 'cmd') { el.className += ' t-cmd'; el.innerHTML = '<span class="t-ps1">$ </span>' + this.esc(line.text); }
+    else if (line.type === 'cmd-cont') { el.className += ' t-cmd'; el.innerHTML = '<span class="t-ps1">  </span>' + this.esc(line.text); }
+    else if (line.type === 'output') { el.className += ' t-out'; el.textContent = line.text; }
     this.content.appendChild(el);
-    this.renderedLines.push(el);
   };
 
   TerminalPlayer.prototype.runNext = function() {
@@ -356,38 +314,25 @@
     if (this.step >= this.lines.length) {
       this.updateProgress();
       var self = this;
-      this.delay(RESTART_DELAY, function() {
-        if (self.playing && !self.paused) self.play();
-      });
+      this.delay(RESTART_DELAY, function() { if (self.playing && !self.paused) self.play(); });
       return;
     }
-
     var line = this.lines[this.step];
     var self = this;
-
     if (line.type === 'blank') {
       this.renderLineInstant(line);
-      this.step++;
-      this.updateProgress();
+      this.step++; this.updateProgress();
       this.delay(SECTION_PAUSE, function() { self.runNext(); });
-    } else if (line.type === 'comment') {
+    } else if (line.type === 'comment' || line.type === 'output') {
       this.renderLineInstant(line);
       this.scrollToBottom();
-      this.step++;
-      this.updateProgress();
+      this.step++; this.updateProgress();
       this.delay(LINE_PAUSE, function() { self.runNext(); });
     } else if (line.type === 'cmd' || line.type === 'cmd-cont') {
       this.typeCmd(line, function() {
-        self.step++;
-        self.updateProgress();
+        self.step++; self.updateProgress();
         self.delay(CMD_PAUSE, function() { self.runNext(); });
       });
-    } else if (line.type === 'output') {
-      this.renderLineInstant(line);
-      this.scrollToBottom();
-      this.step++;
-      this.updateProgress();
-      this.delay(LINE_PAUSE, function() { self.runNext(); });
     }
   };
 
@@ -395,29 +340,22 @@
     var isCont = line.type === 'cmd-cont';
     var el = document.createElement('div');
     el.className = 'term-line t-cmd';
-
     var ps1 = document.createElement('span');
     ps1.className = 't-ps1';
     ps1.textContent = isCont ? '  ' : '$ ';
     el.appendChild(ps1);
-
     var textSpan = document.createElement('span');
     el.appendChild(textSpan);
-
     var cursor = document.createElement('span');
     cursor.className = 't-cursor';
     el.appendChild(cursor);
 
-    // Insert before the static cursor line
     this.content.insertBefore(el, this.cursorLine);
     this.cursorLine.style.display = 'none';
     this.scrollToBottom();
 
-    var text = line.text;
-    var pos = 0;
-    var self = this;
-
-    function nextChar() {
+    var text = line.text, pos = 0, self = this;
+    function next() {
       if (!self.playing || self.paused) return;
       if (pos >= text.length) {
         cursor.remove();
@@ -426,12 +364,11 @@
         cb();
         return;
       }
-      textSpan.textContent += text[pos];
-      pos++;
+      textSpan.textContent += text[pos++];
       self.scrollToBottom();
-      self.delay(CHAR_DELAY, nextChar);
+      self.delay(CHAR_DELAY, next);
     }
-    nextChar();
+    next();
   };
 
   TerminalPlayer.prototype.delay = function(ms, fn) {
@@ -443,55 +380,41 @@
     this.viewport.scrollTop = this.viewport.scrollHeight;
   };
 
-  TerminalPlayer.prototype.escapeHtml = function(s) {
+  TerminalPlayer.prototype.esc = function(s) {
     var d = document.createElement('div');
     d.textContent = s;
     return d.innerHTML;
   };
 
-  // Tab switching
-  function switchTab(targetName) {
-    // Update tabs
-    var tabs = document.querySelectorAll('.demo-tab');
-    for (var i = 0; i < tabs.length; i++) {
-      if (tabs[i].getAttribute('data-demo-target') === targetName) {
-        tabs[i].classList.add('active');
-      } else {
-        tabs[i].classList.remove('active');
-      }
+  // Accordion: only one open at a time
+  var allPlayers = [];
+
+  function toggleAccordion(el) {
+    var wasActive = el.classList.contains('active');
+
+    // Close all
+    var all = document.querySelectorAll('[data-terminal-demo]');
+    for (var i = 0; i < all.length; i++) {
+      all[i].classList.remove('active');
+      if (all[i]._player) all[i]._player.stop();
     }
 
-    // Stop all players, show only the target
-    var terminals = document.querySelectorAll('[data-terminal-demo]');
-    for (var i = 0; i < terminals.length; i++) {
-      var name = terminals[i].getAttribute('data-terminal-demo');
-      if (name === targetName) {
-        terminals[i].classList.add('active');
-      } else {
-        terminals[i].classList.remove('active');
-        if (terminals[i]._player) terminals[i]._player.stop();
-      }
+    // Open clicked (if it wasn't already open)
+    if (!wasActive) {
+      el.classList.add('active');
     }
   }
 
   // Init
   document.addEventListener('DOMContentLoaded', function() {
-    // Build players
     var els = document.querySelectorAll('[data-terminal-demo]');
     for (var i = 0; i < els.length; i++) {
       var name = els[i].getAttribute('data-terminal-demo');
       if (DEMOS[name]) {
         var player = new TerminalPlayer(els[i], DEMOS[name]);
         els[i]._player = player;
+        allPlayers.push(player);
       }
-    }
-
-    // Tab click handlers
-    var tabs = document.querySelectorAll('.demo-tab');
-    for (var i = 0; i < tabs.length; i++) {
-      tabs[i].addEventListener('click', function() {
-        switchTab(this.getAttribute('data-demo-target'));
-      });
     }
   });
 })();
