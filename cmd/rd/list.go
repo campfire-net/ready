@@ -41,6 +41,8 @@ Example:
 		typeFilter, _ := cmd.Flags().GetString("type")
 		all, _ := cmd.Flags().GetBool("all")
 
+		autoSyncPull()
+
 		s, err := openStore()
 		if err != nil {
 			return err

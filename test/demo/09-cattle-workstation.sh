@@ -342,9 +342,7 @@ run "cd \$WORKTREE_DIR && rd done $BE_ITEM2 --reason 'Token refresh implemented,
 # 3f. Verify: owner sees the worker's completion
 tee_section "3f. Owner verifies worker's completion"
 
-run "cd \$PROJ_BACKEND && CF_HOME=\$PROJ_FRONTEND/.cf rd sync pull  (owner syncs)" \
-    bash -c "cd '$PROJ_BACKEND' && CF_HOME='$PROJ_FRONTEND/.cf' '$RD' sync pull"
-
+# rd list --all auto-pulls from campfire before displaying (ready-341)
 OWNER_FINAL_JSON=$(cd "$PROJ_BACKEND" && CF_HOME="$PROJ_FRONTEND/.cf" "$RD" list --all --json 2>&1)
 OWNER_FINAL=$(cd "$PROJ_BACKEND" && CF_HOME="$PROJ_FRONTEND/.cf" "$RD" list --all 2>&1)
 echo "$ cd \$PROJ_BACKEND && CF_HOME=\$PROJ_FRONTEND/.cf rd list --all  (backend — after worker completes)" | tee -a "$OUT"
@@ -382,8 +380,9 @@ run "cd \$PROJ_BACKEND && CF_HOME=\$PROJ_FRONTEND/.cf rd list --all  (backend)" 
     bash -c "cd '$PROJ_BACKEND' && CF_HOME='$PROJ_FRONTEND/.cf' '$RD' list --all"
 
 echo "--- Frontend (rebuilt machine view) ---" | tee -a "$OUT"
-run "cd \$PROJ_REJOIN && rd sync pull && rd list --all  (rebuilt machine)" \
-    bash -c "cd '$PROJ_REJOIN' && '$RD' sync pull && cd '$PROJ_REJOIN' && '$RD' list --all"
+# rd list --all auto-pulls from campfire before displaying (ready-341)
+run "cd \$PROJ_REJOIN && rd list --all  (rebuilt machine)" \
+    bash -c "cd '$PROJ_REJOIN' && '$RD' list --all"
 
 echo "══════════════════════════════════════════════════════════════" | tee -a "$OUT"
 echo "  Demo 09 complete." | tee -a "$OUT"

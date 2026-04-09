@@ -121,12 +121,10 @@ run "cd \$PROJ_B && rd update $ITEM1_ID --status active" \
 run "cd \$PROJ_B && rd done $ITEM1_ID --reason 'CI pipeline live'" \
     bash -c "cd '$PROJ_B' && '$RD' done '$ITEM1_ID' --reason 'CI pipeline live'"
 
-# ── 9. Owner sees progress ──────────────────────────────────────────────────
-tee_section "9. Owner syncs and sees progress"
+# ── 9. Owner sees progress — auto-sync on rd list --all ─────────────────────
+tee_section "9. Owner sees progress — auto-synced on rd list --all"
 
-run "cd \$PROJ_A && rd sync pull" \
-    bash -c "cd '$PROJ_A' && '$RD' sync pull"
-
+# rd list --all auto-pulls from campfire before displaying (ready-341)
 run "cd \$PROJ_A && rd list --all" \
     bash -c "cd '$PROJ_A' && '$RD' list --all"
 

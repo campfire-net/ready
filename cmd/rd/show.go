@@ -23,6 +23,8 @@ Example:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		itemID := args[0]
 
+		autoSyncPull()
+
 		s, err := openStore()
 		if err != nil {
 			return err

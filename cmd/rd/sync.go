@@ -244,6 +244,30 @@ func (cl *clientLister) ListMessages(campfireID string, afterTimestamp int64, fi
 	return records, nil
 }
 
+
+// autoSyncPull performs a best-effort campfire sync pull before read commands
+// (rd list, rd ready, rd show). If no campfire is configured, or the pull fails
+// for any reason, the error is silently discarded so the read command continues
+// uninterrupted.
+//
+// This eliminates the need for users to run 'rd sync pull' manually after a team
+// member makes changes (ready-341).
+func autoSyncPull() {
+	campfireID, projectDir, hasCampfire := projectRoot()
+	if !hasCampfire || campfireID == "" {
+		return
+	}
+
+	client, err := requireClient()
+	if err != nil {
+		return
+	}
+
+	mutationsPath := filepath.Join(projectDir, ".ready", "mutations.jsonl")
+	lister := &clientLister{client: client}
+	_, _ = rdSync.Pull(lister, campfireID, mutationsPath, projectDir, 0)
+}
+
 func init() {
 	syncCmd.AddCommand(syncStatusCmd)
 	syncCmd.AddCommand(syncPullCmd)
