@@ -48,8 +48,9 @@
     <div class="ds-container nav-inner">
       <a href="/" class="nav-logo"><span>rd</span> ready</a>
       <ul class="nav-links">
+        <li><a href="#demos">Demos</a></li>
         <li><a href="#usage">Usage</a></li>
-        <li><a href="#claude">Claude Code</a></li>
+        <li><a href="#claude">Recipes</a></li>
         <li><a href="#setup">Plans</a></li>
         <li><a href="#federation">Federation</a></li>
         <li><a href="https://github.com/campfire-net/ready">GitHub</a></li>
@@ -74,6 +75,26 @@
       </div>
       <div class="hero-install">
         <div class="ds-code-block"><span class="cmd">curl -fsSL https://ready.getcampfire.dev/install.sh | sh</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 0: Live demos -->
+  <section id="demos">
+    <div class="ds-container">
+      <p class="section-label">See it run</p>
+      <h2 class="section-title">Real demos, real output</h2>
+      <p class="section-desc">
+        These play back actual terminal sessions from the
+        <a href="https://github.com/campfire-net/ready/tree/main/test/demo">test suite</a>.
+        Hit play, or <a href="https://github.com/campfire-net/ready/tree/main/test/demo">clone and run them yourself</a>.
+      </p>
+
+      <div class="demo-terminals">
+        <div data-terminal-demo="solo"></div>
+        <div data-terminal-demo="team"></div>
+        <div data-terminal-demo="gate"></div>
+        <div data-terminal-demo="isolation"></div>
       </div>
     </div>
   </section>
@@ -560,5 +581,6 @@ cd ready && go build -o rd ./cmd/rd</div>
     </div>
   </footer>
 
+  <script src="terminal.js"></script>
 </body>
 </html>
