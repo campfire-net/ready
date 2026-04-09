@@ -720,13 +720,13 @@ func TestIsSoloMode_SkipsExpiredBindings(t *testing.T) {
 	remoteServerPubKey := remoteServerID.PublicKeyHex()
 
 	// Create an expired server-binding message from the remote server.
-	// ValidUntil is set to 1 second in the past.
+	// ValidUntil is set to 1 second in the past (nanoseconds, matching ensureServerBinding).
 	expiredBinding := map[string]interface{}{
 		"convention":   "work",
 		"operation":    "server-binding",
 		"server_pubkey": remoteServerPubKey,
-		"valid_from":   time.Now().Unix() - 10,
-		"valid_until":  time.Now().Unix() - 1, // Expired 1 second ago
+		"valid_from":   time.Now().UnixNano() - int64(10*time.Second),
+		"valid_until":  time.Now().UnixNano() - int64(time.Second), // Expired 1 second ago
 	}
 	expiredPayload, err := json.Marshal(expiredBinding)
 	if err != nil {
@@ -761,8 +761,8 @@ func TestIsSoloMode_SkipsExpiredBindings(t *testing.T) {
 		"convention":   "work",
 		"operation":    "server-binding",
 		"server_pubkey": remoteServerPubKey,
-		"valid_from":   time.Now().Unix(),
-		"valid_until":  time.Now().Unix() + 3600, // Expires in 1 hour
+		"valid_from":   time.Now().UnixNano(),
+		"valid_until":  time.Now().UnixNano() + int64(time.Hour), // Expires in 1 hour
 	}
 	validPayload, err := json.Marshal(validBinding)
 	if err != nil {
@@ -782,6 +782,85 @@ func TestIsSoloMode_SkipsExpiredBindings(t *testing.T) {
 	result = conventionserver.IsSoloMode(env.callerClient, env.campfireID, localServerPubKey)
 	if result {
 		t.Errorf("IsSoloMode with valid binding from different server = %v, want false", result)
+	}
+}
+
+// TestIsSoloMode_NanosecondUnitConsistency is a regression test for ready-d81.
+// ensureServerBinding stores ValidUntil as UnixNano (~1.7e18). IsSoloMode must
+// compare with UnixNano as well — using Unix seconds (~1.7e9) would make the
+// expiry check never fire, causing stale bindings from crashed servers to
+// persist forever and block solo mode.
+func TestIsSoloMode_NanosecondUnitConsistency(t *testing.T) {
+	env := setupTestEnv(t)
+
+	remoteServerID, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("generating remote server identity: %v", err)
+	}
+	remoteServerPubKey := remoteServerID.PublicKeyHex()
+
+	localServerID, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("generating local server identity: %v", err)
+	}
+	localServerPubKey := localServerID.PublicKeyHex()
+
+	// Post a binding with ValidUntil set in nanoseconds (as ensureServerBinding does),
+	// 1 second in the past. This should be treated as expired.
+	staleBinding := map[string]interface{}{
+		"convention":    "work",
+		"operation":     "server-binding",
+		"server_pubkey": remoteServerPubKey,
+		"valid_from":    time.Now().UnixNano() - int64(2*time.Hour),
+		"valid_until":   time.Now().UnixNano() - int64(time.Second), // expired 1s ago, nanoseconds
+	}
+	stalePayload, err := json.Marshal(staleBinding)
+	if err != nil {
+		t.Fatalf("marshalling stale binding: %v", err)
+	}
+	_, err = env.callerClient.Send(protocol.SendRequest{
+		CampfireID: env.campfireID,
+		Payload:    stalePayload,
+		Tags:       []string{"convention:server-binding"},
+	})
+	if err != nil {
+		t.Fatalf("posting stale binding: %v", err)
+	}
+
+	// IsSoloMode must return true: the stale binding is expired and should be ignored.
+	// If IsSoloMode compared with Unix seconds instead of UnixNano, the nanosecond
+	// ValidUntil value (~1.7e18) would always exceed Unix seconds (~1.7e9), so the
+	// expiry check would never fire and this would incorrectly return false.
+	result := conventionserver.IsSoloMode(env.callerClient, env.campfireID, localServerPubKey)
+	if !result {
+		t.Errorf("IsSoloMode with nanosecond-unit expired binding = %v, want true (stale binding should be ignored)", result)
+	}
+
+	// Post a valid binding in nanoseconds (as ensureServerBinding does), 1 hour in the future.
+	activeBinding := map[string]interface{}{
+		"convention":    "work",
+		"operation":     "server-binding",
+		"server_pubkey": remoteServerPubKey,
+		"valid_from":    time.Now().UnixNano(),
+		"valid_until":   time.Now().UnixNano() + int64(time.Hour), // expires in 1h, nanoseconds
+	}
+	activePayload, err := json.Marshal(activeBinding)
+	if err != nil {
+		t.Fatalf("marshalling active binding: %v", err)
+	}
+	_, err = env.callerClient.Send(protocol.SendRequest{
+		CampfireID: env.campfireID,
+		Payload:    activePayload,
+		Tags:       []string{"convention:server-binding"},
+	})
+	if err != nil {
+		t.Fatalf("posting active binding: %v", err)
+	}
+
+	// IsSoloMode must return false: an active binding from a different server exists.
+	result = conventionserver.IsSoloMode(env.callerClient, env.campfireID, localServerPubKey)
+	if result {
+		t.Errorf("IsSoloMode with nanosecond-unit active binding = %v, want false (active remote server should block solo mode)", result)
 	}
 }
 
