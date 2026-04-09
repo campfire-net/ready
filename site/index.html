@@ -21,7 +21,7 @@
     "alternateName": "rd",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux, macOS",
-    "softwareVersion": "0.9.0",
+    "softwareVersion": "0.9.4",
     "url": "https://ready.getcampfire.dev",
     "downloadUrl": "https://github.com/campfire-net/ready/releases",
     "codeRepository": "https://github.com/campfire-net/ready",
@@ -132,13 +132,17 @@
           <table>
             <tbody>
               <tr><td><code>rd init --name &lt;project&gt;</code></td><td>Create a work campfire with convention declarations</td></tr>
-              <tr><td><code>rd create "..." --type task --priority p1</code></td><td>Create a work item (returns item ID)</td></tr>
-              <tr><td><code>rd ready</code></td><td>What needs attention now</td></tr>
+              <tr><td><code>rd create "..." --type task --priority p1</code></td><td>Create a work item (returns item ID when piped)</td></tr>
+              <tr><td><code>rd ready</code></td><td>What needs attention now (bare IDs when piped)</td></tr>
               <tr><td><code>rd list [--status ...] [--by ...] [--all]</code></td><td>List items with filters</td></tr>
               <tr><td><code>rd show &lt;id&gt;</code></td><td>Item details + audit trail</td></tr>
               <tr><td><code>rd claim &lt;id&gt;</code></td><td>Accept work, become the performer</td></tr>
               <tr><td><code>rd delegate &lt;id&gt; --to &lt;identity&gt;</code></td><td>Assign to a person, agent, or automaton</td></tr>
               <tr><td><code>rd done &lt;id&gt; --reason "..."</code></td><td>Close with reason — records to the audit trail</td></tr>
+              <tr><td><code>rd invite</code></td><td>Generate a one-use invite token for this project</td></tr>
+              <tr><td><code>rd join &lt;token&gt;</code></td><td>Join a project via invite token (auto-syncs items)</td></tr>
+              <tr><td><code>rd dep add &lt;id&gt; &lt;blocker-id&gt;</code></td><td>Wire a dependency (works across projects you own)</td></tr>
+              <tr><td><code>rd gate &lt;id&gt; --gate-type design</code></td><td>Escalate to a human for a decision</td></tr>
               <tr><td><code>rd update &lt;id&gt; --status &lt;status&gt;</code></td><td>Change status, priority, ETA, or context</td></tr>
             </tbody>
           </table>
@@ -151,47 +155,133 @@
   <section id="claude">
     <div class="ds-container">
       <p class="section-label">Agent integration</p>
-      <h2 class="section-title">Tell Claude to use it</h2>
+      <h2 class="section-title">Recipes for Claude Code</h2>
       <p class="section-desc">
-        Add <code>rd</code> to your project's <code>CLAUDE.md</code> and Claude Code will
-        use it to track work, check what's ready, and close items when done.
+        Drop one of these into your project and Claude Code starts tracking work immediately.
+        No MCP server, no special integration &mdash; just <code>rd</code> on PATH.
       </p>
 
-      <div class="demo-block">
-        <div class="ds-code-block"><span class="comment"># In your project's CLAUDE.md:</span>
+      <!-- Recipe 1: Basic CLAUDE.md -->
+      <div style="margin-top: var(--ds-space-xl);">
+        <h3>Recipe 1: Add to CLAUDE.md</h3>
+        <p style="color: var(--ds-text-secondary); margin-bottom: var(--ds-space-md); line-height: 1.6;">
+          Paste this into your project's <code>CLAUDE.md</code>. Claude reads it at session start
+          and uses <code>rd</code> like any other CLI tool.
+        </p>
+        <div class="demo-block">
+          <div class="ds-code-block"><span class="comment"># Add to your CLAUDE.md:</span>
 
 <span class="output">## Work tracking
 
 This project uses `rd` for work management.
 
-- Check what needs attention: `rd ready`
+- Start every session: `rd ready` (what needs attention)
+- Resuming after context loss: `rd ready --view work` (find your in-progress item)
 - When starting work: `rd claim &lt;id&gt;`
-- When done: `rd close &lt;id&gt; --reason "..."`
+- When done: `rd done &lt;id&gt; --reason "..."`
 - To create new items: `ITEM=$(rd create "..." --type task --priority p1)`
+- Pipe-friendly: `for id in $(rd ready); do rd show $id; done`
 - All commands support `--json` for structured output</span></div>
+        </div>
       </div>
 
+      <!-- Recipe 2: Skill file -->
       <div style="margin-top: var(--ds-space-xl);">
-        <p>That's it. Claude Code reads <code>CLAUDE.md</code> at session start, discovers <code>rd</code> on PATH,
-        and uses it like any other CLI tool. No MCP server configuration, no special integration.</p>
-      </div>
-
-      <div style="margin-top: var(--ds-space-xl);">
-        <h3>Or drop in the skill file</h3>
+        <h3>Recipe 2: Drop in the skill file</h3>
         <p style="color: var(--ds-text-secondary); margin-bottom: var(--ds-space-md); line-height: 1.6;">
           Download <a href="SKILL.md">SKILL.md</a> into your project's <code>.claude/skills/rd/</code> directory.
-          Claude Code will discover it automatically and gain full <code>rd</code> command knowledge &mdash;
-          creating items, claiming work, closing with reasons, querying views.
+          Claude Code discovers it automatically and gains full <code>rd</code> command knowledge.
         </p>
         <div class="ds-code-block"><span class="cmd">mkdir -p .claude/skills/rd</span>
 <span class="cmd">curl -fsSL https://ready.getcampfire.dev/SKILL.md -o .claude/skills/rd/SKILL.md</span></div>
       </div>
 
+      <!-- Recipe 3: Multi-agent with invite tokens -->
+      <div style="margin-top: var(--ds-space-xl);">
+        <h3>Recipe 3: Multi-agent swarm</h3>
+        <p style="color: var(--ds-text-secondary); margin-bottom: var(--ds-space-md); line-height: 1.6;">
+          Spawn parallel Claude Code agents that share a work queue. Each agent gets its own
+          identity via invite token. The filesystem handles isolation &mdash; no env vars needed.
+        </p>
+        <div class="demo-block">
+          <div class="ds-code-block"><span class="comment"># Owner sets up the project</span>
+<span class="cmd">rd init --name myproject</span>
+<span class="cmd">rd create "Build auth" --priority p0 --type task</span>
+<span class="cmd">rd create "Build API" --priority p1 --type task</span>
+<span class="cmd">rd create "Write tests" --priority p1 --type task</span>
+
+<span class="comment"># Generate invite tokens for each agent</span>
+<span class="cmd">TOKEN_A=$(rd invite)</span>
+<span class="cmd">TOKEN_B=$(rd invite)</span>
+
+<span class="comment"># Each agent joins from its own worktree</span>
+<span class="cmd">mkdir -p worktree-a/.cf &amp;&amp; cd worktree-a</span>
+<span class="cmd">rd join $TOKEN_A</span>
+<span class="output">joined d8301552... via invite token (expires in 1h59m)</span>
+
+<span class="comment"># Agent claims from the shared queue</span>
+<span class="cmd">ITEM=$(rd ready | head -1)</span>
+<span class="cmd">rd claim $ITEM</span>
+<span class="cmd">rd done $ITEM --reason "Auth module complete"</span></div>
+        </div>
+      </div>
+
+      <!-- Recipe 4: Gate escalation -->
+      <div style="margin-top: var(--ds-space-xl);">
+        <h3>Recipe 4: Agent escalation to human</h3>
+        <p style="color: var(--ds-text-secondary); margin-bottom: var(--ds-space-md); line-height: 1.6;">
+          Agent hits a decision point it can't resolve. Posts a gate. Human approves from their terminal.
+          No dashboard, no ticket system &mdash; just campfire messages.
+        </p>
+        <div class="demo-block">
+          <div class="ds-code-block"><span class="comment"># Agent: "I need a ruling on this"</span>
+<span class="cmd">rd gate myapp-d4e --gate-type design \
+  --description "PKCE vs device flow for mobile auth"</span>
+<span class="output">{"id":"myapp-d4e","gate_type":"design","status":"waiting"}</span>
+
+<span class="comment"># Human: sees it from anywhere</span>
+<span class="cmd">rd gates</span>
+<span class="output">  myapp-d4e  p1  design  PKCE vs device flow  Migrate auth</span>
+<span class="cmd">rd approve myapp-d4e --reason "PKCE. Need browser redirect."</span>
+
+<span class="comment"># Agent: item is back to active, continues work</span></div>
+        </div>
+      </div>
+
+      <!-- Recipe 5: Walk-up config for worktrees -->
+      <div style="margin-top: var(--ds-space-xl);">
+        <h3>Recipe 5: Zero-config agent identity</h3>
+        <p style="color: var(--ds-text-secondary); margin-bottom: var(--ds-space-md); line-height: 1.6;">
+          <code>rd</code> walks up the directory tree to find identity and project config.
+          Agents in worktrees get isolated identities automatically. No <code>CF_HOME</code>,
+          no env vars, no flags.
+        </p>
+        <div class="demo-block">
+          <div class="ds-code-block"><span class="comment"># Project root has .campfire/root (project) and .cf/ (owner)</span>
+<span class="comment"># Each worktree has its own .cf/identity.json</span>
+<span class="output">myproject/
+  .campfire/root              &larr; project campfire (shared)
+  .cf/identity.json           &larr; owner identity
+  worktree-a/.cf/identity.json  &larr; agent A identity
+  worktree-b/.cf/identity.json  &larr; agent B identity</span>
+
+<span class="comment"># Agent A: just cd and run. Walk-up handles everything.</span>
+<span class="cmd">cd myproject/worktree-a</span>
+<span class="cmd">rd ready</span>
+<span class="comment"># Identity: worktree-a/.cf/  Project: myproject/.campfire/root</span>
+
+<span class="comment"># Agent B: same project, different identity, zero config</span>
+<span class="cmd">cd myproject/worktree-b</span>
+<span class="cmd">rd ready</span></div>
+        </div>
+      </div>
+
       <div class="two-col" style="margin-top: var(--ds-space-xl);">
         <div>
           <h3>Agents use the same commands</h3>
-          <p>There's no separate agent API. <code>rd create</code>, <code>rd claim</code>, <code>rd close</code>
-          work the same for a human at a terminal and a Claude session reading CLAUDE.md.</p>
+          <p>There's no separate agent API. <code>rd create</code>, <code>rd claim</code>, <code>rd done</code>
+          work the same for a human at a terminal and a Claude session reading CLAUDE.md.
+          Output is pipe-friendly &mdash; bare IDs when piped, tables when interactive.</p>
         </div>
         <div>
           <h3>MCP for deeper integration</h3>
@@ -287,19 +377,18 @@ This project uses `rd` for work management.
             <li>Git-backed or hosted persistent</li>
           </ul>
           <div class="ds-code-block tier-code"><span class="comment"># Owner creates project and invites a teammate</span>
-<span class="cmd">cf init --remote https://mcp.getcampfire.dev</span>
 <span class="cmd">rd init --name backend</span>
-<span class="cmd">rd invite</span>
-<span class="output">rdx1_eyJ2IjoxLCJjYW1...  (share this token)</span>
+<span class="cmd">TOKEN=$(rd invite)</span>
+<span class="output">rdx1_eyJ2IjoxLCJjYW1...  (one-use, expires in 2h)</span>
 
-<span class="comment"># Teammate joins with one command — no key exchange</span>
-<span class="cmd">rd join rdx1_eyJ2... --force</span>
-<span class="output">joined d8301552fa3f... via invite token (expires in 1h59m0s)</span>
+<span class="comment"># Teammate joins with one command</span>
+<span class="cmd">rd join $TOKEN</span>
+<span class="output">joined d8301552... via invite token (expires in 1h59m)</span>
 
-<span class="comment"># Delegate to agents and humans</span>
-<span class="cmd">rd delegate myapp-a1b --to &lt;identity&gt;</span>
-<span class="cmd">rd ready --view delegated</span></div>
-          <p class="tier-note">Owner runs <code>rd invite</code>. Teammate joins with <code>rd join &lt;token&gt; --force</code>. No key exchange needed.</p>
+<span class="comment"># Items auto-sync. No rd sync pull needed.</span>
+<span class="cmd">rd ready</span>
+<span class="output">  backend-a1b  p1  inbox  3h  Build auth API</span></div>
+          <p class="tier-note">Owner runs <code>rd invite</code>. Teammate runs <code>rd join &lt;token&gt;</code>. Items auto-sync. No key exchange, no manual pull.</p>
         </div>
 
         <!-- Tier 4: Enterprise -->
