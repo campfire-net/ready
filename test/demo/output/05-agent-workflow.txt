@@ -1,77 +1,77 @@
-# Ready Agent Workflow Demo — Thu Apr  9 00:00:46 UTC 2026
+# Ready Agent Workflow Demo — Thu Apr  9 01:27:34 UTC 2026
 # Demonstrates programmatic agent integration: JSON parsing, claim/progress/done cycle
 
 === SECTION: setup ===
 
-$ cf init --cf-home $OWNER_CF  (owner)
-Your identity campfire: b6dcb2aa3ea6129dc29da54a6e4149151bd51a23349c1270a34029005ff1ee33. Share it like any beacon.
+$ mkdir -p $PROJECT/.cf && cf init --cf-home $PROJECT/.cf  (owner)
+Your identity campfire: 9191fb254bd2e587395636d454d827ad8dba943489bd3e2a5e5791c669d6abfc. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
       cf join <id>   join one
 
-$ CF_HOME=$OWNER_CF rd init --name ci-project  (in $PROJECT)
+$ cd $PROJECT && rd init --name ci-project
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized ci-project
-  campfire: c67a2c9d2334...
-  summary campfire: 78eff64033fc...
-  inbox campfire: 7184977450c3...
+  campfire: 29b49a708def...
+  summary campfire: 45bd0a061469...
+  inbox campfire: e1d40c30d36a...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (b6dcb2aa3ea6...)
+  home campfire: found (9191fb254bd2...)
   run 'rd register --org <name>' to add naming
 
-Project campfire ID: c67a2c9d23345052778b7d4aa8059f5598cb23b0877e0d1d449dd1315ac1469f
+Project campfire ID: 29b49a708defd88791f7a102b599b538a65eedb98ac65fe3b07fd351206251c2
 
 # Owner generates an invite token for the agent (agent role)
 
-$ CF_HOME=$OWNER_CF rd invite --role agent  (owner generates agent token)
+$ cd $PROJECT && rd invite --role agent  (owner generates agent token)
 rdx1_...  (agent invite token)
 
-$ CF_HOME=$AGENT_CF rd join <agent-token> --force  (agent joins)
-joined c67a2c9d2334... via invite token (expires in 1h59m0s)
+$ mkdir -p $PROJECT/agent/.cf && cd $PROJECT && CF_HOME=$PROJECT/agent/.cf rd join <agent-token>  (one-time identity bootstrap)
+joined 29b49a708def... via invite token (expires in 1h59m0s)
 
 === SECTION: create-work ===
 
 # Owner creates two work items
 
-$ CF_HOME=$OWNER_CF rd create "Reindex search corpus" --type task --priority p1
-Created: rdtestagentprojvtl8-59b
+$ cd $PROJECT && rd create "Reindex search corpus" --type task --priority p1
+Created: rdtestagentproja-cbe
 
-$ CF_HOME=$OWNER_CF rd create "Update dependency manifest" --type task --priority p2
-Created: rdtestagentprojvtl8-aae
+$ cd $PROJECT && rd create "Update dependency manifest" --type task --priority p2
+Created: rdtestagentproja-e13
 
-# Owner delegates rdtestagentprojvtl8-59b to the agent
+# Owner delegates rdtestagentproja-cbe to the agent
 
-$ CF_HOME=$OWNER_CF rd delegate rdtestagentprojvtl8-59b --to <agent-pubkey> --reason "Route to indexer bot"
-delegated rdtestagentprojvtl8-59b to 4e5273d33dd3bdbd963e27ee867ba2255fcc2098d1205137a53a762d58260710
+$ cd $PROJECT && rd delegate rdtestagentproja-cbe --to <agent-pubkey> --reason "Route to indexer bot"
+delegated rdtestagentproja-cbe to 97616dea792c254ac3c57d1177f19a006b42acaf756d80ba916ed28cbf92d6da
 
 === SECTION: agent-query ===
 
 # Agent uses --json to query its assigned work programmatically
 
-$ CF_HOME=$AGENT_CF rd ready --view my-work --json
+$ cd $PROJECT/agent && rd ready --view my-work --json
 [
   {
-    "id": "rdtestagentprojvtl8-59b",
-    "msg_id": "c1102288-2a85-4b45-b3cf-891dbd1a5a64",
-    "campfire_id": "c67a2c9d23345052778b7d4aa8059f5598cb23b0877e0d1d449dd1315ac1469f",
+    "id": "rdtestagentproja-cbe",
+    "msg_id": "8fea9a0a-fe71-479f-8148-f8c24f1f0951",
+    "campfire_id": "29b49a708defd88791f7a102b599b538a65eedb98ac65fe3b07fd351206251c2",
     "title": "Reindex search corpus",
     "type": "task",
-    "for": "512909c6f1a6c7526cc0dd5255ba0cf6a67e7b416c783ee7756f0c15179d53b8",
-    "by": "4e5273d33dd3bdbd963e27ee867ba2255fcc2098d1205137a53a762d58260710",
+    "for": "ece52e33b67d809cf8ebdee615e86dbe7723836c52f969100dfc0a9d39ca411b",
+    "by": "97616dea792c254ac3c57d1177f19a006b42acaf756d80ba916ed28cbf92d6da",
     "priority": "p1",
     "status": "inbox",
-    "eta": "2026-04-09T04:00:46Z",
-    "created_at": 1775692846798045369,
-    "updated_at": 1775692846863832712,
+    "eta": "2026-04-09T05:27:34Z",
+    "created_at": 1775698054673083601,
+    "updated_at": 1775698054739174037,
     "history": [
       {
-        "timestamp": "2026-04-09T00:00:46Z",
+        "timestamp": "2026-04-09T01:27:34Z",
         "from_status": "inbox",
         "to_status": "inbox",
-        "changed_by": "512909c6f1a6c7526cc0dd5255ba0cf6a67e7b416c783ee7756f0c15179d53b8",
+        "changed_by": "ece52e33b67d809cf8ebdee615e86dbe7723836c52f969100dfc0a9d39ca411b",
         "note": "created"
       }
     ]
@@ -79,44 +79,44 @@ $ CF_HOME=$AGENT_CF rd ready --view my-work --json
 ]
 
 # Parse item ID from JSON output
-# Agent's assigned item: rdtestagentprojvtl8-59b
+# Agent's assigned item: rdtestagentproja-cbe
 
 === SECTION: agent-claim ===
 
 # Agent claims the item — accepts delegation, transitions to active
 
-$ CF_HOME=$AGENT_CF rd claim rdtestagentprojvtl8-59b --reason "Starting batch reindex job"
-claimed rdtestagentprojvtl8-59b
+$ cd $PROJECT/agent && rd claim rdtestagentproja-cbe --reason "Starting batch reindex job"
+claimed rdtestagentproja-cbe
 
 # Verify status is now active
-$ CF_HOME=$AGENT_CF rd ready --view work --json
+$ cd $PROJECT/agent && rd ready --view work --json
 [
   {
-    "id": "rdtestagentprojvtl8-59b",
-    "msg_id": "c1102288-2a85-4b45-b3cf-891dbd1a5a64",
-    "campfire_id": "c67a2c9d23345052778b7d4aa8059f5598cb23b0877e0d1d449dd1315ac1469f",
+    "id": "rdtestagentproja-cbe",
+    "msg_id": "8fea9a0a-fe71-479f-8148-f8c24f1f0951",
+    "campfire_id": "29b49a708defd88791f7a102b599b538a65eedb98ac65fe3b07fd351206251c2",
     "title": "Reindex search corpus",
     "type": "task",
-    "for": "512909c6f1a6c7526cc0dd5255ba0cf6a67e7b416c783ee7756f0c15179d53b8",
-    "by": "4e5273d33dd3bdbd963e27ee867ba2255fcc2098d1205137a53a762d58260710",
+    "for": "ece52e33b67d809cf8ebdee615e86dbe7723836c52f969100dfc0a9d39ca411b",
+    "by": "97616dea792c254ac3c57d1177f19a006b42acaf756d80ba916ed28cbf92d6da",
     "priority": "p1",
     "status": "active",
-    "eta": "2026-04-09T04:00:46Z",
-    "created_at": 1775692846798045369,
-    "updated_at": 1775692846949711747,
+    "eta": "2026-04-09T05:27:34Z",
+    "created_at": 1775698054673083601,
+    "updated_at": 1775698054826912323,
     "history": [
       {
-        "timestamp": "2026-04-09T00:00:46Z",
+        "timestamp": "2026-04-09T01:27:34Z",
         "from_status": "inbox",
         "to_status": "inbox",
-        "changed_by": "512909c6f1a6c7526cc0dd5255ba0cf6a67e7b416c783ee7756f0c15179d53b8",
+        "changed_by": "ece52e33b67d809cf8ebdee615e86dbe7723836c52f969100dfc0a9d39ca411b",
         "note": "created"
       },
       {
-        "timestamp": "2026-04-09T00:00:46Z",
+        "timestamp": "2026-04-09T01:27:34Z",
         "from_status": "inbox",
         "to_status": "active",
-        "changed_by": "4e5273d33dd3bdbd963e27ee867ba2255fcc2098d1205137a53a762d58260710"
+        "changed_by": "97616dea792c254ac3c57d1177f19a006b42acaf756d80ba916ed28cbf92d6da"
       }
     ]
   }
@@ -126,91 +126,91 @@ $ CF_HOME=$AGENT_CF rd ready --view work --json
 
 # Agent posts incremental progress notes as work proceeds
 
-$ CF_HOME=$AGENT_CF rd progress rdtestagentprojvtl8-59b --notes "Processed 47/142 records, 0 errors"
-progress noted on rdtestagentprojvtl8-59b
+$ cd $PROJECT/agent && rd progress rdtestagentproja-cbe --notes "Processed 47/142 records, 0 errors"
+progress noted on rdtestagentproja-cbe
 
-$ CF_HOME=$AGENT_CF rd progress rdtestagentprojvtl8-59b --notes "Processed 142/142 records, 0 errors — indexing complete"
-progress noted on rdtestagentprojvtl8-59b
+$ cd $PROJECT/agent && rd progress rdtestagentproja-cbe --notes "Processed 142/142 records, 0 errors — indexing complete"
+progress noted on rdtestagentproja-cbe
 
 === SECTION: agent-done ===
 
 # Agent closes the item with a structured result
 
-$ CF_HOME=$AGENT_CF rd done rdtestagentprojvtl8-59b --reason "Batch complete: 142 records processed, 0 errors"
+$ cd $PROJECT/agent && rd done rdtestagentproja-cbe --reason "Batch complete: 142 records processed, 0 errors"
 warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
-closed rdtestagentprojvtl8-59b (done)
+closed rdtestagentproja-cbe (done)
 
 === SECTION: verify ===
 
 # Owner queries all items as JSON to confirm completion
 
-$ CF_HOME=$OWNER_CF rd list --all --json
+$ cd $PROJECT && rd list --all --json
 [
   {
-    "id": "rdtestagentprojvtl8-59b",
-    "msg_id": "c1102288-2a85-4b45-b3cf-891dbd1a5a64",
-    "campfire_id": "c67a2c9d23345052778b7d4aa8059f5598cb23b0877e0d1d449dd1315ac1469f",
+    "id": "rdtestagentproja-cbe",
+    "msg_id": "8fea9a0a-fe71-479f-8148-f8c24f1f0951",
+    "campfire_id": "29b49a708defd88791f7a102b599b538a65eedb98ac65fe3b07fd351206251c2",
     "title": "Reindex search corpus",
-    "context": "[2026-04-09T00:00Z] Processed 47/142 records, 0 errors\n\n[2026-04-09T00:00Z] Processed 142/142 records, 0 errors — indexing complete",
-    "description": "[2026-04-09T00:00Z] Processed 47/142 records, 0 errors\n\n[2026-04-09T00:00Z] Processed 142/142 records, 0 errors — indexing complete",
+    "context": "[2026-04-09T01:27Z] Processed 47/142 records, 0 errors\n\n[2026-04-09T01:27Z] Processed 142/142 records, 0 errors — indexing complete",
+    "description": "[2026-04-09T01:27Z] Processed 47/142 records, 0 errors\n\n[2026-04-09T01:27Z] Processed 142/142 records, 0 errors — indexing complete",
     "type": "task",
-    "for": "512909c6f1a6c7526cc0dd5255ba0cf6a67e7b416c783ee7756f0c15179d53b8",
-    "by": "4e5273d33dd3bdbd963e27ee867ba2255fcc2098d1205137a53a762d58260710",
+    "for": "ece52e33b67d809cf8ebdee615e86dbe7723836c52f969100dfc0a9d39ca411b",
+    "by": "97616dea792c254ac3c57d1177f19a006b42acaf756d80ba916ed28cbf92d6da",
     "priority": "p1",
     "status": "done",
-    "eta": "2026-04-09T04:00:46Z",
-    "created_at": 1775692846798045369,
-    "updated_at": 1775692847029119085,
+    "eta": "2026-04-09T05:27:34Z",
+    "created_at": 1775698054673083601,
+    "updated_at": 1775698054908733902,
     "history": [
       {
-        "timestamp": "2026-04-09T00:00:46Z",
+        "timestamp": "2026-04-09T01:27:34Z",
         "from_status": "inbox",
         "to_status": "inbox",
-        "changed_by": "512909c6f1a6c7526cc0dd5255ba0cf6a67e7b416c783ee7756f0c15179d53b8",
+        "changed_by": "ece52e33b67d809cf8ebdee615e86dbe7723836c52f969100dfc0a9d39ca411b",
         "note": "created"
       },
       {
-        "timestamp": "2026-04-09T00:00:46Z",
+        "timestamp": "2026-04-09T01:27:34Z",
         "from_status": "inbox",
         "to_status": "active",
-        "changed_by": "4e5273d33dd3bdbd963e27ee867ba2255fcc2098d1205137a53a762d58260710"
+        "changed_by": "97616dea792c254ac3c57d1177f19a006b42acaf756d80ba916ed28cbf92d6da"
       },
       {
-        "timestamp": "2026-04-09T00:00:47Z",
+        "timestamp": "2026-04-09T01:27:34Z",
         "from_status": "active",
         "to_status": "done",
-        "changed_by": "4e5273d33dd3bdbd963e27ee867ba2255fcc2098d1205137a53a762d58260710",
+        "changed_by": "97616dea792c254ac3c57d1177f19a006b42acaf756d80ba916ed28cbf92d6da",
         "note": "Batch complete: 142 records processed, 0 errors"
       }
     ]
   },
   {
-    "id": "rdtestagentprojvtl8-aae",
-    "msg_id": "a5ba5a83-8685-455f-8470-6f0e48cd760a",
-    "campfire_id": "c67a2c9d23345052778b7d4aa8059f5598cb23b0877e0d1d449dd1315ac1469f",
+    "id": "rdtestagentproja-e13",
+    "msg_id": "99452471-00a2-4564-90f7-3ca8bc767a13",
+    "campfire_id": "29b49a708defd88791f7a102b599b538a65eedb98ac65fe3b07fd351206251c2",
     "title": "Update dependency manifest",
     "type": "task",
-    "for": "512909c6f1a6c7526cc0dd5255ba0cf6a67e7b416c783ee7756f0c15179d53b8",
+    "for": "ece52e33b67d809cf8ebdee615e86dbe7723836c52f969100dfc0a9d39ca411b",
     "priority": "p2",
     "status": "inbox",
-    "eta": "2026-04-10T00:00:46Z",
-    "created_at": 1775692846819847202,
-    "updated_at": 1775692846819847202,
+    "eta": "2026-04-10T01:27:34Z",
+    "created_at": 1775698054693914810,
+    "updated_at": 1775698054693914810,
     "history": [
       {
-        "timestamp": "2026-04-09T00:00:46Z",
+        "timestamp": "2026-04-09T01:27:34Z",
         "from_status": "inbox",
         "to_status": "inbox",
-        "changed_by": "512909c6f1a6c7526cc0dd5255ba0cf6a67e7b416c783ee7756f0c15179d53b8",
+        "changed_by": "ece52e33b67d809cf8ebdee615e86dbe7723836c52f969100dfc0a9d39ca411b",
         "note": "created"
       }
     ]
   }
 ]
 
-$ CF_HOME=$OWNER_CF rd list --all
-  rdtestagentprojvtl8-59b  p1        done        3h          Reindex search corpus
-  rdtestagentprojvtl8-aae  p2        inbox       23h         Update dependency manifest
+$ cd $PROJECT && rd list --all
+rdtestagentproja-cbe
+rdtestagentproja-e13
 
 ══════════════════════════════════════════════════════════════
   Demo complete. Transcript saved to: /home/baron/projects/ready/test/demo/output/05-agent-workflow.txt
