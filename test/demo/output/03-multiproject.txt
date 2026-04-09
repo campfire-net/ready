@@ -1,107 +1,71 @@
 === SECTION: setup ===
-$ cf init --cf-home "/tmp/rdtest-multi-AY4K"
-Your identity campfire: 02bd41872cfdf08b97a796f3a5ec2f2f0ea18fab7add07b13f59a1c48e8be6e9. Share it like any beacon.
+$ cf init --cf-home "$CF_HOME"
+Your identity campfire: deceddc8be40b1578f2a4d46b723e6f596c31a4a138a410852ea5349f4c38b39. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
       cf join <id>   join one
 
-=== SECTION: init-frontend ===
-$ cd FRONTEND && rd init --name "frontend"
-warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
-initialized frontend
-  campfire: 4b6620f6f206...
-  summary campfire: ed7f3c7c9f6e...
-  inbox campfire: 111099993cc7...
-  encrypted: true (E2E intent set; SDK encryption enabled when available)
-  declarations: 16 operations published
-
-  home campfire: found (02bd41872cfd...)
-  run 'rd register --org <name>' to add naming
-
 === SECTION: init-backend ===
 $ cd BACKEND && rd init --name "backend"
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized backend
-  campfire: 6a14aca6de22...
-  summary campfire: 0d195acf4d8d...
-  inbox campfire: 3bad043808f2...
+  campfire: d8d1304c3d40...
+  summary campfire: 296ad470ef3f...
+  inbox campfire: 4e9943ee0078...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (02bd41872cfd...)
+  home campfire: found (deceddc8be40...)
+  run 'rd register --org <name>' to add naming
+
+=== SECTION: init-frontend ===
+$ cd FRONTEND && rd init --name "frontend"
+warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
+initialized frontend
+  campfire: 96c5e3a96bf9...
+  summary campfire: cb6ab498f4c0...
+  inbox campfire: 64b3562cb4df...
+  encrypted: true (E2E intent set; SDK encryption enabled when available)
+  declarations: 16 operations published
+
+  home campfire: found (deceddc8be40...)
   run 'rd register --org <name>' to add naming
 
 === SECTION: create-items ===
 $ cd BACKEND && rd create "Expose /api/v1/users endpoint" --priority p1 --type task
-# backend item ID: rdtestbackendkln-3dd
+# backend item ID: rdtestbackenddv-df6
 
 $ cd FRONTEND && rd create "Build user list page" --priority p1 --type task
-# frontend item ID: rdtestfrontend687-f81
+# frontend item ID: rdtestfrontend9q9-ad0
 
 === SECTION: wire-dep ===
-# Cross-project dep attempt 1: dotted syntax (project.item-id)
-$ rd dep add rdtestfrontend687-f81 backend.rdtestbackendkln-3dd
-Error: resolving cross-campfire blocker "backend.rdtestbackendkln-3dd": item "backend.rdtestbackendkln-3dd" not found in any campfire (are you a member of that campfire?)
-Usage:
-  rd dep add <blocked-id> <blocker-id> [flags]
-
-Flags:
-  -h, --help   help for add
-
-Global Flags:
-      --cf-home string   campfire home directory (default: ~/.cf)
-      --debug            show hex IDs for diagnostics
-      --json             output as JSON
-
-resolving cross-campfire blocker "backend.rdtestbackendkln-3dd": item "backend.rdtestbackendkln-3dd" not found in any campfire (are you a member of that campfire?)
-
-# Cross-project dep attempt 2: plain IDs across project dirs
-# (items from different campfires are not visible to each other)
-$ cd FRONTEND && rd dep add rdtestfrontend687-f81 rdtestbackendkln-3dd
-warning: campfire send failed (buffered to pending.jsonl): arg "blocker_id": value length 85 exceeds max_length 64
-blocked: rdtestfrontend687-f81 is now blocked by 6a14aca6de22a5088815ce40db3a9eedc2afb6e2268d0b45c32d97d7c753138a.rdtestbackendkln-3dd [cross]
-
-# NOTE: Cross-project deps are not supported.
-# rd dep operates within a single project's campfire.
-# Wire dependencies within one project, or track cross-project
-# coordination manually (e.g. item notes or campfire messages).
-
-# --- Real cross-project dep wiring (supported pattern) ---
-# Create a local placeholder in the frontend project tracking the backend dep:
-$ cd FRONTEND && rd create "[backend] API endpoint ready" --type task --priority p1
-# placeholder item ID: rdtestfrontend687-016
-
-# Wire: frontend page blocked by placeholder
-$ cd FRONTEND && rd dep add rdtestfrontend687-f81 rdtestfrontend687-016
-blocked: rdtestfrontend687-f81 is now blocked by rdtestfrontend687-016
+# Wire a real cross-project dep: frontend item blocked by backend item
+# rd dep add resolves the blocker across all campfires in CF_HOME
+$ cd FRONTEND && rd dep add rdtestfrontend9q9-ad0 rdtestbackenddv-df6
+blocked: rdtestfrontend9q9-ad0 is now blocked by d8d1304c3d404c617d00b7f088e5abb6861eb7deb21f978ef34bd6f66f8599e3.rdtestbackenddv-df6 [cross]
 
 === SECTION: show-blocked ===
-$ rd dep tree rdtestfrontend687-f81
-rdtestfrontend687-f81  [blocked]  Build user list page  (blocked by: rdtestfrontend687-016)
+$ cd FRONTEND && rd dep tree rdtestfrontend9q9-ad0
+rdtestfrontend9q9-ad0  [inbox]  Build user list page
 
-$ rd ready
-  rdtestfrontend687-016  p1        inbox       3h          [backend] API endpoint ready
-# (frontend item is blocked by placeholder — not shown in ready)
+$ cd FRONTEND && rd ready
+# (frontend item is blocked by backend item — not shown in ready)
 
 === SECTION: close-blocker ===
-# Backend team ships the endpoint; close the placeholder in the backend project:
-$ cd BACKEND && rd update rdtestbackendkln-3dd --status active
-updated rdtestbackendkln-3dd
+# Backend team ships the endpoint:
+$ cd BACKEND && rd update rdtestbackenddv-df6 --status active
+updated rdtestbackenddv-df6
 
-$ cd BACKEND && rd done rdtestbackendkln-3dd --reason "API endpoint /api/v1/users deployed"
-closed rdtestbackendkln-3dd (done)
-
-# Mark the placeholder done (signal to frontend project that backend shipped):
-$ cd FRONTEND && rd done rdtestfrontend687-016 --reason "Backend confirmed /api/v1/users deployed"
-closed rdtestfrontend687-016 (done)
+$ cd BACKEND && rd done rdtestbackenddv-df6 --reason "API endpoint /api/v1/users deployed"
+closed rdtestbackenddv-df6 (done)
 
 === SECTION: verify-unblocked ===
 $ cd FRONTEND && rd ready
-  rdtestfrontend687-f81  p1        inbox       3h          Build user list page
+rdtestfrontend9q9-ad0
 # frontend item is now unblocked and ready
 
-$ rd dep tree rdtestfrontend687-f81
-rdtestfrontend687-f81  [inbox]  Build user list page
+$ cd FRONTEND && rd dep tree rdtestfrontend9q9-ad0
+rdtestfrontend9q9-ad0  [inbox]  Build user list page
 
 # Demo complete. Transcript written to: /home/baron/projects/ready/test/demo/output/03-multiproject.txt

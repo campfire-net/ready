@@ -390,7 +390,16 @@ func allItemsFromJSONLOrStore(s store.Store) ([]*state.Item, error) {
 	if path := jsonlPath(); path != "" {
 		// campfireID may be empty for JSONL-only projects; DeriveFromJSONL handles that.
 		campfireID, _, _ := projectRoot()
-		return resolve.AllItemsFromJSONL(path, campfireID)
+		items, err := resolve.AllItemsFromJSONL(path, campfireID)
+		if err != nil {
+			return nil, err
+		}
+		// Apply cross-campfire blocking even in JSONL mode: the store holds
+		// memberships and messages for all campfires, so cross-project deps
+		// can be resolved and applied as blocking status.
+		aliases := naming.NewAliasStore(CFHome())
+		crossdep.ApplyBlocking(items, s, aliases)
+		return items, nil
 	}
 	items, err := resolve.AllItems(s)
 	if err != nil {

@@ -262,7 +262,7 @@ Wire a dependency between two items. The blocked item cannot enter the `ready` v
   "operation": "block",
   "description": "Wire a dependency between items",
   "args": [
-    {"name": "blocker_id", "type": "string", "required": true, "max_length": 64},
+    {"name": "blocker_id", "type": "string", "required": true, "max_length": 256},
     {"name": "blocked_id", "type": "string", "required": true, "max_length": 64},
     {"name": "blocker_msg", "type": "message_id", "required": true},
     {"name": "blocked_msg", "type": "message_id", "required": true}
