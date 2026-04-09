@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -95,6 +97,7 @@ EXAMPLES
 		// the ed25519 private key (which is seed || public key in Go's representation).
 		seed := priv.Seed()
 		now := time.Now()
+		expiresAt := now.Add(ttl)
 
 		payload := invitePayload{
 			Version:    1,
@@ -102,7 +105,7 @@ EXAMPLES
 			PrivateKey: hex.EncodeToString(seed),
 			Role:       role,
 			IssuedAt:   now.Unix(),
-			ExpiresAt:  now.Add(ttl).Unix(),
+			ExpiresAt:  expiresAt.Unix(),
 			Issuer:     issuerPubKey,
 		}
 
@@ -111,12 +114,51 @@ EXAMPLES
 			return fmt.Errorf("marshaling invite payload: %w", err)
 		}
 
+		// Post a server-side role-grant with expires_at so the TTL is enforced
+		// beyond the client-side token check. An attacker who extracts the seed
+		// from an expired token and bypasses the CLI can be rejected here:
+		// checkServerSideInviteTTL reads this grant and rejects joins where
+		// expires_at is past.
+		if postErr := postInviteGrant(syncCfg.CampfireID, pubHex, admitRole, expiresAt); postErr != nil {
+			// Non-fatal: log and continue. The client-side TTL check in
+			// decodeInviteToken still applies; the server-side record is best-effort.
+			fmt.Fprintf(os.Stderr, "warning: could not post server-side invite grant: %v\n", postErr)
+		}
+
 		// Encode: base64url(json), prefix with 'rdx1_'.
 		token := inviteTokenPrefix + base64.RawURLEncoding.EncodeToString(payloadJSON)
 
 		fmt.Println(token)
 		return nil
 	},
+}
+
+// postInviteGrant posts a work:role-grant with expires_at to record the
+// server-side TTL for the invite token. This allows checkServerSideInviteTTL
+// to reject admitted-but-never-joined keys after TTL expiry.
+func postInviteGrant(campfireID, pubKeyHex, role string, expiresAt time.Time) error {
+	exec, _, err := requireExecutor()
+	if err != nil {
+		return fmt.Errorf("initializing executor: %w", err)
+	}
+	decl, err := loadDeclaration("role-grant")
+	if err != nil {
+		return fmt.Errorf("loading role-grant declaration: %w", err)
+	}
+	grantRole := role
+	if grantRole == "" {
+		grantRole = "member"
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	expiresAtStr := expiresAt.UTC().Format(time.RFC3339)
+	ctx := context.Background()
+	_, err = exec.Execute(ctx, decl, campfireID, map[string]any{
+		"pubkey":     pubKeyHex,
+		"role":       grantRole,
+		"granted_at": now,
+		"expires_at": expiresAtStr,
+	})
+	return err
 }
 
 // decodeInviteToken decodes an invite token, validating its format and expiry.

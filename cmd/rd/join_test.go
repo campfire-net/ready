@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1600,3 +1601,102 @@ func makeTestInviteToken(t *testing.T, clientA campfireAdmitter, campfireID stri
 
 	return inviteTokenPrefix + base64.RawURLEncoding.EncodeToString(data)
 }
+
+// TestCheckServerSideInviteTTL_Revoked verifies that checkServerSideInviteTTL
+// rejects a join when the campfire contains a revocation for the target pubkey.
+// Security regression test for ready-1fc.
+func TestCheckServerSideInviteTTL_Revoked(t *testing.T) {
+	pubkey := pubkeyHex("ab")
+	campfire := pubkeyHex("cc")
+	revokeMsg := makeGrantMsg("revoke-001", pubkey, "revoked")
+	fake := &fakeReadClient{messages: []protocol.Message{revokeMsg}}
+
+	err := checkServerSideInviteTTL(fake, campfire, pubkey, time.Now().Add(time.Hour).Unix())
+	if err == nil {
+		t.Fatal("expected error for revoked pubkey, got nil")
+	}
+	if !strings.Contains(err.Error(), "revoked") {
+		t.Errorf("error = %q, want to contain 'revoked'", err.Error())
+	}
+}
+
+// TestCheckServerSideInviteTTL_Expired verifies that checkServerSideInviteTTL
+// rejects a join when the campfire role-grant has an expires_at in the past.
+// Core security test for ready-1fc: an attacker who bypasses the CLI check is
+// still rejected server-side.
+func TestCheckServerSideInviteTTL_Expired(t *testing.T) {
+	pubkey := pubkeyHex("ab")
+	campfire := pubkeyHex("cc")
+	expiresAtStr := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+	grantPayload := map[string]string{
+		"pubkey":     pubkey,
+		"role":       "member",
+		"granted_at": time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339),
+		"expires_at": expiresAtStr,
+	}
+	data, _ := json.Marshal(grantPayload)
+	expiredGrant := protocol.Message{ID: "grant-expired-001", Payload: data, Tags: []string{"work:role-grant"}}
+	fake := &fakeReadClient{messages: []protocol.Message{expiredGrant}}
+
+	// Client-side expiresAt is still in the future (simulating attacker bypassing CLI).
+	err := checkServerSideInviteTTL(fake, campfire, pubkey, time.Now().Add(time.Hour).Unix())
+	if err == nil {
+		t.Fatal("expected error for server-side expired grant, got nil")
+	}
+	if !strings.Contains(err.Error(), "expired") {
+		t.Errorf("error = %q, want to contain 'expired'", err.Error())
+	}
+}
+
+// TestCheckServerSideInviteTTL_Valid verifies that checkServerSideInviteTTL
+// allows a join when the campfire role-grant has a valid (future) expires_at.
+func TestCheckServerSideInviteTTL_Valid(t *testing.T) {
+	pubkey := pubkeyHex("ab")
+	campfire := pubkeyHex("cc")
+	expiresAtStr := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	grantPayload := map[string]string{
+		"pubkey":     pubkey,
+		"role":       "member",
+		"granted_at": time.Now().UTC().Format(time.RFC3339),
+		"expires_at": expiresAtStr,
+	}
+	data, _ := json.Marshal(grantPayload)
+	validGrant := protocol.Message{ID: "grant-valid-001", Payload: data, Tags: []string{"work:role-grant"}}
+	fake := &fakeReadClient{messages: []protocol.Message{validGrant}}
+
+	err := checkServerSideInviteTTL(fake, campfire, pubkey, time.Now().Add(2*time.Hour).Unix())
+	if err != nil {
+		t.Errorf("expected nil error for valid grant, got: %v", err)
+	}
+}
+
+// TestCheckServerSideInviteTTL_NoGrantForPubkey verifies that grants for other
+// pubkeys are ignored and the join is allowed.
+func TestCheckServerSideInviteTTL_NoGrantForPubkey(t *testing.T) {
+	pubkey := pubkeyHex("ab")
+	campfire := pubkeyHex("cc")
+	otherPubkey := pubkeyHex("dd")
+	grantPayload := map[string]string{"pubkey": otherPubkey, "role": "member"}
+	data, _ := json.Marshal(grantPayload)
+	otherGrant := protocol.Message{ID: "grant-other-001", Payload: data, Tags: []string{"work:role-grant"}}
+	fake := &fakeReadClient{messages: []protocol.Message{otherGrant}}
+
+	err := checkServerSideInviteTTL(fake, campfire, pubkey, time.Now().Add(time.Hour).Unix())
+	if err != nil {
+		t.Errorf("expected nil error when no grant for this pubkey, got: %v", err)
+	}
+}
+
+// TestCheckServerSideInviteTTL_ReadError verifies that checkServerSideInviteTTL
+// is best-effort: campfire read failures allow the join to proceed.
+func TestCheckServerSideInviteTTL_ReadError(t *testing.T) {
+	pubkey := pubkeyHex("ab")
+	campfire := pubkeyHex("cc")
+	fake := &fakeReadClient{err: errors.New("transport error")}
+
+	err := checkServerSideInviteTTL(fake, campfire, pubkey, time.Now().Add(time.Hour).Unix())
+	if err != nil {
+		t.Errorf("expected nil error on read failure (best-effort), got: %v", err)
+	}
+}
+
