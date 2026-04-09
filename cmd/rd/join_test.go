@@ -1251,9 +1251,26 @@ func TestJoinViaInviteToken_FreshCFHome_NoForceRequired(t *testing.T) {
 		}
 	})
 
-	// Build a second token for scenarios 2 & 3 (tokens are single-use by convention,
-	// though in this test setup the campfire is open so re-use works).
-	// We reuse the same token since open campfires allow re-join.
+	// Scenarios 2 & 3 need separate tokens. The token used in Scenario 1 was
+	// redeemed during that join (ready-0f6 single-use enforcement), so re-using
+	// it would trigger the "already redeemed" rejection. Each scenario gets a
+	// fresh admitted identity from clientA.
+	//
+	// Re-establish clientA: scenario 1's subtest closed protocolClient (which was
+	// the same object as clientA), so clientA.store is now closed. Switch back to
+	// cfHomeA and open a fresh client to mint tokens 2 & 3.
+	rdHome = cfHomeA
+	if protocolClient != nil {
+		protocolClient.Close()
+	}
+	protocolClient = nil
+	clientA, err = requireClient()
+	if err != nil {
+		t.Fatalf("re-establishing clientA for token minting: %v", err)
+	}
+
+	token2 := makeTestInviteToken(t, clientA, campfireID)
+	token3 := makeTestInviteToken(t, clientA, campfireID)
 
 	// Set up a CF_HOME that already has a real identity.
 	cfHomeExisting := t.TempDir()
@@ -1269,7 +1286,8 @@ func TestJoinViaInviteToken_FreshCFHome_NoForceRequired(t *testing.T) {
 	protocolClient.Close()
 	protocolClient = nil
 
-	// Scenario 2: Existing identity + force=false → must fail.
+	// Scenario 2: Existing identity + force=false → must fail with "identity already exists".
+	// (The identity guard fires before the redemption check.)
 	t.Run("existing_identity_no_force_fails", func(t *testing.T) {
 		rdHome = cfHomeExisting
 		if protocolClient != nil {
@@ -1277,7 +1295,7 @@ func TestJoinViaInviteToken_FreshCFHome_NoForceRequired(t *testing.T) {
 		}
 		protocolClient = nil
 
-		if err := joinViaInviteToken(token, false /* force */); err == nil {
+		if err := joinViaInviteToken(token2, false /* force */); err == nil {
 			t.Fatal("joinViaInviteToken with existing identity and force=false should fail, got nil")
 		} else if !strings.Contains(err.Error(), "identity already exists") {
 			t.Errorf("error should mention 'identity already exists', got: %v", err)
@@ -1293,12 +1311,12 @@ func TestJoinViaInviteToken_FreshCFHome_NoForceRequired(t *testing.T) {
 		}
 		protocolClient = nil
 
-		if err := joinViaInviteToken(token, true /* force */); err != nil {
+		if err := joinViaInviteToken(token3, true /* force */); err != nil {
 			t.Fatalf("joinViaInviteToken with existing identity and force=true: %v", err)
 		}
 
 		// Verify the overwritten identity matches the token's pre-provisioned key.
-		payload, err := decodeInviteToken(token)
+		payload, err := decodeInviteToken(token3)
 		if err != nil {
 			t.Fatalf("decodeInviteToken (for key verification): %v", err)
 		}
@@ -1446,6 +1464,107 @@ func TestJoinViaInviteToken_FailedJoinRestoresIdentity(t *testing.T) {
 		}
 	})
 }
+
+// TestJoinViaInviteToken_SingleUseEnforcement verifies that invite tokens are
+// single-use (ready-0f6). After Agent A joins with a token, Agent B's attempt
+// to join with the same token must fail with a clear "already redeemed" error.
+//
+// Test scenario:
+//  1. Owner creates open campfire and generates an invite token.
+//  2. Agent A (fresh CF_HOME) joins with the token — succeeds; redemption posted.
+//  3. Agent B (different CF_HOME) tries to join with the same token — must fail.
+//  4. Agent B's CF_HOME must have no identity file (no state left behind on failure).
+func TestJoinViaInviteToken_SingleUseEnforcement(t *testing.T) {
+	sharedTransportDir := t.TempDir()
+	origTransportDir := os.Getenv("CF_TRANSPORT_DIR")
+	os.Setenv("CF_TRANSPORT_DIR", sharedTransportDir)
+	t.Cleanup(func() {
+		if origTransportDir != "" {
+			os.Setenv("CF_TRANSPORT_DIR", origTransportDir)
+		} else {
+			os.Unsetenv("CF_TRANSPORT_DIR")
+		}
+	})
+
+	// --- Owner: create campfire and generate invite token ---
+	cfHomeOwner := t.TempDir()
+	origRDHome := rdHome
+	origClient := protocolClient
+	rdHome = cfHomeOwner
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+		rdHome = origRDHome
+	})
+
+	ownerClient, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient (owner): %v", err)
+	}
+
+	createResult, err := ownerClient.Create(protocol.CreateRequest{
+		JoinProtocol: "open",
+		Transport:    protocol.FilesystemTransport{Dir: sharedTransportDir},
+	})
+	if err != nil {
+		t.Fatalf("owner.Create: %v", err)
+	}
+	campfireID := createResult.CampfireID
+
+	// Generate invite token (admit the token identity via owner client).
+	token := makeTestInviteToken(t, ownerClient, campfireID)
+
+	// Close owner client so Agent A gets a clean client state.
+	ownerClient.Close()
+	protocolClient = nil
+
+	// --- Agent A: join with token (first use — must succeed) ---
+	cfHomeA := t.TempDir()
+	rdHome = cfHomeA
+	protocolClient = nil
+
+	if err := joinViaInviteToken(token, false); err != nil {
+		t.Fatalf("Agent A joinViaInviteToken (first use): %v", err)
+	}
+	// Agent A's identity must exist.
+	idPathA := filepath.Join(cfHomeA, "identity.json")
+	if _, err := os.Stat(idPathA); err != nil {
+		t.Fatalf("Agent A identity.json not created after join: %v", err)
+	}
+
+	if protocolClient != nil {
+		protocolClient.Close()
+	}
+	protocolClient = nil
+
+	// --- Agent B: attempt to join with the same token (second use — must fail) ---
+	cfHomeB := t.TempDir()
+	rdHome = cfHomeB
+	protocolClient = nil
+
+	err = joinViaInviteToken(token, false)
+	if err == nil {
+		t.Fatal("Agent B joinViaInviteToken (second use): expected 'already redeemed' error, got nil")
+	}
+	if !strings.Contains(err.Error(), "already redeemed") {
+		t.Errorf("Agent B error should mention 'already redeemed', got: %v", err)
+	}
+
+	// Agent B must NOT have an identity written (no state left behind on rejection).
+	idPathB := filepath.Join(cfHomeB, "identity.json")
+	if _, statErr := os.Stat(idPathB); !os.IsNotExist(statErr) {
+		t.Errorf("Agent B identity.json should not exist after rejected redemption, got: %v", statErr)
+	}
+
+	if protocolClient != nil {
+		protocolClient.Close()
+	}
+	protocolClient = nil
+}
+
 
 // makeTestInviteToken generates a valid invite token whose identity has been
 // admitted to campfireID by clientA. The token is valid for 2 hours.
