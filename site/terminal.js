@@ -309,7 +309,12 @@
     else if (line.type === 'cmd') { el.className += ' t-cmd'; el.innerHTML = '<span class="t-ps1">$ </span>' + this.esc(line.text); }
     else if (line.type === 'cmd-cont') { el.className += ' t-cmd'; el.innerHTML = '<span class="t-ps1">  </span>' + this.esc(line.text); }
     else if (line.type === 'output') { el.className += ' t-out'; el.textContent = line.text; }
-    this.content.appendChild(el);
+    // Insert before cursor if it's in the DOM, otherwise just append
+    if (this.cursorLine.parentNode === this.content) {
+      this.content.insertBefore(el, this.cursorLine);
+    } else {
+      this.content.appendChild(el);
+    }
   };
 
   TerminalPlayer.prototype.runNext = function() {
@@ -353,8 +358,8 @@
     cursor.className = 't-cursor';
     el.appendChild(cursor);
 
-    this.content.insertBefore(el, this.cursorLine);
-    this.cursorLine.style.display = 'none';
+    this.content.removeChild(this.cursorLine);
+    this.content.appendChild(el);
     this.scrollToBottom();
 
     var text = line.text, pos = 0, self = this;
@@ -362,7 +367,7 @@
       if (!self.playing || self.paused) return;
       if (pos >= text.length) {
         cursor.remove();
-        self.cursorLine.style.display = '';
+        self.content.appendChild(self.cursorLine);
         self.scrollToBottom();
         cb();
         return;
