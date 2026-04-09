@@ -246,6 +246,28 @@ func TestAdmitMemberWithRole_GetMembershipError(t *testing.T) {
 	}
 }
 
+// TestAdmitMemberWithRole_NilMembership verifies that admitMemberWithRole
+// returns an error when GetMembership returns (nil, nil) instead of panicking.
+func TestAdmitMemberWithRole_NilMembership(t *testing.T) {
+	campfireID := pubkeyHex("cc")
+	pubKeyHex := pubkeyHex("dd")
+
+	fake := &fakeAdmitClient{
+		// membership is nil, membershipErr is nil → simulates (nil, nil) return
+	}
+
+	err := admitMemberWithRole(fake, campfireID, pubKeyHex, "member", "main campfire")
+	if err == nil {
+		t.Fatal("expected error for nil membership, got nil")
+	}
+	if !strings.Contains(err.Error(), "no membership found") {
+		t.Errorf("error should mention 'no membership found', got: %v", err)
+	}
+	if len(fake.admitCalls) != 0 {
+		t.Errorf("Admit should not be called on nil membership, got %d calls", len(fake.admitCalls))
+	}
+}
+
 // TestAdmitMemberWithRole_AdmitError verifies that admitMemberWithRole returns
 // an error when client.Admit() fails.
 func TestAdmitMemberWithRole_AdmitError(t *testing.T) {

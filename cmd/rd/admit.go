@@ -265,6 +265,9 @@ func admitThenGrant(ctx context.Context, client campfireAdmitter, exec *conventi
 	if err != nil {
 		return "", fmt.Errorf("getting campfire membership: %w", err)
 	}
+	if m == nil {
+		return "", fmt.Errorf("no membership found for campfire — are you a member?")
+	}
 
 	if err := client.Admit(protocol.AdmitRequest{
 		CampfireID:      campfireID,
@@ -305,6 +308,9 @@ func admitMemberWithRole(client campfireAdmitter, campfireID, pubKeyHex, role, l
 	m, err := client.GetMembership(campfireID)
 	if err != nil {
 		return fmt.Errorf("getting %s membership: %w — are you a member of this campfire?", label, err)
+	}
+	if m == nil {
+		return fmt.Errorf("no membership found for %s — are you a member of this campfire?", label)
 	}
 
 	if err := client.Admit(protocol.AdmitRequest{
