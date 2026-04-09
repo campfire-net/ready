@@ -1,4 +1,4 @@
-# Ready Demo 08 — Org Naming on Hosted Infra — Thu Apr  9 01:27:53 UTC 2026
+# Ready Demo 08 — Org Naming on Hosted Infra — Thu Apr  9 02:28:44 UTC 2026
 # Naming hierarchy: org -> ready namespace -> project
 
 ═══════════════════════════════════════════════════════════
@@ -6,7 +6,7 @@
 ═══════════════════════════════════════════════════════════
 
 $ mkdir -p $PROJ_A/.cf && cf init --cf-home $PROJ_A/.cf --remote https://mcp.getcampfire.dev  (owner)
-Your identity campfire: b18b446cb64f2fd02ec09a441f7db57065d8d8b88d58a28d6397c178c353652c. Share it like any beacon.
+Your identity campfire: a76431c5f87bd9a623e2d436c13dac390ba922cef90afe302a7df0ed979ac962. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -20,16 +20,16 @@ Next: cf discover    find campfires
 $ cd $PROJ_A && rd init --name myapp
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized myapp
-  campfire: 4ef30d17e6f9...
-  summary campfire: 6f0b6534a875...
-  inbox campfire: 0f724b73b36c...
+  campfire: bd53afbc40c1...
+  summary campfire: 36befedb33a9...
+  inbox campfire: 143fbf8f2f03...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (b18b446cb64f...)
+  home campfire: found (a76431c5f87b...)
   run 'rd register --org <name>' to add naming
 
-Project campfire ID: 4ef30d17e6f9...
+Project campfire ID: bd53afbc40c1...
 
 
 ═══════════════════════════════════════════════════════════
@@ -37,25 +37,25 @@ Project campfire ID: 4ef30d17e6f9...
 ═══════════════════════════════════════════════════════════
 
 $ cd $PROJ_A && rd register --org acme
-created home campfire: 46d2dca77fd7...
-created ready namespace: 30893b388ff6...
-registered cf://acme.ready.rdtest-naming-projA-pmHK
-  local: cf://~acme.ready/rdtest-naming-projA-pmHK
+created home campfire: e1e897513880...
+created ready namespace: f2ab59b255c5...
+registered cf://acme.ready.rdtest-naming-projA-R6sb
+  local: cf://~acme.ready/rdtest-naming-projA-R6sb
 
   to make globally resolvable later:
-    cf register <root-id> acme 46d2dca77fd7e2a0ba6491f0b07597bef91c041ce05206a4f55c3765d440c729
+    cf register <root-id> acme e1e897513880176661e3650fb118a67ce6e066dbde2820322cccd904a0f6af60
 
 $ cd $PROJ_A && rd register --json
 {
-  "campfire_id": "4ef30d17e6f9495957d4f4e2a24ab0bbfe2a21ea9c5bd8cdee97eaf1b7c6eca9",
+  "campfire_id": "bd53afbc40c10ecbba4f9f6e31786e1d0f4ba52dedc97ad375b45d857d74381e",
   "created_home": false,
   "created_ready": false,
-  "home_campfire_id": "46d2dca77fd7e2a0ba6491f0b07597bef91c041ce05206a4f55c3765d440c729",
-  "local_uri": "cf://~acme.ready/rdtest-naming-projA-pmHK",
-  "name": "rdtest-naming-projA-pmHK",
-  "namespace": "cf://acme.ready.rdtest-naming-projA-pmHK",
+  "home_campfire_id": "e1e897513880176661e3650fb118a67ce6e066dbde2820322cccd904a0f6af60",
+  "local_uri": "cf://~acme.ready/rdtest-naming-projA-R6sb",
+  "name": "rdtest-naming-projA-R6sb",
+  "namespace": "cf://acme.ready.rdtest-naming-projA-R6sb",
   "org": "acme",
-  "ready_campfire_id": "30893b388ff62efd6f37b3e0b7d7ce32b444f167751c249af94009ce494c824a",
+  "ready_campfire_id": "f2ab59b255c5cd486f1a6e25cd1c874be981c2b5714cfcbd278e235bb4cd4e25",
   "registered": true
 }
 
@@ -65,10 +65,10 @@ $ cd $PROJ_A && rd register --json
 ═══════════════════════════════════════════════════════════
 
 $ cd $PROJ_A && rd create 'Set up CI pipeline' --type task --priority p0
-Created: rdtestnamingprojpm-2a8
+Created: rdtestnamingproj6sb-f82
 
 $ cd $PROJ_A && rd create 'Write API docs' --type task --priority p2
-Created: rdtestnamingprojpm-d9e
+Created: rdtestnamingproj6sb-d99
 
 
 ═══════════════════════════════════════════════════════════
@@ -85,7 +85,7 @@ rdx1_...  (invite token)
 
 $ mkdir -p $PROJ_B/.cf && cd $PROJ_B && CF_HOME=$PROJ_B/.cf rd join <invite-token>  (one-time identity bootstrap)
 synced 2 item(s)
-joined 4ef30d17e6f9... via invite token (expires in 1h59m0s)
+joined bd53afbc40c1... via invite token (expires in 1h59m0s)
 
 
 ═══════════════════════════════════════════════════════════
@@ -99,24 +99,21 @@ $ cd $PROJ_B && rd ready
   8. Member works the P0 item
 ═══════════════════════════════════════════════════════════
 
-$ cd $PROJ_B && rd update rdtestnamingprojpm-2a8 --status active
-updated rdtestnamingprojpm-2a8
+$ cd $PROJ_B && rd update rdtestnamingproj6sb-f82 --status active
+updated rdtestnamingproj6sb-f82
 
-$ cd $PROJ_B && rd done rdtestnamingprojpm-2a8 --reason 'CI pipeline live'
+$ cd $PROJ_B && rd done rdtestnamingproj6sb-f82 --reason 'CI pipeline live'
 warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
-closed rdtestnamingprojpm-2a8 (done)
+closed rdtestnamingproj6sb-f82 (done)
 
 
 ═══════════════════════════════════════════════════════════
-  9. Owner syncs and sees progress
+  9. Owner sees progress — auto-synced on rd list --all
 ═══════════════════════════════════════════════════════════
-
-$ cd $PROJ_A && rd sync pull
-sync pull: 1 message(s) pulled, 2 duplicate(s) skipped
 
 $ cd $PROJ_A && rd list --all
-rdtestnamingprojpm-2a8
-rdtestnamingprojpm-d9e
+rdtestnamingproj6sb-f82
+rdtestnamingproj6sb-d99
 
 ══════════════════════════════════════════════════════════════
   Demo 08 complete. Org naming + hosted multi-user verified.

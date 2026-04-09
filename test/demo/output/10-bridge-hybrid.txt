@@ -1,4 +1,4 @@
-# Ready Demo 10 — Bridge Hybrid (Local + Cloud) — Thu Apr  9 01:28:45 UTC 2026
+# Ready Demo 10 — Bridge Hybrid (Local + Cloud) — Thu Apr  9 02:28:48 UTC 2026
 # Two topologies: local filesystem and hosted cloud
 
 ═══════════════════════════════════════════════════════════
@@ -6,14 +6,14 @@
 ═══════════════════════════════════════════════════════════
 
 $ mkdir -p $PROJ_LOCAL/.cf && cf init --cf-home $PROJ_LOCAL/.cf  (local filesystem)
-Your identity campfire: 4ca5e37d031f4cd222d36c70e20d58815c0a2540aaf283bfb93c2c90727c5822. Share it like any beacon.
+Your identity campfire: ba4b102259f1fd2f18629dd0fec1f231f63f819f78fdb00c32d772b533578249. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
       cf join <id>   join one
 
 $ mkdir -p $PROJ_HOSTED/.cf && cf init --cf-home $PROJ_HOSTED/.cf --remote https://mcp.getcampfire.dev  (hosted cloud)
-Your identity campfire: e3c30e604604de2ceb4fb25840f2b2b85015fb10b9d4a3fd774b0a94db0a8869. Share it like any beacon.
+Your identity campfire: 69c549be7833bf14283c6d7d461f39abef1db2e332748623495628f7f8ceaffc. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -27,16 +27,16 @@ Next: cf discover    find campfires
 $ cd $PROJ_LOCAL && rd init --name frontend
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized frontend
-  campfire: acc07a049110...
-  summary campfire: 8673ffef17f7...
-  inbox campfire: 17d70d6d080f...
+  campfire: 2d36ffa7ce96...
+  summary campfire: 20eef0b1b5ee...
+  inbox campfire: eff24585e1cb...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (4ca5e37d031f...)
+  home campfire: found (ba4b102259f1...)
   run 'rd register --org <name>' to add naming
 
-Local campfire: acc07a049110...
+Local campfire: 2d36ffa7ce96...
 
 
 ═══════════════════════════════════════════════════════════
@@ -46,16 +46,16 @@ Local campfire: acc07a049110...
 $ cd $PROJ_HOSTED && rd init --name backend
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized backend
-  campfire: bbfe335936be...
-  summary campfire: 9b0db9fec3c0...
-  inbox campfire: e6381cc9abd8...
+  campfire: f5c5278c712f...
+  summary campfire: c2eadefd0562...
+  inbox campfire: f3ebf4363b93...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (e3c30e604604...)
+  home campfire: found (69c549be7833...)
   run 'rd register --org <name>' to add naming
 
-Hosted campfire: bbfe335936be...
+Hosted campfire: f5c5278c712f...
 
 
 ═══════════════════════════════════════════════════════════
@@ -64,17 +64,17 @@ Hosted campfire: bbfe335936be...
 
 --- Local project (frontend) ---
 $ cd $PROJ_LOCAL && rd create 'Build login component' --type task --priority p1
-Created: rdtestbridgeprojw-ccb
+Created: rdtestbridgeprojoje-df8
 
 $ cd $PROJ_LOCAL && rd create 'Add form validation' --type task --priority p2
-Created: rdtestbridgeprojw-fae
+Created: rdtestbridgeprojoje-b00
 
 --- Hosted project (backend) ---
 $ cd $PROJ_HOSTED && rd create 'Design auth API' --type task --priority p0
-Created: rdtestbridgeprojrr-c79
+Created: rdtestbridgeprojyqg-c92
 
 $ cd $PROJ_HOSTED && rd create 'Write integration tests' --type task --priority p1
-Created: rdtestbridgeprojrr-9c9
+Created: rdtestbridgeprojyqg-845
 
 
 ═══════════════════════════════════════════════════════════
@@ -83,13 +83,13 @@ Created: rdtestbridgeprojrr-9c9
 
 --- Local (frontend) ---
 $ cd $PROJ_LOCAL && rd ready
-rdtestbridgeprojw-ccb
-rdtestbridgeprojw-fae
+rdtestbridgeprojoje-df8
+rdtestbridgeprojoje-b00
 
 --- Hosted (backend) ---
 $ cd $PROJ_HOSTED && rd ready
-rdtestbridgeprojrr-c79
-rdtestbridgeprojrr-9c9
+rdtestbridgeprojyqg-c92
+rdtestbridgeprojyqg-845
 
 
 ═══════════════════════════════════════════════════════════
@@ -97,18 +97,18 @@ rdtestbridgeprojrr-9c9
 ═══════════════════════════════════════════════════════════
 
 --- Complete P0 on hosted (backend) ---
-$ cd $PROJ_HOSTED && rd update rdtestbridgeprojrr-c79 --status active
-updated rdtestbridgeprojrr-c79
+$ cd $PROJ_HOSTED && rd update rdtestbridgeprojyqg-c92 --status active
+updated rdtestbridgeprojyqg-c92
 
-$ cd $PROJ_HOSTED && rd done rdtestbridgeprojrr-c79 --reason 'Auth API designed and reviewed'
-closed rdtestbridgeprojrr-c79 (done)
+$ cd $PROJ_HOSTED && rd done rdtestbridgeprojyqg-c92 --reason 'Auth API designed and reviewed'
+closed rdtestbridgeprojyqg-c92 (done)
 
 --- Complete P1 on local (frontend) ---
-$ cd $PROJ_LOCAL && rd update rdtestbridgeprojw-ccb --status active
-updated rdtestbridgeprojw-ccb
+$ cd $PROJ_LOCAL && rd update rdtestbridgeprojoje-df8 --status active
+updated rdtestbridgeprojoje-df8
 
-$ cd $PROJ_LOCAL && rd done rdtestbridgeprojw-ccb --reason 'Login component built'
-closed rdtestbridgeprojw-ccb (done)
+$ cd $PROJ_LOCAL && rd done rdtestbridgeprojoje-df8 --reason 'Login component built'
+closed rdtestbridgeprojoje-df8 (done)
 
 
 ═══════════════════════════════════════════════════════════
@@ -118,14 +118,14 @@ closed rdtestbridgeprojw-ccb (done)
 --- Local (frontend) ---
 $ cd $PROJ_LOCAL && rd sync status
 sync: up to date
-  last synced: 2026-04-09 01:28:46
-  last msg:    0aafb355-1580-4c...
+  last synced: 2026-04-09 02:28:49
+  last msg:    80e25b35-58a9-46...
 
 --- Hosted (backend) ---
 $ cd $PROJ_HOSTED && rd sync status
 sync: up to date
-  last synced: 2026-04-09 01:28:46
-  last msg:    aeae5a9e-bbb7-4c...
+  last synced: 2026-04-09 02:28:49
+  last msg:    935c807c-c8b7-4c...
 
 
 ═══════════════════════════════════════════════════════════
@@ -134,13 +134,13 @@ sync: up to date
 
 --- Local (frontend) ---
 $ cd $PROJ_LOCAL && rd list --all
-rdtestbridgeprojw-ccb
-rdtestbridgeprojw-fae
+rdtestbridgeprojoje-df8
+rdtestbridgeprojoje-b00
 
 --- Hosted (backend) ---
 $ cd $PROJ_HOSTED && rd list --all
-rdtestbridgeprojrr-c79
-rdtestbridgeprojrr-9c9
+rdtestbridgeprojyqg-c92
+rdtestbridgeprojyqg-845
 
 ══════════════════════════════════════════════════════════════
   Demo 10 complete. Local + hosted hybrid verified.
