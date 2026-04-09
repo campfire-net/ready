@@ -610,7 +610,8 @@ func joinViaInviteToken(token string, force bool) error {
 		return fmt.Errorf("identity already exists at %s — use --force to overwrite", idPath)
 	}
 
-	// Backup the existing identity so we can restore it if the join fails.
+	// Snapshot the pre-token identity so we can restore it if the join or
+	// redemption check fails.
 	oldIdentity, readErr := os.ReadFile(idPath)
 	hasOldIdentity := readErr == nil
 
@@ -644,16 +645,6 @@ func joinViaInviteToken(token string, force bool) error {
 
 	campfireID := payload.CampfireID
 
-	// Single-use check: read the campfire for an existing redemption record for
-	// this token's pubkey. The admitted (but not-yet-joined) identity can read
-	// transport state before calling Join() because the filesystem transport
-	// allows reads from admitted members. If a redemption record exists, reject
-	// immediately with a clear error and restore the prior identity.
-	if redeemed, checkErr := isInviteTokenRedeemed(client, campfireID, pubKeyHex); checkErr == nil && redeemed {
-		restoreIdentity()
-		return fmt.Errorf("invite token already redeemed — each token may only be used once")
-	}
-
 	// Attempt to join the campfire.
 	_, err = client.Join(protocol.JoinRequest{
 		CampfireID: campfireID,
@@ -664,19 +655,25 @@ func joinViaInviteToken(token string, force bool) error {
 		return fmt.Errorf("join failed, identity restored: %w", err)
 	}
 
-	// Post a redemption record so subsequent join attempts with the same token
-	// are rejected. Non-fatal: if posting fails, log a warning but do not fail
-	// the join (the joiner is already a member).
-	if postErr := postInviteRedemption(client, campfireID, pubKeyHex); postErr != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not record invite token redemption: %v\n", postErr)
-	}
-
-	// Bootstrap local project state and auto-sync items.
+	// Bootstrap local project state and auto-sync items (syncs messages so we
+	// can check for prior redemption records).
 	cwd, cwdErr := os.Getwd()
 	if cwdErr == nil {
 		if bootstrapErr := bootstrapJoinedProject(cwd, campfireID, client); bootstrapErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not bootstrap project state: %v\n", bootstrapErr)
 		}
+	}
+
+	// Single-use check: now that we've joined and synced, check for an existing
+	// redemption record posted by a prior joiner with the same token.
+	if redeemed, checkErr := isInviteTokenRedeemed(client, campfireID, pubKeyHex); checkErr == nil && redeemed {
+		restoreIdentity()
+		return fmt.Errorf("invite token already redeemed — each token may only be used once")
+	}
+
+	// Post our redemption record so subsequent join attempts are detected.
+	if postErr := postInviteRedemption(client, campfireID, pubKeyHex); postErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not record invite token redemption: %v\n", postErr)
 	}
 
 	// Calculate remaining TTL for display.
