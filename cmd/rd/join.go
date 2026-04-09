@@ -645,6 +645,15 @@ func joinViaInviteToken(token string, force bool) error {
 
 	campfireID := payload.CampfireID
 
+	// Server-side TTL check: verify the campfire role-grant for this pubkey has
+	// not expired. An attacker who extracts the seed from an expired token and
+	// bypasses the client-side CLI check is rejected here because the role-grant
+	// message records expires_at server-side (posted by rd invite via postInviteGrant).
+	if ttlErr := checkServerSideInviteTTL(client, campfireID, pubKeyHex, payload.ExpiresAt); ttlErr != nil {
+		restoreIdentity()
+		return ttlErr
+	}
+
 	// Attempt to join the campfire.
 	_, err = client.Join(protocol.JoinRequest{
 		CampfireID: campfireID,
@@ -691,6 +700,50 @@ func joinViaInviteToken(token string, force bool) error {
 // inviteRedeemedTag is the campfire message tag used to record invite token redemptions.
 // Format: "work:invite-redeemed:<pubkey-hex>"
 const inviteRedeemedTag = "work:invite-redeemed"
+
+// checkServerSideInviteTTL reads the campfire for role-grant messages targeting
+// pubKeyHex and enforces server-side TTL. Returns an error if a revocation
+// exists or if a role-grant with expires_at in the past is found (server-side
+// enforcement for attackers who bypass the client-side CLI check).
+//
+// Best-effort: campfire read errors allow the join to proceed (the client-side
+// TTL check in decodeInviteToken already ran).
+func checkServerSideInviteTTL(client campfireReader, campfireID, pubKeyHex string, _ int64) error {
+	result, err := client.Read(protocol.ReadRequest{
+		CampfireID: campfireID,
+		Tags:       []string{"work:role-grant"},
+	})
+	if err != nil {
+		return nil // best-effort: allow join if campfire is unreadable
+	}
+
+	now := time.Now().Unix()
+
+	for _, msg := range result.Messages {
+		var grantPayload struct {
+			Pubkey    string `json:"pubkey"`
+			Role      string `json:"role"`
+			ExpiresAt string `json:"expires_at"`
+		}
+		if err := json.Unmarshal(msg.Payload, &grantPayload); err != nil {
+			continue
+		}
+		if grantPayload.Pubkey != pubKeyHex {
+			continue
+		}
+		if grantPayload.Role == "revoked" {
+			return fmt.Errorf("invite token has been revoked")
+		}
+		if grantPayload.ExpiresAt != "" {
+			t, parseErr := time.Parse(time.RFC3339, grantPayload.ExpiresAt)
+			if parseErr == nil && now > t.Unix() {
+				return fmt.Errorf("invite token expired at %s (server-side TTL)", grantPayload.ExpiresAt)
+			}
+		}
+	}
+
+	return nil
+}
 
 // isInviteTokenRedeemed checks whether the campfire contains a work:invite-redeemed
 // message for the given pubkey. Returns (true, nil) if redeemed, (false, nil) if not,
