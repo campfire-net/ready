@@ -1,12 +1,12 @@
-# Ready Demo 08 — Org Naming on Hosted Infra — Thu Apr  9 00:01:02 UTC 2026
+# Ready Demo 08 — Org Naming on Hosted Infra — Thu Apr  9 01:27:53 UTC 2026
 # Naming hierarchy: org -> ready namespace -> project
 
 ═══════════════════════════════════════════════════════════
   1. Initialize owner hosted identity
 ═══════════════════════════════════════════════════════════
 
-$ cf init --cf-home $OWNER_CF --remote https://mcp.getcampfire.dev  (owner)
-Your identity campfire: 5bb61565ff903b6d8c979b9e6ff5f6551cc4ec6bcd75465f2935a1135b6e8773. Share it like any beacon.
+$ mkdir -p $PROJ_A/.cf && cf init --cf-home $PROJ_A/.cf --remote https://mcp.getcampfire.dev  (owner)
+Your identity campfire: b18b446cb64f2fd02ec09a441f7db57065d8d8b88d58a28d6397c178c353652c. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -17,45 +17,45 @@ Next: cf discover    find campfires
   2. Owner creates hosted project
 ═══════════════════════════════════════════════════════════
 
-$ cd $PROJ_A && CF_HOME=$OWNER_CF rd init --name myapp
+$ cd $PROJ_A && rd init --name myapp
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized myapp
-  campfire: e015b910a1e2...
-  summary campfire: 148f77679539...
-  inbox campfire: 1096305add2b...
+  campfire: 4ef30d17e6f9...
+  summary campfire: 6f0b6534a875...
+  inbox campfire: 0f724b73b36c...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (5bb61565ff90...)
+  home campfire: found (b18b446cb64f...)
   run 'rd register --org <name>' to add naming
 
-Project campfire ID: e015b910a1e2...
+Project campfire ID: 4ef30d17e6f9...
 
 
 ═══════════════════════════════════════════════════════════
   3. Owner registers under org namespace
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd register --org acme
-created home campfire: a45c7c556c4e...
-created ready namespace: 8347466ad5ca...
-registered cf://acme.ready.rdtest-naming-projA-Tq2b
-  local: cf://~acme.ready/rdtest-naming-projA-Tq2b
+$ cd $PROJ_A && rd register --org acme
+created home campfire: 46d2dca77fd7...
+created ready namespace: 30893b388ff6...
+registered cf://acme.ready.rdtest-naming-projA-pmHK
+  local: cf://~acme.ready/rdtest-naming-projA-pmHK
 
   to make globally resolvable later:
-    cf register <root-id> acme a45c7c556c4ed9c2802afd32db54006a956d6bbfcbba26548ada0953f6376a7e
+    cf register <root-id> acme 46d2dca77fd7e2a0ba6491f0b07597bef91c041ce05206a4f55c3765d440c729
 
-$ CF_HOME=$OWNER_CF rd register --json
+$ cd $PROJ_A && rd register --json
 {
-  "campfire_id": "e015b910a1e2136ef37ef9f2bb4b90245d40b3c62e9c340f28a0286b5e8b1215",
+  "campfire_id": "4ef30d17e6f9495957d4f4e2a24ab0bbfe2a21ea9c5bd8cdee97eaf1b7c6eca9",
   "created_home": false,
   "created_ready": false,
-  "home_campfire_id": "a45c7c556c4ed9c2802afd32db54006a956d6bbfcbba26548ada0953f6376a7e",
-  "local_uri": "cf://~acme.ready/rdtest-naming-projA-Tq2b",
-  "name": "rdtest-naming-projA-Tq2b",
-  "namespace": "cf://acme.ready.rdtest-naming-projA-Tq2b",
+  "home_campfire_id": "46d2dca77fd7e2a0ba6491f0b07597bef91c041ce05206a4f55c3765d440c729",
+  "local_uri": "cf://~acme.ready/rdtest-naming-projA-pmHK",
+  "name": "rdtest-naming-projA-pmHK",
+  "namespace": "cf://acme.ready.rdtest-naming-projA-pmHK",
   "org": "acme",
-  "ready_campfire_id": "8347466ad5caa499b1c13c5c8d1dc1d5d3b93e75b255d4f8d427262821a9e9f4",
+  "ready_campfire_id": "30893b388ff62efd6f37b3e0b7d7ce32b444f167751c249af94009ce494c824a",
   "registered": true
 }
 
@@ -64,18 +64,18 @@ $ CF_HOME=$OWNER_CF rd register --json
   4. Owner creates work items
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd create 'Set up CI pipeline' --type task --priority p0
-Created: rdtestnamingprojq2b-c9f
+$ cd $PROJ_A && rd create 'Set up CI pipeline' --type task --priority p0
+Created: rdtestnamingprojpm-2a8
 
-$ CF_HOME=$OWNER_CF rd create 'Write API docs' --type task --priority p2
-Created: rdtestnamingprojq2b-5b4
+$ cd $PROJ_A && rd create 'Write API docs' --type task --priority p2
+Created: rdtestnamingprojpm-d9e
 
 
 ═══════════════════════════════════════════════════════════
   5. Owner generates invite token for member
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd invite
+$ cd $PROJ_A && rd invite
 rdx1_...  (invite token)
 
 
@@ -83,41 +83,40 @@ rdx1_...  (invite token)
   6. Member joins via invite token
 ═══════════════════════════════════════════════════════════
 
-$ cd $PROJ_B && CF_HOME=$MEMBER_CF rd join <invite-token> --force  (member)
+$ mkdir -p $PROJ_B/.cf && cd $PROJ_B && CF_HOME=$PROJ_B/.cf rd join <invite-token>  (one-time identity bootstrap)
 synced 2 item(s)
-joined e015b910a1e2... via invite token (expires in 1h59m0s)
+joined 4ef30d17e6f9... via invite token (expires in 1h59m0s)
 
 
 ═══════════════════════════════════════════════════════════
   7. Member sees items (auto-synced on join)
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$MEMBER_CF rd ready
-nothing ready
+$ cd $PROJ_B && rd ready
 
 
 ═══════════════════════════════════════════════════════════
   8. Member works the P0 item
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$MEMBER_CF rd update rdtestnamingprojq2b-c9f --status active
-updated rdtestnamingprojq2b-c9f
+$ cd $PROJ_B && rd update rdtestnamingprojpm-2a8 --status active
+updated rdtestnamingprojpm-2a8
 
-$ CF_HOME=$MEMBER_CF rd done rdtestnamingprojq2b-c9f --reason 'CI pipeline live'
+$ cd $PROJ_B && rd done rdtestnamingprojpm-2a8 --reason 'CI pipeline live'
 warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
-closed rdtestnamingprojq2b-c9f (done)
+closed rdtestnamingprojpm-2a8 (done)
 
 
 ═══════════════════════════════════════════════════════════
   9. Owner syncs and sees progress
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd sync pull
+$ cd $PROJ_A && rd sync pull
 sync pull: 1 message(s) pulled, 2 duplicate(s) skipped
 
-$ CF_HOME=$OWNER_CF rd list --all
-  rdtestnamingprojq2b-c9f  p0        active      overdue     Set up CI pipeline
-  rdtestnamingprojq2b-5b4  p2        inbox       23h         Write API docs
+$ cd $PROJ_A && rd list --all
+rdtestnamingprojpm-2a8
+rdtestnamingprojpm-d9e
 
 ══════════════════════════════════════════════════════════════
   Demo 08 complete. Org naming + hosted multi-user verified.

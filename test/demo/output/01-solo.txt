@@ -1,6 +1,6 @@
 === SECTION: init ===
-$ cf init --cf-home "/tmp/rdtest-solo-Trri"
-Your identity campfire: fd10120bca3027b4a7bd84e4f0563106081c3cae7a3b8571d1c44bac8160e710. Share it like any beacon.
+$ mkdir -p $PROJECT/.cf && cf init --cf-home $PROJECT/.cf
+Your identity campfire: 1c1b19ede07394f0b751d220c6e98c0fc7e640662072c84da024585bf398d309. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -10,37 +10,37 @@ Next: cf discover    find campfires
 $ cd PROJECT && rd init --name "myproject"
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized myproject
-  campfire: df791f599320...
-  summary campfire: 4400068336c3...
-  inbox campfire: f723c9a17e4d...
+  campfire: 94a8fba84fe5...
+  summary campfire: 220042755e19...
+  inbox campfire: 8d2252ea18cf...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (fd10120bca30...)
+  home campfire: found (1c1b19ede073...)
   run 'rd register --org <name>' to add naming
 
 === SECTION: create ===
 $ rd create "Ship login page" --priority p1 --type task
-# item ID: rdtestsoloprojm2-51e
+# item ID: rdtestsoloprojz1-0a7
 
 === SECTION: ready ===
 $ rd ready
-  rdtestsoloprojm2-51e  p1        inbox       3h          Ship login page
+rdtestsoloprojz1-0a7
 
 === SECTION: claim ===
-$ rd claim rdtestsoloprojm2-51e
-claimed rdtestsoloprojm2-51e
+$ rd claim rdtestsoloprojz1-0a7
+claimed rdtestsoloprojz1-0a7
 
 === SECTION: progress ===
-$ rd progress rdtestsoloprojm2-51e --notes "Wired up auth middleware"
-progress noted on rdtestsoloprojm2-51e
+$ rd progress rdtestsoloprojz1-0a7 --notes "Wired up auth middleware"
+progress noted on rdtestsoloprojz1-0a7
 
 === SECTION: done ===
-$ rd done rdtestsoloprojm2-51e --reason "Login page ships with JWT auth"
-closed rdtestsoloprojm2-51e (done)
+$ rd done rdtestsoloprojz1-0a7 --reason "Login page ships with JWT auth"
+closed rdtestsoloprojz1-0a7 (done)
 
 === SECTION: verify ===
 $ rd list --all
-  rdtestsoloprojm2-51e  p1        done        3h          Ship login page
+rdtestsoloprojz1-0a7
 
 # Demo complete. Transcript written to: /home/baron/projects/ready/test/demo/output/01-solo.txt

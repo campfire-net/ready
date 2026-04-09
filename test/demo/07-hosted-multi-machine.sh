@@ -23,13 +23,10 @@ if ! timeout 5 bash -c 'echo > /dev/tcp/mcp.getcampfire.dev/443' 2>/dev/null; th
     exit 0
 fi
 
-OWNER_CF=$(mktemp -d /tmp/rdtest-hosted-owner-XXXX)
-MEMBER_CF=$(mktemp -d /tmp/rdtest-hosted-member-XXXX)
-INTRUDER_CF=$(mktemp -d /tmp/rdtest-hosted-intruder-XXXX)
 PROJ_A=$(mktemp -d /tmp/rdtest-hosted-projA-XXXX)
 PROJ_B=$(mktemp -d /tmp/rdtest-hosted-projB-XXXX)
 PROJ_INTRUDER=$(mktemp -d /tmp/rdtest-hosted-projI-XXXX)
-trap "rm -rf $OWNER_CF $MEMBER_CF $INTRUDER_CF $PROJ_A $PROJ_B $PROJ_INTRUDER" EXIT
+trap "rm -rf $PROJ_A $PROJ_B $PROJ_INTRUDER" EXIT
 
 tee_section() {
     local header="$1"
@@ -74,17 +71,21 @@ echo "# Three identities: owner, member, and intruder (unadmitted)" | tee -a "$O
 # ── 1. Initialize hosted identities ──────────────────────────────────────────
 tee_section "1. Initialize hosted identities (owner and intruder)"
 
-run "cf init --cf-home \$OWNER_CF --remote https://mcp.getcampfire.dev  (owner)" \
-    cf init --cf-home "$OWNER_CF" --remote https://mcp.getcampfire.dev
+# Owner identity lives in $PROJ_A/.cf/ — walk-up finds it from $PROJ_A
+mkdir -p "$PROJ_A/.cf"
+run "mkdir -p \$PROJ_A/.cf && cf init --cf-home \$PROJ_A/.cf --remote https://mcp.getcampfire.dev  (owner)" \
+    cf init --cf-home "$PROJ_A/.cf" --remote https://mcp.getcampfire.dev
 
-run "cf init --cf-home \$INTRUDER_CF --remote https://mcp.getcampfire.dev  (intruder)" \
-    cf init --cf-home "$INTRUDER_CF" --remote https://mcp.getcampfire.dev
+# Intruder identity lives in $PROJ_INTRUDER/.cf/
+mkdir -p "$PROJ_INTRUDER/.cf"
+run "mkdir -p \$PROJ_INTRUDER/.cf && cf init --cf-home \$PROJ_INTRUDER/.cf --remote https://mcp.getcampfire.dev  (intruder)" \
+    cf init --cf-home "$PROJ_INTRUDER/.cf" --remote https://mcp.getcampfire.dev
 
 # ── 2. Owner creates hosted project (Machine A) ─────────────────────────────
 tee_section "2. Owner creates hosted project (Machine A)"
 
-run "cd \$PROJ_A && CF_HOME=\$OWNER_CF rd init --name hosted-demo" \
-    bash -c "cd '$PROJ_A' && CF_HOME='$OWNER_CF' '$RD' init --name hosted-demo"
+run "cd \$PROJ_A && rd init --name hosted-demo" \
+    bash -c "cd '$PROJ_A' && '$RD' init --name hosted-demo"
 
 CAMPFIRE_ID=$(cat "$PROJ_A/.campfire/root")
 echo "Project campfire ID: ${CAMPFIRE_ID:0:12}..." | tee -a "$OUT"
@@ -93,16 +94,16 @@ echo "" | tee -a "$OUT"
 # ── 3. Owner creates a work item ─────────────────────────────────────────────
 tee_section "3. Owner creates work item"
 
-ITEM_ID=$(cd "$PROJ_A" && CF_HOME="$OWNER_CF" "$RD" create "Deploy staging env" --type task --priority p1)
-echo "$ CF_HOME=\$OWNER_CF rd create 'Deploy staging env' --type task --priority p1" | tee -a "$OUT"
+ITEM_ID=$(cd "$PROJ_A" && "$RD" create "Deploy staging env" --type task --priority p1)
+echo "$ cd \$PROJ_A && rd create 'Deploy staging env' --type task --priority p1" | tee -a "$OUT"
 echo "Created item: $ITEM_ID" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
 # ── 4. Owner generates invite token for member ───────────────────────────────
 tee_section "4. Owner generates invite token for member"
 
-INVITE_TOKEN=$(cd "$PROJ_A" && CF_HOME="$OWNER_CF" "$RD" invite --cf-home "$OWNER_CF" 2>&1 | grep '^rdx1_')
-run "CF_HOME=\$OWNER_CF rd invite  (owner generates member token)" \
+INVITE_TOKEN=$(cd "$PROJ_A" && "$RD" invite 2>&1 | grep '^rdx1_')
+run "cd \$PROJ_A && rd invite  (owner generates member token)" \
     bash -c "echo 'rdx1_...  (invite token — share securely)'"
 
 # ── 5. INTRUDER tries to access the campfire ─────────────────────────────────
@@ -114,8 +115,8 @@ echo "" | tee -a "$OUT"
 
 # 5a. Intruder tries to join → hard rejection
 echo "--- 5a. Join attempt (should be rejected) ---" | tee -a "$OUT"
-run_expect_fail "CF_HOME=\$INTRUDER_CF rd join <campfire-id>  (intruder)" \
-    bash -c "cd '$PROJ_INTRUDER' && CF_HOME='$INTRUDER_CF' '$RD' join '$CAMPFIRE_ID'"
+run_expect_fail "cd \$PROJ_INTRUDER && rd join <campfire-id>  (intruder)" \
+    bash -c "cd '$PROJ_INTRUDER' && '$RD' join '$CAMPFIRE_ID'"
 
 # 5b. Intruder manually crafts local state to attempt bypass, tries to create
 echo "--- 5b. Intruder manually creates .campfire/root and tries rd create ---" | tee -a "$OUT"
@@ -126,8 +127,8 @@ touch "$PROJ_INTRUDER/.ready/mutations.jsonl"
 
 # rd create writes locally first (offline-first design), but the campfire REJECTS the send.
 # The item exists only on the intruder's machine — it never reaches the campfire.
-CREATE_OUTPUT=$(cd "$PROJ_INTRUDER" && CF_HOME="$INTRUDER_CF" "$RD" create "Injected item" --priority p0 --type task 2>&1)
-echo "$ CF_HOME=\$INTRUDER_CF rd create 'Injected item' --priority p0 --type task" | tee -a "$OUT"
+CREATE_OUTPUT=$(cd "$PROJ_INTRUDER" && "$RD" create "Injected item" --priority p0 --type task 2>&1)
+echo "$ cd \$PROJ_INTRUDER && rd create 'Injected item' --priority p0 --type task" | tee -a "$OUT"
 echo "$CREATE_OUTPUT" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
@@ -142,15 +143,15 @@ echo "" | tee -a "$OUT"
 
 # 5c. Intruder tries to sync pull → gets nothing (can't read campfire messages)
 echo "--- 5c. Intruder tries rd sync pull (should get 0 messages) ---" | tee -a "$OUT"
-PULL_OUTPUT=$(cd "$PROJ_INTRUDER" && CF_HOME="$INTRUDER_CF" "$RD" sync pull 2>&1)
-echo "$ CF_HOME=\$INTRUDER_CF rd sync pull" | tee -a "$OUT"
+PULL_OUTPUT=$(cd "$PROJ_INTRUDER" && "$RD" sync pull 2>&1)
+echo "$ cd \$PROJ_INTRUDER && rd sync pull" | tee -a "$OUT"
 echo "$PULL_OUTPUT" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
 # 5d. Verify: owner's rd ready does NOT show intruder's item
 echo "--- 5d. Verify: owner sees NO intruder items ---" | tee -a "$OUT"
-OWNER_LIST=$(cd "$PROJ_A" && CF_HOME="$OWNER_CF" "$RD" list --all 2>&1)
-echo "$ CF_HOME=\$OWNER_CF rd list --all  (should NOT contain 'Injected item')" | tee -a "$OUT"
+OWNER_LIST=$(cd "$PROJ_A" && "$RD" list --all 2>&1)
+echo "$ cd \$PROJ_A && rd list --all  (should NOT contain 'Injected item')" | tee -a "$OUT"
 echo "$OWNER_LIST" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
@@ -165,10 +166,10 @@ echo "" | tee -a "$OUT"
 # ── 6. Member joins via invite token (Machine B) ────────────────────────────
 tee_section "6. Member joins via invite token (Machine B)"
 
-# The token contains the pre-provisioned identity; --force overwrites the
-# auto-generated identity from protocol.Init.
-run "cd \$PROJ_B && CF_HOME=\$MEMBER_CF rd join <invite-token> --force  (member)" \
-    bash -c "cd '$PROJ_B' && CF_HOME='$MEMBER_CF' '$RD' join '$INVITE_TOKEN' --force"
+# Member identity goes into $PROJ_B/.cf/ — walk-up handles all subsequent commands
+mkdir -p "$PROJ_B/.cf"
+run "mkdir -p \$PROJ_B/.cf && cd \$PROJ_B && CF_HOME=\$PROJ_B/.cf rd join <invite-token>  (one-time identity bootstrap)" \
+    bash -c "cd '$PROJ_B' && CF_HOME='$PROJ_B/.cf' '$RD' join '$INVITE_TOKEN'"
 
 # Verify bootstrap: .campfire/root and .ready/ must exist (ready-8d8)
 echo "Verify bootstrap:" | tee -a "$OUT"
@@ -190,29 +191,29 @@ echo "" | tee -a "$OUT"
 tee_section "7. Member sees owner's item (auto-synced on join)"
 
 # rd join auto-syncs — no manual rd sync pull needed (ready-5cd)
-run "CF_HOME=\$MEMBER_CF rd ready  (from Machine B)" \
-    bash -c "cd '$PROJ_B' && CF_HOME='$MEMBER_CF' '$RD' ready"
+run "cd \$PROJ_B && rd ready  (from Machine B)" \
+    bash -c "cd '$PROJ_B' && '$RD' ready"
 
 # ── 8. Member claims item ───────────────────────────────────────────────────
 tee_section "8. Member claims item"
 
-run "CF_HOME=\$MEMBER_CF rd update $ITEM_ID --status active" \
-    bash -c "cd '$PROJ_B' && CF_HOME='$MEMBER_CF' '$RD' update '$ITEM_ID' --status active"
+run "cd \$PROJ_B && rd update $ITEM_ID --status active" \
+    bash -c "cd '$PROJ_B' && '$RD' update '$ITEM_ID' --status active"
 
 # ── 9. Member closes item (ready-c0c: close at provenance level 1) ──────────
 tee_section "9. Member closes item (ready-c0c: admitted member can close)"
 
-run "CF_HOME=\$MEMBER_CF rd done $ITEM_ID --reason 'Staging deployed'" \
-    bash -c "cd '$PROJ_B' && CF_HOME='$MEMBER_CF' '$RD' done '$ITEM_ID' --reason 'Staging deployed'"
+run "cd \$PROJ_B && rd done $ITEM_ID --reason 'Staging deployed'" \
+    bash -c "cd '$PROJ_B' && '$RD' done '$ITEM_ID' --reason 'Staging deployed'"
 
 # ── 10. Owner syncs back and sees the close ──────────────────────────────────
 tee_section "10. Owner syncs back — sees member's close"
 
-run "CF_HOME=\$OWNER_CF rd sync pull  (from Machine A)" \
-    bash -c "cd '$PROJ_A' && CF_HOME='$OWNER_CF' '$RD' sync pull"
+run "cd \$PROJ_A && rd sync pull  (from Machine A)" \
+    bash -c "cd '$PROJ_A' && '$RD' sync pull"
 
-run "CF_HOME=\$OWNER_CF rd list --all  (from Machine A)" \
-    bash -c "cd '$PROJ_A' && CF_HOME='$OWNER_CF' '$RD' list --all"
+run "cd \$PROJ_A && rd list --all  (from Machine A)" \
+    bash -c "cd '$PROJ_A' && '$RD' list --all"
 
 echo "══════════════════════════════════════════════════════════════" | tee -a "$OUT"
 echo "  Demo 07 complete. Hosted multi-machine + security verified." | tee -a "$OUT"

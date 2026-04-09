@@ -17,10 +17,8 @@ OUT_DIR="$(cd "$(dirname "$0")" && pwd)/output"
 OUT="$OUT_DIR/05-agent-workflow.txt"
 mkdir -p "$OUT_DIR"
 
-AGENT_CF=$(mktemp -d /tmp/rdtest-agent-XXXX)
-OWNER_CF=$(mktemp -d /tmp/rdtest-agent-owner-XXXX)
 PROJECT=$(mktemp -d /tmp/rdtest-agent-proj-XXXX)
-trap "rm -rf $AGENT_CF $OWNER_CF $PROJECT" EXIT
+trap "rm -rf $PROJECT" EXIT
 
 tee_section() {
     local header="$1"
@@ -50,12 +48,13 @@ echo "" | tee -a "$OUT"
 echo "=== SECTION: setup ===" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-# Initialize owner and create project
-run "cf init --cf-home \$OWNER_CF  (owner)" \
-    cf init --cf-home "$OWNER_CF"
+# Owner identity lives in $PROJECT/.cf/ — walk-up finds it from anywhere in $PROJECT
+mkdir -p "$PROJECT/.cf"
+run "mkdir -p \$PROJECT/.cf && cf init --cf-home \$PROJECT/.cf  (owner)" \
+    cf init --cf-home "$PROJECT/.cf"
 
-run "CF_HOME=\$OWNER_CF rd init --name ci-project  (in \$PROJECT)" \
-    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' init --name ci-project"
+run "cd \$PROJECT && rd init --name ci-project" \
+    bash -c "cd '$PROJECT' && '$RD' init --name ci-project"
 
 CAMPFIRE_ID=$(cat "$PROJECT/.campfire/root")
 echo "Project campfire ID: $CAMPFIRE_ID" | tee -a "$OUT"
@@ -65,13 +64,15 @@ echo "" | tee -a "$OUT"
 echo "# Owner generates an invite token for the agent (agent role)" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-AGENT_TOKEN=$(cd "$PROJECT" && CF_HOME="$OWNER_CF" "$RD" invite --role agent --cf-home "$OWNER_CF" 2>&1 | grep '^rdx1_')
-run "CF_HOME=\$OWNER_CF rd invite --role agent  (owner generates agent token)" \
+AGENT_TOKEN=$(cd "$PROJECT" && "$RD" invite --role agent 2>&1 | grep '^rdx1_')
+run "cd \$PROJECT && rd invite --role agent  (owner generates agent token)" \
     bash -c "echo 'rdx1_...  (agent invite token)'"
 
-# Agent joins via token
-run "CF_HOME=\$AGENT_CF rd join <agent-token> --force  (agent joins)" \
-    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' join '$AGENT_TOKEN' --force"
+# Agent joins from the project root so .campfire/root and .ready/ are shared.
+# Identity goes into $PROJECT/agent/.cf/ — walk-up finds it from $PROJECT/agent/.
+mkdir -p "$PROJECT/agent/.cf"
+run "mkdir -p \$PROJECT/agent/.cf && cd \$PROJECT && CF_HOME=\$PROJECT/agent/.cf rd join <agent-token>  (one-time identity bootstrap)" \
+    bash -c "cd '$PROJECT' && CF_HOME='$PROJECT/agent/.cf' '$RD' join '$AGENT_TOKEN'"
 
 echo "=== SECTION: create-work ===" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
@@ -80,25 +81,25 @@ echo "" | tee -a "$OUT"
 echo "# Owner creates two work items" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-ITEM1_ID=$(cd "$PROJECT" && CF_HOME="$OWNER_CF" "$RD" create "Reindex search corpus" \
+ITEM1_ID=$(cd "$PROJECT" && "$RD" create "Reindex search corpus" \
     --type task --priority p1)
-echo "$ CF_HOME=\$OWNER_CF rd create \"Reindex search corpus\" --type task --priority p1" | tee -a "$OUT"
+echo "$ cd \$PROJECT && rd create \"Reindex search corpus\" --type task --priority p1" | tee -a "$OUT"
 echo "Created: $ITEM1_ID" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-ITEM2_ID=$(cd "$PROJECT" && CF_HOME="$OWNER_CF" "$RD" create "Update dependency manifest" \
+ITEM2_ID=$(cd "$PROJECT" && "$RD" create "Update dependency manifest" \
     --type task --priority p2)
-echo "$ CF_HOME=\$OWNER_CF rd create \"Update dependency manifest\" --type task --priority p2" | tee -a "$OUT"
+echo "$ cd \$PROJECT && rd create \"Update dependency manifest\" --type task --priority p2" | tee -a "$OUT"
 echo "Created: $ITEM2_ID" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
 # Owner delegates one item to the agent
-AGENT_PUBKEY=$(CF_HOME="$AGENT_CF" cf id --json | python3 -c "import sys,json; print(json.load(sys.stdin)['public_key'])")
+AGENT_PUBKEY=$(CF_HOME="$PROJECT/agent/.cf" cf id --json | python3 -c "import sys,json; print(json.load(sys.stdin)['public_key'])")
 echo "# Owner delegates $ITEM1_ID to the agent" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-run "CF_HOME=\$OWNER_CF rd delegate $ITEM1_ID --to <agent-pubkey> --reason \"Route to indexer bot\"" \
-    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' delegate '$ITEM1_ID' \
+run "cd \$PROJECT && rd delegate $ITEM1_ID --to <agent-pubkey> --reason \"Route to indexer bot\"" \
+    bash -c "cd '$PROJECT' && '$RD' delegate '$ITEM1_ID' \
         --to '$AGENT_PUBKEY' \
         --reason 'Route to indexer bot'"
 
@@ -108,11 +109,11 @@ echo "" | tee -a "$OUT"
 echo "# Agent uses --json to query its assigned work programmatically" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-run "CF_HOME=\$AGENT_CF rd ready --view my-work --json" \
-    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' ready --view my-work --json"
+run "cd \$PROJECT/agent && rd ready --view my-work --json" \
+    bash -c "cd '$PROJECT/agent' && '$RD' ready --view my-work --json"
 
 # Capture for parsing
-MY_WORK_JSON=$(cd "$PROJECT" && CF_HOME="$AGENT_CF" "$RD" ready --view my-work --json)
+MY_WORK_JSON=$(cd "$PROJECT/agent" && "$RD" ready --view my-work --json)
 
 echo "# Parse item ID from JSON output" | tee -a "$OUT"
 AGENT_ITEM_ID=$(echo "$MY_WORK_JSON" | python3 -c "
@@ -132,13 +133,13 @@ echo "" | tee -a "$OUT"
 echo "# Agent claims the item — accepts delegation, transitions to active" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-run "CF_HOME=\$AGENT_CF rd claim $AGENT_ITEM_ID --reason \"Starting batch reindex job\"" \
-    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' claim '$AGENT_ITEM_ID' \
+run "cd \$PROJECT/agent && rd claim $AGENT_ITEM_ID --reason \"Starting batch reindex job\"" \
+    bash -c "cd '$PROJECT/agent' && '$RD' claim '$AGENT_ITEM_ID' \
         --reason 'Starting batch reindex job'"
 
 echo "# Verify status is now active" | tee -a "$OUT"
-run "CF_HOME=\$AGENT_CF rd ready --view work --json" \
-    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' ready --view work --json"
+run "cd \$PROJECT/agent && rd ready --view work --json" \
+    bash -c "cd '$PROJECT/agent' && '$RD' ready --view work --json"
 
 echo "=== SECTION: agent-progress ===" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
@@ -146,12 +147,12 @@ echo "" | tee -a "$OUT"
 echo "# Agent posts incremental progress notes as work proceeds" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-run "CF_HOME=\$AGENT_CF rd progress $AGENT_ITEM_ID --notes \"Processed 47/142 records, 0 errors\"" \
-    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' progress '$AGENT_ITEM_ID' \
+run "cd \$PROJECT/agent && rd progress $AGENT_ITEM_ID --notes \"Processed 47/142 records, 0 errors\"" \
+    bash -c "cd '$PROJECT/agent' && '$RD' progress '$AGENT_ITEM_ID' \
         --notes 'Processed 47/142 records, 0 errors'"
 
-run "CF_HOME=\$AGENT_CF rd progress $AGENT_ITEM_ID --notes \"Processed 142/142 records, 0 errors — indexing complete\"" \
-    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' progress '$AGENT_ITEM_ID' \
+run "cd \$PROJECT/agent && rd progress $AGENT_ITEM_ID --notes \"Processed 142/142 records, 0 errors — indexing complete\"" \
+    bash -c "cd '$PROJECT/agent' && '$RD' progress '$AGENT_ITEM_ID' \
         --notes 'Processed 142/142 records, 0 errors — indexing complete'"
 
 echo "=== SECTION: agent-done ===" | tee -a "$OUT"
@@ -160,8 +161,8 @@ echo "" | tee -a "$OUT"
 echo "# Agent closes the item with a structured result" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-run "CF_HOME=\$AGENT_CF rd done $AGENT_ITEM_ID --reason \"Batch complete: 142 records processed, 0 errors\"" \
-    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' done '$AGENT_ITEM_ID' \
+run "cd \$PROJECT/agent && rd done $AGENT_ITEM_ID --reason \"Batch complete: 142 records processed, 0 errors\"" \
+    bash -c "cd '$PROJECT/agent' && '$RD' done '$AGENT_ITEM_ID' \
         --reason 'Batch complete: 142 records processed, 0 errors'"
 
 echo "=== SECTION: verify ===" | tee -a "$OUT"
@@ -170,12 +171,12 @@ echo "" | tee -a "$OUT"
 echo "# Owner queries all items as JSON to confirm completion" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-run "CF_HOME=\$OWNER_CF rd list --all --json" \
-    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' list --all --json"
+run "cd \$PROJECT && rd list --all --json" \
+    bash -c "cd '$PROJECT' && '$RD' list --all --json"
 
 # Show human-readable summary too
-run "CF_HOME=\$OWNER_CF rd list --all" \
-    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' list --all"
+run "cd \$PROJECT && rd list --all" \
+    bash -c "cd '$PROJECT' && '$RD' list --all"
 
 echo "══════════════════════════════════════════════════════════════" | tee -a "$OUT"
 echo "  Demo complete. Transcript saved to: $OUT" | tee -a "$OUT"

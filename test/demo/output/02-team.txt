@@ -1,12 +1,12 @@
-# Ready Team Demo — Thu Apr  9 00:00:08 UTC 2026
+# Ready Team Demo — Thu Apr  9 01:27:17 UTC 2026
 # Two identities: owner and member
 
 ═══════════════════════════════════════════════════════════
   1. Initialize owner identity
 ═══════════════════════════════════════════════════════════
 
-$ cf init --cf-home $OWNER_CF  (owner)
-Your identity campfire: 37a46801d144304454695bdccdb22e12d505771f59703d4fbe3b5579716df711. Share it like any beacon.
+$ mkdir -p $PROJECT/.cf && cf init --cf-home $PROJECT/.cf  (owner)
+Your identity campfire: f8c9fa6de1daa6ff239261311a26b2a84e34caad4d465231f968aaaff4001656. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -17,16 +17,16 @@ Next: cf discover    find campfires
   2. Owner initializes project
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd init --name teamproject  (in $PROJECT)
+$ cd $PROJECT && rd init --name teamproject
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized teamproject
-  campfire: 5c4492cfe32a...
-  summary campfire: 356b58a1d53f...
-  inbox campfire: ce6f5a1b77ea...
+  campfire: 947bf0d3959c...
+  summary campfire: ab4d0815b1dc...
+  inbox campfire: 441c8ba33984...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (37a46801d144...)
+  home campfire: found (f8c9fa6de1da...)
   run 'rd register --org <name>' to add naming
 
 
@@ -34,7 +34,7 @@ initialized teamproject
   3. Owner generates invite token
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd invite  (owner)
+$ cd $PROJECT && rd invite
 rdx1_...  (invite token — treat as secret)
 
 
@@ -42,59 +42,59 @@ rdx1_...  (invite token — treat as secret)
   4. Member joins via invite token
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$MEMBER_CF rd join <invite-token> --force  (member)
-joined 5c4492cfe32a... via invite token (expires in 1h59m0s)
+$ mkdir -p $PROJECT/member/.cf && cd $PROJECT && CF_HOME=$PROJECT/member/.cf rd join <invite-token>  (one-time identity bootstrap)
+joined 947bf0d3959c... via invite token (expires in 1h59m0s)
 
 
 ═══════════════════════════════════════════════════════════
   5. Owner creates work item
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd create 'Build API' --type task --priority p1
-Created item: rdtestteamproji650-fe2
+$ cd $PROJECT && rd create 'Build API' --type task --priority p1
+Created item: rdtestteamproj9nv-169
 
 
 ═══════════════════════════════════════════════════════════
   6. Owner delegates item to member
 ═══════════════════════════════════════════════════════════
 
-Delegating to member identity: 512af0f5a92b...
+Delegating to member identity: 43515f42534e...
 
-$ CF_HOME=$OWNER_CF rd delegate rdtestteamproji650-fe2 --to <member-identity>
-delegated rdtestteamproji650-fe2 to 512af0f5a92bd06ecce261d12acf647a07f57828c4563738e0b3a6a50b42e0f7
+$ cd $PROJECT && rd delegate rdtestteamproj9nv-169 --to <member-identity>
+delegated rdtestteamproj9nv-169 to 43515f42534ed849bf2c2f6db3966d6b3841756f9c76747bbb155ba3a2123632
 
 
 ═══════════════════════════════════════════════════════════
   7. Member views ready items
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$MEMBER_CF rd ready
-  rdtestteamproji650-fe2  p1        inbox       3h          Build API
+$ cd $PROJECT/member && rd ready
+rdtestteamproj9nv-169
 
 
 ═══════════════════════════════════════════════════════════
   8. Member claims item (sets active)
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$MEMBER_CF rd update rdtestteamproji650-fe2 --status active
-updated rdtestteamproji650-fe2
+$ cd $PROJECT/member && rd update rdtestteamproj9nv-169 --status active
+updated rdtestteamproj9nv-169
 
 
 ═══════════════════════════════════════════════════════════
   9. Member completes item
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$MEMBER_CF rd done rdtestteamproji650-fe2 --reason 'API complete'
+$ cd $PROJECT/member && rd done rdtestteamproj9nv-169 --reason 'API complete'
 warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
-closed rdtestteamproji650-fe2 (done)
+closed rdtestteamproj9nv-169 (done)
 
 
 ═══════════════════════════════════════════════════════════
   10. Owner verifies — list all items
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd list --all
-  rdtestteamproji650-fe2  p1        done        3h          Build API
+$ cd $PROJECT && rd list --all
+rdtestteamproj9nv-169
 
 ══════════════════════════════════════════════════════════════
   Demo complete. Transcript saved to: /home/baron/projects/ready/test/demo/output/02-team.txt

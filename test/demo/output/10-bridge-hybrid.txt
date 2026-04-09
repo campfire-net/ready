@@ -1,19 +1,19 @@
-# Ready Demo 10 — Bridge Hybrid (Local + Cloud) — Thu Apr  9 00:01:29 UTC 2026
+# Ready Demo 10 — Bridge Hybrid (Local + Cloud) — Thu Apr  9 01:28:45 UTC 2026
 # Two topologies: local filesystem and hosted cloud
 
 ═══════════════════════════════════════════════════════════
   1. Initialize identities — one local, one hosted
 ═══════════════════════════════════════════════════════════
 
-$ cf init --cf-home $LOCAL_CF  (local filesystem)
-Your identity campfire: e0e47c9b71f657bd9af302c3d15f9b3fe2d2d21f2adfc529a6b1389e9e194aac. Share it like any beacon.
+$ mkdir -p $PROJ_LOCAL/.cf && cf init --cf-home $PROJ_LOCAL/.cf  (local filesystem)
+Your identity campfire: 4ca5e37d031f4cd222d36c70e20d58815c0a2540aaf283bfb93c2c90727c5822. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
       cf join <id>   join one
 
-$ cf init --cf-home $HOSTED_CF --remote https://mcp.getcampfire.dev  (hosted cloud)
-Your identity campfire: f3e92bbd609ed03c53802fdb6d06ec7de52b7585c092f62a6da0444dea884487. Share it like any beacon.
+$ mkdir -p $PROJ_HOSTED/.cf && cf init --cf-home $PROJ_HOSTED/.cf --remote https://mcp.getcampfire.dev  (hosted cloud)
+Your identity campfire: e3c30e604604de2ceb4fb25840f2b2b85015fb10b9d4a3fd774b0a94db0a8869. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -24,38 +24,38 @@ Next: cf discover    find campfires
   2. Create LOCAL project (filesystem campfire)
 ═══════════════════════════════════════════════════════════
 
-$ cd $PROJ_LOCAL && CF_HOME=$LOCAL_CF rd init --name frontend
+$ cd $PROJ_LOCAL && rd init --name frontend
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized frontend
-  campfire: b5efc377209a...
-  summary campfire: f7df3a2ef61a...
-  inbox campfire: 74ff240cb17c...
+  campfire: acc07a049110...
+  summary campfire: 8673ffef17f7...
+  inbox campfire: 17d70d6d080f...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (e0e47c9b71f6...)
+  home campfire: found (4ca5e37d031f...)
   run 'rd register --org <name>' to add naming
 
-Local campfire: b5efc377209a...
+Local campfire: acc07a049110...
 
 
 ═══════════════════════════════════════════════════════════
   3. Create HOSTED project (cloud campfire)
 ═══════════════════════════════════════════════════════════
 
-$ cd $PROJ_HOSTED && CF_HOME=$HOSTED_CF rd init --name backend
+$ cd $PROJ_HOSTED && rd init --name backend
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized backend
-  campfire: 967b1983dc93...
-  summary campfire: 1937ada2c183...
-  inbox campfire: ca14102dd939...
+  campfire: bbfe335936be...
+  summary campfire: 9b0db9fec3c0...
+  inbox campfire: e6381cc9abd8...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (f3e92bbd609e...)
+  home campfire: found (e3c30e604604...)
   run 'rd register --org <name>' to add naming
 
-Hosted campfire: 967b1983dc93...
+Hosted campfire: bbfe335936be...
 
 
 ═══════════════════════════════════════════════════════════
@@ -63,18 +63,18 @@ Hosted campfire: 967b1983dc93...
 ═══════════════════════════════════════════════════════════
 
 --- Local project (frontend) ---
-$ CF_HOME=$LOCAL_CF rd create 'Build login component' --type task --priority p1
-Created: rdtestbridgeprojhm-db2
+$ cd $PROJ_LOCAL && rd create 'Build login component' --type task --priority p1
+Created: rdtestbridgeprojw-ccb
 
-$ CF_HOME=$LOCAL_CF rd create 'Add form validation' --type task --priority p2
-Created: rdtestbridgeprojhm-de2
+$ cd $PROJ_LOCAL && rd create 'Add form validation' --type task --priority p2
+Created: rdtestbridgeprojw-fae
 
 --- Hosted project (backend) ---
-$ CF_HOME=$HOSTED_CF rd create 'Design auth API' --type task --priority p0
-Created: rdtestbridgeprojr9t-e36
+$ cd $PROJ_HOSTED && rd create 'Design auth API' --type task --priority p0
+Created: rdtestbridgeprojrr-c79
 
-$ CF_HOME=$HOSTED_CF rd create 'Write integration tests' --type task --priority p1
-Created: rdtestbridgeprojr9t-2c5
+$ cd $PROJ_HOSTED && rd create 'Write integration tests' --type task --priority p1
+Created: rdtestbridgeprojrr-9c9
 
 
 ═══════════════════════════════════════════════════════════
@@ -82,14 +82,14 @@ Created: rdtestbridgeprojr9t-2c5
 ═══════════════════════════════════════════════════════════
 
 --- Local (frontend) ---
-$ CF_HOME=$LOCAL_CF rd ready
-  rdtestbridgeprojhm-db2  p1        inbox       3h          Build login component
-  rdtestbridgeprojhm-de2  p2        inbox       23h         Add form validation
+$ cd $PROJ_LOCAL && rd ready
+rdtestbridgeprojw-ccb
+rdtestbridgeprojw-fae
 
 --- Hosted (backend) ---
-$ CF_HOME=$HOSTED_CF rd ready
-  rdtestbridgeprojr9t-e36  p0        inbox       overdue     Design auth API
-  rdtestbridgeprojr9t-2c5  p1        inbox       3h          Write integration tests
+$ cd $PROJ_HOSTED && rd ready
+rdtestbridgeprojrr-c79
+rdtestbridgeprojrr-9c9
 
 
 ═══════════════════════════════════════════════════════════
@@ -97,18 +97,18 @@ $ CF_HOME=$HOSTED_CF rd ready
 ═══════════════════════════════════════════════════════════
 
 --- Complete P0 on hosted (backend) ---
-$ CF_HOME=$HOSTED_CF rd update rdtestbridgeprojr9t-e36 --status active
-updated rdtestbridgeprojr9t-e36
+$ cd $PROJ_HOSTED && rd update rdtestbridgeprojrr-c79 --status active
+updated rdtestbridgeprojrr-c79
 
-$ CF_HOME=$HOSTED_CF rd done rdtestbridgeprojr9t-e36 --reason 'Auth API designed and reviewed'
-closed rdtestbridgeprojr9t-e36 (done)
+$ cd $PROJ_HOSTED && rd done rdtestbridgeprojrr-c79 --reason 'Auth API designed and reviewed'
+closed rdtestbridgeprojrr-c79 (done)
 
 --- Complete P1 on local (frontend) ---
-$ CF_HOME=$LOCAL_CF rd update rdtestbridgeprojhm-db2 --status active
-updated rdtestbridgeprojhm-db2
+$ cd $PROJ_LOCAL && rd update rdtestbridgeprojw-ccb --status active
+updated rdtestbridgeprojw-ccb
 
-$ CF_HOME=$LOCAL_CF rd done rdtestbridgeprojhm-db2 --reason 'Login component built'
-closed rdtestbridgeprojhm-db2 (done)
+$ cd $PROJ_LOCAL && rd done rdtestbridgeprojw-ccb --reason 'Login component built'
+closed rdtestbridgeprojw-ccb (done)
 
 
 ═══════════════════════════════════════════════════════════
@@ -116,16 +116,16 @@ closed rdtestbridgeprojhm-db2 (done)
 ═══════════════════════════════════════════════════════════
 
 --- Local (frontend) ---
-$ CF_HOME=$LOCAL_CF rd sync status
+$ cd $PROJ_LOCAL && rd sync status
 sync: up to date
-  last synced: 2026-04-09 00:01:30
-  last msg:    3bc55ae8-d648-48...
+  last synced: 2026-04-09 01:28:46
+  last msg:    0aafb355-1580-4c...
 
 --- Hosted (backend) ---
-$ CF_HOME=$HOSTED_CF rd sync status
+$ cd $PROJ_HOSTED && rd sync status
 sync: up to date
-  last synced: 2026-04-09 00:01:30
-  last msg:    af8a2c87-4d0b-4a...
+  last synced: 2026-04-09 01:28:46
+  last msg:    aeae5a9e-bbb7-4c...
 
 
 ═══════════════════════════════════════════════════════════
@@ -133,14 +133,14 @@ sync: up to date
 ═══════════════════════════════════════════════════════════
 
 --- Local (frontend) ---
-$ CF_HOME=$LOCAL_CF rd list --all
-  rdtestbridgeprojhm-db2  p1        done        3h          Build login component
-  rdtestbridgeprojhm-de2  p2        inbox       23h         Add form validation
+$ cd $PROJ_LOCAL && rd list --all
+rdtestbridgeprojw-ccb
+rdtestbridgeprojw-fae
 
 --- Hosted (backend) ---
-$ CF_HOME=$HOSTED_CF rd list --all
-  rdtestbridgeprojr9t-e36  p0        done        overdue     Design auth API
-  rdtestbridgeprojr9t-2c5  p1        inbox       3h          Write integration tests
+$ cd $PROJ_HOSTED && rd list --all
+rdtestbridgeprojrr-c79
+rdtestbridgeprojrr-9c9
 
 ══════════════════════════════════════════════════════════════
   Demo 10 complete. Local + hosted hybrid verified.

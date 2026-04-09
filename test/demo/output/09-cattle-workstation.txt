@@ -1,4 +1,4 @@
-# Ready Demo 09 — Cattle Workstation Integration — Thu Apr  9 00:01:24 UTC 2026
+# Ready Demo 09 — Cattle Workstation Integration — Thu Apr  9 01:28:41 UTC 2026
 # Validates: fresh bootstrap, cross-project routing, ephemeral workers
 
 ═══════════════════════════════════════════════════════════
@@ -12,64 +12,64 @@ Scenario: developer gets a new laptop. All they need is cf + rd.
   1a. Fresh identity — new machine, new key
 ═══════════════════════════════════════════════════════════
 
-$ cf init --cf-home $OWNER_CF --remote https://mcp.getcampfire.dev
-Your identity campfire: 24180d768f3f3507578dd8455875e5185bbbe1ea2d9787c0c9240bcd045dc94b. Share it like any beacon.
+$ mkdir -p $PROJ_FRONTEND/.cf && cf init --cf-home $PROJ_FRONTEND/.cf --remote https://mcp.getcampfire.dev
+Your identity campfire: 1e8174b7ac5c70ec555d0d78baa3ff04a675b5ec7d25a01cfea37822aa484303. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
       cf join <id>   join one
 
-Owner identity: 1794e36d1ad0...
+Owner identity: ccaf2f30c24d...
 
 
 ═══════════════════════════════════════════════════════════
   1b. Create project: frontend
 ═══════════════════════════════════════════════════════════
 
-$ cd $PROJ_FRONTEND && CF_HOME=$OWNER_CF rd init --name frontend
+$ cd $PROJ_FRONTEND && rd init --name frontend
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized frontend
-  campfire: 5dff60b7f08f...
-  summary campfire: b9f5e2848e84...
-  inbox campfire: 810912535230...
+  campfire: 639806b4e1ae...
+  summary campfire: 10e8ad38e1cb...
+  inbox campfire: be53e48d880d...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (24180d768f3f...)
+  home campfire: found (1e8174b7ac5c...)
   run 'rd register --org <name>' to add naming
 
-Created: rdtestcattlefe2-c3a (Build login page)
-Created: rdtestcattlefe2-56b (Add form validation)
-Created: rdtestcattlefe2-a84 (Write component tests)
+Created: rdtestcattlefev5-6c3 (Build login page)
+Created: rdtestcattlefev5-366 (Add form validation)
+Created: rdtestcattlefev5-128 (Write component tests)
 
-$ CF_HOME=$OWNER_CF rd ready  (frontend)
-  rdtestcattlefe2-c3a  p1        inbox       3h          Build login page
-  rdtestcattlefe2-a84  p1        inbox       3h          Write component tests
-  rdtestcattlefe2-56b  p2        inbox       23h         Add form validation
+$ cd $PROJ_FRONTEND && rd ready
+rdtestcattlefev5-6c3
+rdtestcattlefev5-128
+rdtestcattlefev5-366
 
 
 ═══════════════════════════════════════════════════════════
   1c. Create project: backend
 ═══════════════════════════════════════════════════════════
 
-$ cd $PROJ_BACKEND && CF_HOME=$OWNER_CF rd init --name backend
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd init --name backend
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized backend
-  campfire: 7b6d169cd652...
-  summary campfire: e2ab45b20c92...
-  inbox campfire: 48e98f5a16b5...
+  campfire: 4e696ab9db3e...
+  summary campfire: 873e5d35108a...
+  inbox campfire: 21b3e891960f...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (24180d768f3f...)
+  home campfire: found (1e8174b7ac5c...)
   run 'rd register --org <name>' to add naming
 
-Created: rdtestcattleben-b63 (Design auth API)
-Created: rdtestcattleben-254 (Implement token refresh)
+Created: rdtestcattlebereu-7fd (Design auth API)
+Created: rdtestcattlebereu-d5d (Implement token refresh)
 
-$ CF_HOME=$OWNER_CF rd ready  (backend)
-  rdtestcattleben-b63  p0        inbox       overdue     Design auth API
-  rdtestcattleben-254  p1        inbox       3h          Implement token refresh
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd ready  (backend)
+rdtestcattlebereu-7fd
+rdtestcattlebereu-d5d
 
 
 ═══════════════════════════════════════════════════════════
@@ -79,28 +79,28 @@ $ CF_HOME=$OWNER_CF rd ready  (backend)
 Scenario: laptop stolen. New machine, new identity, but the campfire
 still has all the work. Owner generates a rebuild invite token from old machine.
 
-$ CF_HOME=$OWNER_CF rd invite  (old machine generates token for new machine)
+$ cd $PROJ_FRONTEND && rd invite  (old machine generates token for new machine)
 rdx1_...  (rebuild invite token)
 
-$ cd $PROJ_REJOIN && CF_HOME=$REBUILD_CF rd join <rebuild-token> --force  (new machine)
+$ mkdir -p $PROJ_REJOIN/.cf && cd $PROJ_REJOIN && CF_HOME=$PROJ_REJOIN/.cf rd join <rebuild-token>  (one-time identity bootstrap)
 synced 3 item(s)
-joined 5dff60b7f08f... via invite token (expires in 1h59m0s)
+joined 639806b4e1ae... via invite token (expires in 1h59m0s)
 
-$ CF_HOME=$REBUILD_CF rd list --all  (new machine)
-  rdtestcattlefe2-a84  p1        inbox       3h          Write component tests
-  rdtestcattlefe2-c3a  p1        inbox       3h          Build login page
-  rdtestcattlefe2-56b  p2        inbox       23h         Add form validation
+$ cd $PROJ_REJOIN && rd list --all  (new machine)
+rdtestcattlefev5-128
+rdtestcattlefev5-6c3
+rdtestcattlefev5-366
 
   PASS: new machine sees 'Build login page'
   PASS: new machine sees 'Add form validation'
   PASS: new machine sees 'Write component tests'
 
-$ CF_HOME=$REBUILD_CF rd update rdtestcattlefe2-c3a --status active  (new machine claims work)
-updated rdtestcattlefe2-c3a
+$ cd $PROJ_REJOIN && rd update rdtestcattlefev5-6c3 --status active  (new machine claims work)
+updated rdtestcattlefev5-6c3
 
-$ CF_HOME=$REBUILD_CF rd done rdtestcattlefe2-c3a --reason 'Login page built from new machine'  (new machine closes)
+$ cd $PROJ_REJOIN && rd done rdtestcattlefev5-6c3 --reason 'Login page built from new machine'  (new machine closes)
 warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
-closed rdtestcattlefe2-c3a (done)
+closed rdtestcattlefev5-6c3 (done)
 
 Machine rebuild complete. Zero state loss.
 
@@ -116,59 +116,59 @@ Two projects, one owner. Items in each. Dependencies across projects.
   2a. Wire cross-project dependency
 ═══════════════════════════════════════════════════════════
 
-Frontend 'rdtestcattlefe2-56b' (form validation) depends on frontend 'rdtestcattlefe2-a84' (component tests).
+Frontend 'rdtestcattlefev5-366' (form validation) depends on frontend 'rdtestcattlefev5-128' (component tests).
 Frontend can't validate auth forms until component tests exist.
 
-$ CF_HOME=$OWNER_CF rd dep add rdtestcattlefe2-56b rdtestcattlefe2-a84  (form validation blocked by component tests)
-blocked: rdtestcattlefe2-56b is now blocked by rdtestcattlefe2-a84
+$ cd $PROJ_FRONTEND && rd dep add rdtestcattlefev5-366 rdtestcattlefev5-128  (form validation blocked by component tests)
+blocked: rdtestcattlefev5-366 is now blocked by rdtestcattlefev5-128
 
 
 ═══════════════════════════════════════════════════════════
   2b. Dependency tree and ready view
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd dep tree rdtestcattlefe2-56b  (frontend)
-rdtestcattlefe2-56b  [blocked]  Add form validation  (blocked by: rdtestcattlefe2-a84)
+$ cd $PROJ_FRONTEND && rd dep tree rdtestcattlefev5-366
+rdtestcattlefev5-366  [blocked]  Add form validation  (blocked by: rdtestcattlefev5-128)
 
-$ CF_HOME=$OWNER_CF rd ready  (frontend — what's actionable?)
-  rdtestcattlefe2-c3a  p1        inbox       3h          Build login page
-  rdtestcattlefe2-a84  p1        inbox       3h          Write component tests
+$ cd $PROJ_FRONTEND && rd ready  (what's actionable?)
+rdtestcattlefev5-6c3
+rdtestcattlefev5-128
 
-$ CF_HOME=$OWNER_CF rd ready  (backend — what's actionable?)
-  rdtestcattleben-b63  p0        inbox       overdue     Design auth API
-  rdtestcattleben-254  p1        inbox       3h          Implement token refresh
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd ready  (backend — what's actionable?)
+rdtestcattlebereu-7fd
+rdtestcattlebereu-d5d
 
 
 ═══════════════════════════════════════════════════════════
   2c. Close blocker — blocked item unblocks
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd update rdtestcattlefe2-a84 --status active
-updated rdtestcattlefe2-a84
+$ cd $PROJ_FRONTEND && rd update rdtestcattlefev5-128 --status active
+updated rdtestcattlefev5-128
 
-$ CF_HOME=$OWNER_CF rd done rdtestcattlefe2-a84 --reason 'Component tests written'
-closed rdtestcattlefe2-a84 (done)
+$ cd $PROJ_FRONTEND && rd done rdtestcattlefev5-128 --reason 'Component tests written'
+closed rdtestcattlefev5-128 (done)
 
-$ CF_HOME=$OWNER_CF rd ready  (frontend — after closing blocker)
-  rdtestcattlefe2-c3a  p1        inbox       3h          Build login page
-  rdtestcattlefe2-56b  p2        inbox       23h         Add form validation
+$ cd $PROJ_FRONTEND && rd ready  (after closing blocker)
+rdtestcattlefev5-6c3
+rdtestcattlefev5-366
 
-  PASS: rdtestcattlefe2-56b is now ready after blocker closed
+  PASS: rdtestcattlefev5-366 is now ready after blocker closed
 
 
 ═══════════════════════════════════════════════════════════
   2d. Backend work proceeds independently
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd update rdtestcattleben-b63 --status active
-updated rdtestcattleben-b63
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd update rdtestcattlebereu-7fd --status active
+updated rdtestcattlebereu-7fd
 
-$ CF_HOME=$OWNER_CF rd done rdtestcattleben-b63 --reason 'Auth API v1 designed'
-closed rdtestcattleben-b63 (done)
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd done rdtestcattlebereu-7fd --reason 'Auth API v1 designed'
+closed rdtestcattlebereu-7fd (done)
 
-$ CF_HOME=$OWNER_CF rd list --all  (backend)
-  rdtestcattleben-b63  p0        done        overdue     Design auth API
-  rdtestcattleben-254  p1        inbox       3h          Implement token refresh
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd list --all  (backend)
+rdtestcattlebereu-7fd
+rdtestcattlebereu-d5d
 
 
 ═══════════════════════════════════════════════════════════
@@ -194,16 +194,16 @@ hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
 hint: 'development'. The just-created branch can be renamed via this command:
 hint: 
 hint: 	git branch -m <name>
-Initialized empty Git repository in /tmp/rdtest-cattle-git-mgVq/
+Initialized empty Git repository in /tmp/rdtest-cattle-git-M7zP/
 
-Cloning into '/tmp/rdtest-cattle-main-AfSn'...
+Cloning into '/tmp/rdtest-cattle-main-4YAf'...
 warning: You appear to have cloned an empty repository.
 done.
 
-[master (root-commit) f30d1dd] Initial commit
+[master (root-commit) 4e0a0bc] Initial commit
  1 file changed, 1 insertion(+)
  create mode 100644 package.json
-To /tmp/rdtest-cattle-git-mgVq
+To /tmp/rdtest-cattle-git-M7zP
  * [new branch]      HEAD -> main
 
 
@@ -213,9 +213,9 @@ To /tmp/rdtest-cattle-git-mgVq
 
 $ git worktree add $WORKTREE_DIR work/backend-token-refresh
 Preparing worktree (new branch 'work/backend-token-refresh')
-HEAD is now at f30d1dd Initial commit
+HEAD is now at 4e0a0bc Initial commit
 
-Worktree ready at: /tmp/rdtest-cattle-wt-W4dc
+Worktree ready at: /tmp/rdtest-cattle-wt-K700
 Branch: work/backend-token-refresh
 
 
@@ -223,7 +223,7 @@ Branch: work/backend-token-refresh
   3c. Owner generates worker invite token (ephemeral, single-use)
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd invite --role agent  (generate worker token)
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd invite --role agent  (generate worker token)
 rdx1_...  (worker invite token)
 
 
@@ -231,12 +231,12 @@ rdx1_...  (worker invite token)
   3d. Worker joins via invite token from git worktree
 ═══════════════════════════════════════════════════════════
 
-$ cd $WORKTREE_DIR && CF_HOME=$WORKER_CF rd join <worker-token> --force  (worker joins)
-joined 7b6d169cd652... via invite token (expires in 1h59m0s)
+$ mkdir -p $WORKTREE_DIR/.cf && cd $WORKTREE_DIR && CF_HOME=$WORKTREE_DIR/.cf rd join <worker-token>  (one-time identity bootstrap)
+joined 4e696ab9db3e... via invite token (expires in 1h59m0s)
 
-$ CF_HOME=$WORKER_CF rd list --all  (worker sees backend items)
-  rdtestcattleben-b63  p0        done        overdue     Design auth API
-  rdtestcattleben-254  p1        inbox       3h          Implement token refresh
+$ cd $WORKTREE_DIR && rd list --all  (worker sees backend items)
+rdtestcattlebereu-7fd
+rdtestcattlebereu-d5d
 
   PASS: worker sees 'Implement token refresh'
 
@@ -245,28 +245,28 @@ $ CF_HOME=$WORKER_CF rd list --all  (worker sees backend items)
   3e. Worker does the work
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$WORKER_CF rd update rdtestcattleben-254 --status active  (worker claims)
-updated rdtestcattleben-254
+$ cd $WORKTREE_DIR && rd update rdtestcattlebereu-d5d --status active  (worker claims)
+updated rdtestcattlebereu-d5d
 
-[work/backend-token-refresh 01be517] Implement token refresh logic
+[work/backend-token-refresh 1af45e5] Implement token refresh logic
  1 file changed, 1 insertion(+)
  create mode 100644 auth.js
 
-$ CF_HOME=$WORKER_CF rd done rdtestcattleben-254 --reason 'Token refresh implemented, committed to work/backend-token-refresh'
+$ cd $WORKTREE_DIR && rd done rdtestcattlebereu-d5d --reason 'Token refresh implemented, committed to work/backend-token-refresh'
 warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
-closed rdtestcattleben-254 (done)
+closed rdtestcattlebereu-d5d (done)
 
 
 ═══════════════════════════════════════════════════════════
   3f. Owner verifies worker's completion
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd sync pull  (owner syncs)
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd sync pull  (owner syncs)
 sync pull: 1 message(s) pulled, 4 duplicate(s) skipped
 
-$ CF_HOME=$OWNER_CF rd list --all  (backend — after worker completes)
-  rdtestcattleben-b63  p0        done        overdue     Design auth API
-  rdtestcattleben-254  p1        active      3h          Implement token refresh
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd list --all  (backend — after worker completes)
+rdtestcattlebereu-7fd
+rdtestcattlebereu-d5d
 
   PASS: owner sees token refresh item
 
@@ -276,7 +276,7 @@ $ CF_HOME=$OWNER_CF rd list --all  (backend — after worker completes)
 ═══════════════════════════════════════════════════════════
 
 
-Worker identity (/tmp/rdtest-cattle-worker-jaH1) and worktree destroyed.
+Worker identity ($WORKTREE_DIR/.cf/) and worktree destroyed.
 Work persists in the campfire — visible to the owner.
 
 
@@ -285,22 +285,22 @@ Work persists in the campfire — visible to the owner.
 ═══════════════════════════════════════════════════════════
 
 --- Frontend (owner view) ---
-$ CF_HOME=$OWNER_CF rd list --all  (frontend)
-  rdtestcattlefe2-a84  p1        done        3h          Write component tests
-  rdtestcattlefe2-c3a  p1        inbox       3h          Build login page
-  rdtestcattlefe2-56b  p2        inbox       23h         Add form validation
+$ cd $PROJ_FRONTEND && rd list --all
+rdtestcattlefev5-128
+rdtestcattlefev5-6c3
+rdtestcattlefev5-366
 
 --- Backend (owner view) ---
-$ CF_HOME=$OWNER_CF rd list --all  (backend)
-  rdtestcattleben-b63  p0        done        overdue     Design auth API
-  rdtestcattleben-254  p1        active      3h          Implement token refresh
+$ cd $PROJ_BACKEND && CF_HOME=$PROJ_FRONTEND/.cf rd list --all  (backend)
+rdtestcattlebereu-7fd
+rdtestcattlebereu-d5d
 
 --- Frontend (rebuilt machine view) ---
-$ CF_HOME=$REBUILD_CF rd sync pull && rd list --all  (rebuilt machine)
+$ cd $PROJ_REJOIN && rd sync pull && rd list --all  (rebuilt machine)
 sync pull: 3 message(s) pulled, 1 duplicate(s) skipped
-  rdtestcattlefe2-a84  p1        done        3h          Write component tests
-  rdtestcattlefe2-c3a  p1        done        3h          Build login page
-  rdtestcattlefe2-56b  p2        inbox       23h         Add form validation
+rdtestcattlefev5-128
+rdtestcattlefev5-6c3
+rdtestcattlefev5-366
 
 ══════════════════════════════════════════════════════════════
   Demo 09 complete.

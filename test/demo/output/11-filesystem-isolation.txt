@@ -1,4 +1,4 @@
-# Ready Filesystem Isolation Demo — Thu Apr  9 01:08:19 UTC 2026
+# Ready Filesystem Isolation Demo — Thu Apr  9 01:27:42 UTC 2026
 # Walk-up config: .cf/identity.json anchors identity; .campfire/root anchors project
 
 
@@ -7,7 +7,7 @@
 ═══════════════════════════════════════════════════════════
 
 $ cf init --cf-home $OWNER_CF
-Your identity campfire: 3512007aa48ad2dc0a1d365f509dc7f7a0cf08807003dddc7b139bb4cb7a84cd. Share it like any beacon.
+Your identity campfire: dba17dbbf3610f708b93347e4ed33796f4f455d51210944efc77fb2f8933d3d1. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -16,16 +16,16 @@ Next: cf discover    find campfires
 $ CF_HOME=$OWNER_CF rd init --name iso-project  (in $PROJECT)
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized iso-project
-  campfire: dd57551c09f0...
-  summary campfire: ba2532ae0901...
-  inbox campfire: 0e26e35cc53c...
+  campfire: 9448eff8d39c...
+  summary campfire: d23f3d5dc26a...
+  inbox campfire: 268c82e446e3...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (3512007aa48a...)
+  home campfire: found (dba17dbbf361...)
   run 'rd register --org <name>' to add naming
 
-# Project campfire ID: dd57551c09f0ad60e08da3e9118f976819c54bf3be96656c0df9eb7306fe1c7b
+# Project campfire ID: 9448eff8d39c0d2e861075aae820673cd3d5392b645c284934b08257f9ed8f2a
 # Stored at: $PROJECT/.campfire/root
 
 
@@ -38,14 +38,14 @@ initialized iso-project
 #   $PROJECT/src/            ← no .cf/ here; walk-up finds parent's .campfire/root
 
 $ CF_HOME=$OWNER_CF rd create 'Implement login' --type task --priority p1
-Created: rdtestisoproj4m4-79f
+Created: rdtestisoproj4l-19e
 
 # rd ready from subdirectory — campfire resolves via walk-up to parent's .campfire/root
 $ (from $PROJECT/src) CF_HOME=$OWNER_CF rd ready
-rdtestisoproj4m4-79f
+rdtestisoproj4l-19e
 
 # Human-readable (via --json):
-  rdtestisoproj4m4-79f  [inbox   ]  Implement login
+  rdtestisoproj4l-19e   [inbox   ]  Implement login
 
 ✓ assert: item visible from subdirectory via .campfire/root walk-up
 
@@ -66,12 +66,12 @@ $ CF_HOME=$OWNER_CF rd invite  →  rdx1_...  (token for agent-B)
 # Agent A: CF_HOME=worktree-a/.cf rd join <token>  (one-time identity bootstrap)
 $ cd $PROJECT/worktree-a && CF_HOME=$PROJECT/worktree-a/.cf rd join <token-a>
 synced 1 item(s)
-joined dd57551c09f0... via invite token (expires in 1h59m0s)
+joined 9448eff8d39c... via invite token (expires in 1h59m0s)
 
 # Agent B: CF_HOME=worktree-b/.cf rd join <token>  (one-time identity bootstrap)
 $ cd $PROJECT/worktree-b && CF_HOME=$PROJECT/worktree-b/.cf rd join <token-b>
 synced 1 item(s)
-joined dd57551c09f0... via invite token (expires in 1h59m0s)
+joined 9448eff8d39c... via invite token (expires in 1h59m0s)
 
 # Each worktree now has its own identity — no CF_HOME needed:
 $ ls $PROJECT/worktree-a/.cf/
@@ -83,19 +83,19 @@ identity.json
 store.db
 
 $ (worktree-a identity) cf id --json | .public_key
-e1b8b5984201840f...  ← agent-A
+2f5cd25b1d7d068a...  ← agent-A
 
 $ (worktree-b identity) cf id --json | .public_key
-cf13159a3ec5eda4...  ← agent-B
+00c8fa17597564eb...  ← agent-B
 
 ✓ assert: agent-A and agent-B have different public keys
 
 # Both agents see all project items via walk-up to parent's .campfire/root:
 $ (from worktree-a) rd list --json  # no CF_HOME
-  rdtestisoproj4m4-79f  [inbox   ]  Implement login
+  rdtestisoproj4l-19e   [inbox   ]  Implement login
 
 $ (from worktree-b) rd list --json  # no CF_HOME
-  rdtestisoproj4m4-79f  [inbox   ]  Implement login
+  rdtestisoproj4l-19e   [inbox   ]  Implement login
 
 ✓ assert: agent-A sees project items from worktree-a/ (no CF_HOME)
 
@@ -107,19 +107,19 @@ $ (from worktree-b) rd list --json  # no CF_HOME
 ═══════════════════════════════════════════════════════════
 
 # Owner creates five work items
-Created: rdtestisoproj4m4-93b
-Created: rdtestisoproj4m4-e95
-Created: rdtestisoproj4m4-f6f
-Created: rdtestisoproj4m4-96d
-Created: rdtestisoproj4m4-20c
+Created: rdtestisoproj4l-404
+Created: rdtestisoproj4l-6b8
+Created: rdtestisoproj4l-73e
+Created: rdtestisoproj4l-c6f
+Created: rdtestisoproj4l-c6d
 
 $ CF_HOME=$OWNER_CF rd list --json  (all items)
-  rdtestisoproj4m4-79f  [inbox   ]  Implement login
-  rdtestisoproj4m4-93b  [inbox   ]  Set up database schema
-  rdtestisoproj4m4-e95  [inbox   ]  Build REST endpoints
-  rdtestisoproj4m4-96d  [inbox   ]  Add rate limiting
-  rdtestisoproj4m4-f6f  [inbox   ]  Write integration tests
-  rdtestisoproj4m4-20c  [inbox   ]  Deploy to staging
+  rdtestisoproj4l-19e   [inbox   ]  Implement login
+  rdtestisoproj4l-404   [inbox   ]  Set up database schema
+  rdtestisoproj4l-6b8   [inbox   ]  Build REST endpoints
+  rdtestisoproj4l-73e   [inbox   ]  Write integration tests
+  rdtestisoproj4l-c6f   [inbox   ]  Add rate limiting
+  rdtestisoproj4l-c6d   [inbox   ]  Deploy to staging
 
 # Agents sync to pick up new items
 $ cd $PROJECT/worktree-a && rd sync pull  # no CF_HOME
@@ -129,53 +129,53 @@ $ cd $PROJECT/worktree-b && rd sync pull  # no CF_HOME
 sync pull: 5 message(s) pulled
 
 # Agent A claims two items — identity from worktree-a/.cf/ (walk-up), no CF_HOME
-$ cd $PROJECT/worktree-a && rd claim rdtestisoproj4m4-93b  # no CF_HOME
-claimed rdtestisoproj4m4-93b
+$ cd $PROJECT/worktree-a && rd claim rdtestisoproj4l-404  # no CF_HOME
+claimed rdtestisoproj4l-404
 
-$ cd $PROJECT/worktree-a && rd claim rdtestisoproj4m4-f6f  # no CF_HOME
-claimed rdtestisoproj4m4-f6f
+$ cd $PROJECT/worktree-a && rd claim rdtestisoproj4l-73e  # no CF_HOME
+claimed rdtestisoproj4l-73e
 
 # Agent B claims two items — identity from worktree-b/.cf/ (walk-up), no CF_HOME
-$ cd $PROJECT/worktree-b && rd claim rdtestisoproj4m4-e95  # no CF_HOME
-claimed rdtestisoproj4m4-e95
+$ cd $PROJECT/worktree-b && rd claim rdtestisoproj4l-6b8  # no CF_HOME
+claimed rdtestisoproj4l-6b8
 
-$ cd $PROJECT/worktree-b && rd claim rdtestisoproj4m4-96d  # no CF_HOME
-claimed rdtestisoproj4m4-96d
+$ cd $PROJECT/worktree-b && rd claim rdtestisoproj4l-c6f  # no CF_HOME
+claimed rdtestisoproj4l-c6f
 
-$ cd $PROJECT/worktree-a && rd progress rdtestisoproj4m4-93b --notes 'Schema migrations written'  # no CF_HOME
-progress noted on rdtestisoproj4m4-93b
+$ cd $PROJECT/worktree-a && rd progress rdtestisoproj4l-404 --notes 'Schema migrations written'  # no CF_HOME
+progress noted on rdtestisoproj4l-404
 
-$ cd $PROJECT/worktree-a && rd progress rdtestisoproj4m4-f6f --notes 'Tests at 80% coverage'  # no CF_HOME
-progress noted on rdtestisoproj4m4-f6f
+$ cd $PROJECT/worktree-a && rd progress rdtestisoproj4l-73e --notes 'Tests at 80% coverage'  # no CF_HOME
+progress noted on rdtestisoproj4l-73e
 
-$ cd $PROJECT/worktree-b && rd progress rdtestisoproj4m4-e95 --notes 'Auth endpoint complete'  # no CF_HOME
-progress noted on rdtestisoproj4m4-e95
+$ cd $PROJECT/worktree-b && rd progress rdtestisoproj4l-6b8 --notes 'Auth endpoint complete'  # no CF_HOME
+progress noted on rdtestisoproj4l-6b8
 
-$ cd $PROJECT/worktree-b && rd progress rdtestisoproj4m4-96d --notes 'Token bucket implemented'  # no CF_HOME
-progress noted on rdtestisoproj4m4-96d
+$ cd $PROJECT/worktree-b && rd progress rdtestisoproj4l-c6f --notes 'Token bucket implemented'  # no CF_HOME
+progress noted on rdtestisoproj4l-c6f
 
 $ CF_HOME=$OWNER_CF rd sync pull  (owner pulls latest state)
 sync pull: 8 message(s) pulled, 6 duplicate(s) skipped
 
 $ CF_HOME=$OWNER_CF rd list --all --json  (owner views agent activity)
-  rdtestisoproj4m4-79f  [inbox   ]  Implement login
-  rdtestisoproj4m4-93b  [active  ]  Set up database schema
-  rdtestisoproj4m4-e95  [active  ]  Build REST endpoints
-  rdtestisoproj4m4-96d  [active  ]  Add rate limiting
-  rdtestisoproj4m4-f6f  [active  ]  Write integration tests
-  rdtestisoproj4m4-20c  [inbox   ]  Deploy to staging
+  rdtestisoproj4l-19e   [inbox   ]  Implement login
+  rdtestisoproj4l-404   [active  ]  Set up database schema
+  rdtestisoproj4l-6b8   [active  ]  Build REST endpoints
+  rdtestisoproj4l-73e   [active  ]  Write integration tests
+  rdtestisoproj4l-c6f   [active  ]  Add rate limiting
+  rdtestisoproj4l-c6d   [inbox   ]  Deploy to staging
 
 # 4 items active — claimed and progressed by two isolated agents
 
 ✓ assert: owner sees active items claimed by isolated agents
 
 # The 'by' field shows which agent claimed each item:
-  rdtestisoproj4m4-79f      [inbox   ]  (unassigned)        Implement login
-  rdtestisoproj4m4-93b      [active  ]  by=e1b8b5984201...  Set up database schema
-  rdtestisoproj4m4-e95      [active  ]  by=cf13159a3ec5...  Build REST endpoints
-  rdtestisoproj4m4-96d      [active  ]  by=cf13159a3ec5...  Add rate limiting
-  rdtestisoproj4m4-f6f      [active  ]  by=e1b8b5984201...  Write integration tests
-  rdtestisoproj4m4-20c      [inbox   ]  (unassigned)        Deploy to staging
+  rdtestisoproj4l-19e       [inbox   ]  (unassigned)        Implement login
+  rdtestisoproj4l-404       [active  ]  by=2f5cd25b1d7d...  Set up database schema
+  rdtestisoproj4l-6b8       [active  ]  by=00c8fa175975...  Build REST endpoints
+  rdtestisoproj4l-73e       [active  ]  by=2f5cd25b1d7d...  Write integration tests
+  rdtestisoproj4l-c6f       [active  ]  by=00c8fa175975...  Add rate limiting
+  rdtestisoproj4l-c6d       [inbox   ]  (unassigned)        Deploy to staging
 
 
 ═══════════════════════════════════════════════════════════
