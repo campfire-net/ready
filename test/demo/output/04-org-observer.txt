@@ -1,4 +1,4 @@
-# Ready Org-Observer Demo — Thu Apr  9 01:27:21 UTC 2026
+# Ready Org-Observer Demo — Thu Apr  9 02:19:05 UTC 2026
 # Owner grants read-only summary access to an external observer.
 
 ═══════════════════════════════════════════════════════════
@@ -6,7 +6,7 @@
 ═══════════════════════════════════════════════════════════
 
 $ mkdir -p $PROJECT/.cf && cf init --cf-home $PROJECT/.cf  (owner identity)
-Your identity campfire: 152a7fe318481e3aade1c36ef38d4278abb3404e64d3c0923295675562d99181. Share it like any beacon.
+Your identity campfire: 42dc998a2e252a19f030a33f90d4eb87eca738a313e1796f702425c776c91e88. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -20,32 +20,32 @@ Next: cf discover    find campfires
 $ cd $PROJECT && rd init --name acme-platform
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized acme-platform
-  campfire: 6ff423315108...
-  summary campfire: c0a398fce24b...
-  inbox campfire: 7f98328358ae...
+  campfire: cbd2a0f713e0...
+  summary campfire: 1e3318766a85...
+  inbox campfire: b8061be9fdae...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (152a7fe31848...)
+  home campfire: found (42dc998a2e25...)
   run 'rd register --org <name>' to add naming
 
-Project campfire ID:  6ff423315108c522c0cad5a4bdc90c3af407b707cf72bbf0e07b31311f8c0e08
-Summary campfire ID:  c0a398fce24b6e8a4aed5f4d8ddf1874ea0d4e85cf8641fd843ab33ce17a1b76
+Project campfire ID:  cbd2a0f713e030887318c38e5649a37e49e3eac5b2b70febc4dc36823c8215c2
+Summary campfire ID:  1e3318766a85fca15665e2d67c06dfafa248fde867dc5cb472b5dc715a300fc8
 
 $ cd $PROJECT && rd create "Migrate auth to OAuth2" --type task --priority p0
-rdtestobserverprojnc-2f3
+rdtestobserverproj2cx-5ae
 
 $ cd $PROJECT && rd create "Refactor billing module" --type task --priority p1
-rdtestobserverprojnc-7be
+rdtestobserverproj2cx-571
 
 $ cd $PROJECT && rd create "Update API docs" --type task --priority p2
-rdtestobserverprojnc-310
+rdtestobserverproj2cx-f50
 
 # Current project state (owner view):
 $ cd $PROJECT && rd list
-rdtestobserverprojnc-2f3
-rdtestobserverprojnc-7be
-rdtestobserverprojnc-310
+rdtestobserverproj2cx-5ae
+rdtestobserverproj2cx-571
+rdtestobserverproj2cx-f50
 
 
 ═══════════════════════════════════════════════════════════
@@ -66,7 +66,7 @@ rdx1_...  (observer invite token)
 # Observer joins using the invite token (no cf init needed).
 
 $ mkdir -p $PROJECT/observer/.cf && cd $PROJECT && CF_HOME=$PROJECT/observer/.cf rd join <observer-invite-token>  (one-time identity bootstrap)
-joined 6ff423315108... via invite token (expires in 1h59m0s)
+joined cbd2a0f713e0... via invite token (expires in 1h59m0s)
 
 # For comparison: joining the main campfire is rejected for org-observers.
 $ cd $PROJECT/observer && rd join <main-campfire-id>  (expect rejection)
@@ -98,9 +98,9 @@ joining campfire: protocol.Client.Join: admitting member: admission: recording m
 
 # Observer runs rd list — sees item summary projections:
 $ cd $PROJECT/observer && rd list
-rdtestobserverprojnc-2f3
-rdtestobserverprojnc-7be
-rdtestobserverprojnc-310
+rdtestobserverproj2cx-5ae
+rdtestobserverproj2cx-571
+rdtestobserverproj2cx-f50
 
 # Observer runs rd ready — sees actionable items:
 $ cd $PROJECT/observer && rd ready
@@ -117,7 +117,7 @@ $ cd $PROJECT/observer && rd ready
 # is the enforcement signal. Write isolation is at the campfire layer.
 
 $ cd $PROJECT/observer && rd create 'Sneaky item' --type task --priority p3  (blocked at campfire layer)
-rdtestobserverprojnc-552
+rdtestobserverproj2cx-9ed
 
 # NOTE: The item was written to the project's local mutations.jsonl (local-first
 # architecture). Because the observer shares the project directory, the item
@@ -132,25 +132,25 @@ rdtestobserverprojnc-552
 
 # Owner creates a new high-priority item:
 $ cd $PROJECT && rd create "Deploy v2 to production" --type task --priority p0
-rdtestobserverprojnc-c78
+rdtestobserverproj2cx-63d
 
 # Observer list — new owner item appears as a summary projection.
 # (The earlier 'Sneaky item' also appears because it was written to the shared
 #  project directory's local mutations.jsonl — visible locally but not synced.)
 $ cd $PROJECT/observer && rd list
-rdtestobserverprojnc-2f3
-rdtestobserverprojnc-c78
-rdtestobserverprojnc-7be
-rdtestobserverprojnc-310
-rdtestobserverprojnc-552
+rdtestobserverproj2cx-5ae
+rdtestobserverproj2cx-63d
+rdtestobserverproj2cx-571
+rdtestobserverproj2cx-f50
+rdtestobserverproj2cx-9ed
 
 # Owner list (full view for comparison — same four items plus the local-only sneaky item):
 $ cd $PROJECT && rd list
-rdtestobserverprojnc-2f3
-rdtestobserverprojnc-c78
-rdtestobserverprojnc-7be
-rdtestobserverprojnc-310
-rdtestobserverprojnc-552
+rdtestobserverproj2cx-5ae
+rdtestobserverproj2cx-63d
+rdtestobserverproj2cx-571
+rdtestobserverproj2cx-f50
+rdtestobserverproj2cx-9ed
 
 ══════════════════════════════════════════════════════════════
   Demo complete. Transcript saved to: /home/baron/projects/ready/test/demo/output/04-org-observer.txt

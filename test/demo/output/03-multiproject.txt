@@ -1,6 +1,6 @@
 === SECTION: setup ===
 $ cf init --cf-home "$CF_HOME"
-Your identity campfire: e9564e49e1a52b75f6c3a24c4a3671b92ee780baae12a133c7f31d3eda4cccdf. Share it like any beacon.
+Your identity campfire: d205e96980727177e8acfc3e2f056a9493f749a39b39b6acd759ac89dc8bcb5d. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -10,62 +10,62 @@ Next: cf discover    find campfires
 $ cd BACKEND && rd init --name "backend"
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized backend
-  campfire: 74dda9e12324...
-  summary campfire: 81f0dcf85f05...
-  inbox campfire: 1bd08ffc83b5...
+  campfire: db468d83b830...
+  summary campfire: 13bd06710548...
+  inbox campfire: 147c4e998fbc...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (e9564e49e1a5...)
+  home campfire: found (d205e9698072...)
   run 'rd register --org <name>' to add naming
 
 === SECTION: init-frontend ===
 $ cd FRONTEND && rd init --name "frontend"
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized frontend
-  campfire: 176c2c815517...
-  summary campfire: 6d65dea22ee0...
-  inbox campfire: d1f94877976f...
+  campfire: e73d91b8aa83...
+  summary campfire: 41ddb1f72fd9...
+  inbox campfire: 022d797294e4...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (e9564e49e1a5...)
+  home campfire: found (d205e9698072...)
   run 'rd register --org <name>' to add naming
 
 === SECTION: create-items ===
 $ cd BACKEND && rd create "Expose /api/v1/users endpoint" --priority p1 --type task
-# backend item ID: rdtestbackendh2-f8f
+# backend item ID: rdtestbackendn8e2-322
 
 $ cd FRONTEND && rd create "Build user list page" --priority p1 --type task
-# frontend item ID: rdtestfrontendx-43c
+# frontend item ID: rdtestfrontendtisl-a91
 
 === SECTION: wire-dep ===
 # Wire a real cross-project dep: frontend item blocked by backend item
 # rd dep add resolves the blocker across all campfires in CF_HOME
-$ cd FRONTEND && rd dep add rdtestfrontendx-43c rdtestbackendh2-f8f
-blocked: rdtestfrontendx-43c is now blocked by 74dda9e1232491fb719011bb99a3ae1c2f530a3467cd4b7d8a6810d110eb0466.rdtestbackendh2-f8f [cross]
+$ cd FRONTEND && rd dep add rdtestfrontendtisl-a91 rdtestbackendn8e2-322
+blocked: rdtestfrontendtisl-a91 is now blocked by db468d83b83043f509ab48fba65c12d227d7910efe304f179e90452628616c3a.rdtestbackendn8e2-322 [cross]
 
 === SECTION: show-blocked ===
-$ cd FRONTEND && rd dep tree rdtestfrontendx-43c
-rdtestfrontendx-43c  [inbox]  Build user list page
+$ cd FRONTEND && rd dep tree rdtestfrontendtisl-a91
+rdtestfrontendtisl-a91  [inbox]  Build user list page
 
 $ cd FRONTEND && rd ready
 # (frontend item is blocked by backend item — not shown in ready)
 
 === SECTION: close-blocker ===
 # Backend team ships the endpoint:
-$ cd BACKEND && rd update rdtestbackendh2-f8f --status active
-updated rdtestbackendh2-f8f
+$ cd BACKEND && rd update rdtestbackendn8e2-322 --status active
+updated rdtestbackendn8e2-322
 
-$ cd BACKEND && rd done rdtestbackendh2-f8f --reason "API endpoint /api/v1/users deployed"
-closed rdtestbackendh2-f8f (done)
+$ cd BACKEND && rd done rdtestbackendn8e2-322 --reason "API endpoint /api/v1/users deployed"
+closed rdtestbackendn8e2-322 (done)
 
 === SECTION: verify-unblocked ===
 $ cd FRONTEND && rd ready
-rdtestfrontendx-43c
+rdtestfrontendtisl-a91
 # frontend item is now unblocked and ready
 
-$ cd FRONTEND && rd dep tree rdtestfrontendx-43c
-rdtestfrontendx-43c  [inbox]  Build user list page
+$ cd FRONTEND && rd dep tree rdtestfrontendtisl-a91
+rdtestfrontendtisl-a91  [inbox]  Build user list page
 
 # Demo complete. Transcript written to: /home/baron/projects/ready/test/demo/output/03-multiproject.txt

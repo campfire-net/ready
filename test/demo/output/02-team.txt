@@ -1,4 +1,4 @@
-# Ready Team Demo — Thu Apr  9 01:27:17 UTC 2026
+# Ready Team Demo — Thu Apr  9 02:19:03 UTC 2026
 # Two identities: owner and member
 
 ═══════════════════════════════════════════════════════════
@@ -6,7 +6,7 @@
 ═══════════════════════════════════════════════════════════
 
 $ mkdir -p $PROJECT/.cf && cf init --cf-home $PROJECT/.cf  (owner)
-Your identity campfire: f8c9fa6de1daa6ff239261311a26b2a84e34caad4d465231f968aaaff4001656. Share it like any beacon.
+Your identity campfire: e1f366f975a82a762db60881c466835cb4a08a17359ac62ec4d4ae787de7a48a. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -20,13 +20,13 @@ Next: cf discover    find campfires
 $ cd $PROJECT && rd init --name teamproject
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized teamproject
-  campfire: 947bf0d3959c...
-  summary campfire: ab4d0815b1dc...
-  inbox campfire: 441c8ba33984...
+  campfire: 00d5716f0154...
+  summary campfire: 989afcdd6d8d...
+  inbox campfire: 310995470e3f...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (f8c9fa6de1da...)
+  home campfire: found (e1f366f975a8...)
   run 'rd register --org <name>' to add naming
 
 
@@ -43,7 +43,7 @@ rdx1_...  (invite token — treat as secret)
 ═══════════════════════════════════════════════════════════
 
 $ mkdir -p $PROJECT/member/.cf && cd $PROJECT && CF_HOME=$PROJECT/member/.cf rd join <invite-token>  (one-time identity bootstrap)
-joined 947bf0d3959c... via invite token (expires in 1h59m0s)
+joined 00d5716f0154... via invite token (expires in 1h59m0s)
 
 
 ═══════════════════════════════════════════════════════════
@@ -51,17 +51,17 @@ joined 947bf0d3959c... via invite token (expires in 1h59m0s)
 ═══════════════════════════════════════════════════════════
 
 $ cd $PROJECT && rd create 'Build API' --type task --priority p1
-Created item: rdtestteamproj9nv-169
+Created item: rdtestteamproj-776
 
 
 ═══════════════════════════════════════════════════════════
   6. Owner delegates item to member
 ═══════════════════════════════════════════════════════════
 
-Delegating to member identity: 43515f42534e...
+Delegating to member identity: 6d2d5a5f4c38...
 
-$ cd $PROJECT && rd delegate rdtestteamproj9nv-169 --to <member-identity>
-delegated rdtestteamproj9nv-169 to 43515f42534ed849bf2c2f6db3966d6b3841756f9c76747bbb155ba3a2123632
+$ cd $PROJECT && rd delegate rdtestteamproj-776 --to <member-identity>
+delegated rdtestteamproj-776 to 6d2d5a5f4c389e5f78cd462149d4065f1045948ad08418945d0af84979d50f47
 
 
 ═══════════════════════════════════════════════════════════
@@ -69,24 +69,24 @@ delegated rdtestteamproj9nv-169 to 43515f42534ed849bf2c2f6db3966d6b3841756f9c767
 ═══════════════════════════════════════════════════════════
 
 $ cd $PROJECT/member && rd ready
-rdtestteamproj9nv-169
+rdtestteamproj-776
 
 
 ═══════════════════════════════════════════════════════════
   8. Member claims item (sets active)
 ═══════════════════════════════════════════════════════════
 
-$ cd $PROJECT/member && rd update rdtestteamproj9nv-169 --status active
-updated rdtestteamproj9nv-169
+$ cd $PROJECT/member && rd update rdtestteamproj-776 --status active
+updated rdtestteamproj-776
 
 
 ═══════════════════════════════════════════════════════════
   9. Member completes item
 ═══════════════════════════════════════════════════════════
 
-$ cd $PROJECT/member && rd done rdtestteamproj9nv-169 --reason 'API complete'
+$ cd $PROJECT/member && rd done rdtestteamproj-776 --reason 'API complete'
 warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
-closed rdtestteamproj9nv-169 (done)
+closed rdtestteamproj-776 (done)
 
 
 ═══════════════════════════════════════════════════════════
@@ -94,7 +94,7 @@ closed rdtestteamproj9nv-169 (done)
 ═══════════════════════════════════════════════════════════
 
 $ cd $PROJECT && rd list --all
-rdtestteamproj9nv-169
+rdtestteamproj-776
 
 ══════════════════════════════════════════════════════════════
   Demo complete. Transcript saved to: /home/baron/projects/ready/test/demo/output/02-team.txt

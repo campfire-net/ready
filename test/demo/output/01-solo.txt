@@ -1,6 +1,6 @@
 === SECTION: init ===
 $ mkdir -p $PROJECT/.cf && cf init --cf-home $PROJECT/.cf
-Your identity campfire: 1c1b19ede07394f0b751d220c6e98c0fc7e640662072c84da024585bf398d309. Share it like any beacon.
+Your identity campfire: 35db2ae1a9ca33f8a5f9f26d9f06b7764a5c0088bb717f161805839b13da63de. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -10,37 +10,37 @@ Next: cf discover    find campfires
 $ cd PROJECT && rd init --name "myproject"
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized myproject
-  campfire: 94a8fba84fe5...
-  summary campfire: 220042755e19...
-  inbox campfire: 8d2252ea18cf...
+  campfire: 7b0929f77f95...
+  summary campfire: 0f3f2b3a8f7e...
+  inbox campfire: 7501d754bd3d...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (1c1b19ede073...)
+  home campfire: found (35db2ae1a9ca...)
   run 'rd register --org <name>' to add naming
 
 === SECTION: create ===
 $ rd create "Ship login page" --priority p1 --type task
-# item ID: rdtestsoloprojz1-0a7
+# item ID: rdtestsoloproja-e1f
 
 === SECTION: ready ===
 $ rd ready
-rdtestsoloprojz1-0a7
+rdtestsoloproja-e1f
 
 === SECTION: claim ===
-$ rd claim rdtestsoloprojz1-0a7
-claimed rdtestsoloprojz1-0a7
+$ rd claim rdtestsoloproja-e1f
+claimed rdtestsoloproja-e1f
 
 === SECTION: progress ===
-$ rd progress rdtestsoloprojz1-0a7 --notes "Wired up auth middleware"
-progress noted on rdtestsoloprojz1-0a7
+$ rd progress rdtestsoloproja-e1f --notes "Wired up auth middleware"
+progress noted on rdtestsoloproja-e1f
 
 === SECTION: done ===
-$ rd done rdtestsoloprojz1-0a7 --reason "Login page ships with JWT auth"
-closed rdtestsoloprojz1-0a7 (done)
+$ rd done rdtestsoloproja-e1f --reason "Login page ships with JWT auth"
+closed rdtestsoloproja-e1f (done)
 
 === SECTION: verify ===
 $ rd list --all
-rdtestsoloprojz1-0a7
+rdtestsoloproja-e1f
 
 # Demo complete. Transcript written to: /home/baron/projects/ready/test/demo/output/01-solo.txt
