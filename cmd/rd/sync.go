@@ -193,12 +193,18 @@ Use --json for machine-readable output.`,
 	},
 }
 
+// campfireReadClient is the subset of protocol.Client needed by clientLister.
+// Extracted as an interface so the type can be tested without a real campfire.
+type campfireReadClient interface {
+	Read(req protocol.ReadRequest) (*protocol.ReadResult, error)
+}
+
 // clientLister adapts protocol.Client to the rdSync.MessageLister interface.
 // It uses client.Read() which fetches messages through the transport layer
 // (filesystem or remote), ensuring campfire messages are accessible even if they
 // predate the local join (ready-5cd).
 type clientLister struct {
-	client *protocol.Client
+	client campfireReadClient
 }
 
 func (cl *clientLister) ListMessages(campfireID string, afterTimestamp int64, filter ...store.MessageFilter) ([]store.MessageRecord, error) {
