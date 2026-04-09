@@ -228,10 +228,18 @@
     this.stepLabel.className = 'term-step';
     this.stepLabel.textContent = '0/' + this.lines.length;
 
+    var sourceLink = document.createElement('a');
+    sourceLink.href = this.demo.source;
+    sourceLink.className = 'term-bar-source';
+    sourceLink.textContent = 'source';
+    sourceLink.target = '_blank';
+    sourceLink.rel = 'noopener';
+
     controls.appendChild(this.playBtn);
     controls.appendChild(this.restartBtn);
     controls.appendChild(this.progressWrap);
     controls.appendChild(this.stepLabel);
+    controls.appendChild(sourceLink);
 
     this.el.appendChild(chrome);
     this.el.appendChild(this.viewport);
@@ -441,14 +449,49 @@
     return d.innerHTML;
   };
 
+  // Tab switching
+  function switchTab(targetName) {
+    // Update tabs
+    var tabs = document.querySelectorAll('.demo-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      if (tabs[i].getAttribute('data-demo-target') === targetName) {
+        tabs[i].classList.add('active');
+      } else {
+        tabs[i].classList.remove('active');
+      }
+    }
+
+    // Stop all players, show only the target
+    var terminals = document.querySelectorAll('[data-terminal-demo]');
+    for (var i = 0; i < terminals.length; i++) {
+      var name = terminals[i].getAttribute('data-terminal-demo');
+      if (name === targetName) {
+        terminals[i].classList.add('active');
+      } else {
+        terminals[i].classList.remove('active');
+        if (terminals[i]._player) terminals[i]._player.stop();
+      }
+    }
+  }
+
   // Init
   document.addEventListener('DOMContentLoaded', function() {
+    // Build players
     var els = document.querySelectorAll('[data-terminal-demo]');
     for (var i = 0; i < els.length; i++) {
       var name = els[i].getAttribute('data-terminal-demo');
       if (DEMOS[name]) {
-        new TerminalPlayer(els[i], DEMOS[name]);
+        var player = new TerminalPlayer(els[i], DEMOS[name]);
+        els[i]._player = player;
       }
+    }
+
+    // Tab click handlers
+    var tabs = document.querySelectorAll('.demo-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].addEventListener('click', function() {
+        switchTab(this.getAttribute('data-demo-target'));
+      });
     }
   });
 })();
