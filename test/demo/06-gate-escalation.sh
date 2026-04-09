@@ -14,8 +14,6 @@ HUMAN_CF=$(mktemp -d /tmp/rdtest-gate-human-XXXX)
 PROJECT=$(mktemp -d /tmp/rdtest-gate-proj-XXXX)
 trap "rm -rf $AGENT_CF $HUMAN_CF $PROJECT" EXIT
 
-export PATH="/tmp/go/bin:$PATH"
-
 tee_section() {
     local header="$1"
     {
@@ -44,42 +42,27 @@ echo "# Human approves or rejects. Item status updates accordingly." | tee -a "$
 # ── SECTION: setup ────────────────────────────────────────────────────────────
 tee_section "=== SECTION: setup ==="
 
-echo "# Initializing two identities: human (project owner) and agent" | tee -a "$OUT"
+echo "# Initializing owner identity and project" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
 run "cf init --cf-home \$HUMAN_CF  (human/owner)" \
     cf init --cf-home "$HUMAN_CF"
 
-run "cf init --cf-home \$AGENT_CF  (agent)" \
-    cf init --cf-home "$AGENT_CF"
-
-run "CF_HOME=\$HUMAN_CF rd init --name gate-demo --confirm  (human creates project)" \
-    bash -c "cd '$PROJECT' && CF_HOME='$HUMAN_CF' '$RD' init --name gate-demo --confirm"
+run "CF_HOME=\$HUMAN_CF rd init --name gate-demo  (human creates project)" \
+    bash -c "cd '$PROJECT' && CF_HOME='$HUMAN_CF' '$RD' init --name gate-demo"
 
 CAMPFIRE_ID=$(cat "$PROJECT/.campfire/root")
 echo "Project campfire ID: $CAMPFIRE_ID" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-# Get agent public key from identity.json — base64 string, convert to hex
-AGENT_PUBKEY=$(python3 -c "
-import json, base64
-with open('$AGENT_CF/identity.json') as f:
-    d = json.load(f)
-pk = d['public_key']
-if isinstance(pk, list):
-    print(bytes(pk).hex())
-elif isinstance(pk, str):
-    # base64-encoded bytes
-    print(base64.b64decode(pk).hex())
-")
-echo "Agent public key: $AGENT_PUBKEY" | tee -a "$OUT"
-echo "" | tee -a "$OUT"
+# Owner generates agent invite token
+AGENT_TOKEN=$(cd "$PROJECT" && CF_HOME="$HUMAN_CF" "$RD" invite --role agent --cf-home "$HUMAN_CF" 2>&1 | grep '^rdx1_')
+run "CF_HOME=\$HUMAN_CF rd invite --role agent  (human generates agent token)" \
+    bash -c "echo 'rdx1_...  (agent invite token)'"
 
-run "CF_HOME=\$HUMAN_CF rd admit <agent-pubkey>  (human pre-admits agent)" \
-    bash -c "cd '$PROJECT' && CF_HOME='$HUMAN_CF' '$RD' admit '$AGENT_PUBKEY'"
-
-run "CF_HOME=\$AGENT_CF rd join <campfire-id>  (agent joins project)" \
-    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' join '$CAMPFIRE_ID'"
+# Agent joins via token
+run "CF_HOME=\$AGENT_CF rd join <agent-token> --force  (agent joins project)" \
+    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' join '$AGENT_TOKEN' --force"
 
 # ── SECTION: agent-claims-work ────────────────────────────────────────────────
 tee_section "=== SECTION: agent-claims-work ==="
@@ -87,16 +70,11 @@ tee_section "=== SECTION: agent-claims-work ==="
 echo "# Agent creates and claims a work item" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-ITEM_JSON=$(cd "$PROJECT" && CF_HOME="$AGENT_CF" "$RD" create \
-    --title "Migrate auth layer to new token format" \
+ITEM_ID=$(cd "$PROJECT" && CF_HOME="$AGENT_CF" "$RD" create \
+    "Migrate auth layer to new token format" \
     --type task \
-    --priority p1 \
-    --json)
-echo "$ CF_HOME=\$AGENT_CF rd create --title 'Migrate auth layer...' --type task --priority p1 --json" | tee -a "$OUT"
-echo "$ITEM_JSON" | tee -a "$OUT"
-echo "" | tee -a "$OUT"
-
-ITEM_ID=$(echo "$ITEM_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+    --priority p1)
+echo "$ CF_HOME=\$AGENT_CF rd create 'Migrate auth layer...' --type task --priority p1" | tee -a "$OUT"
 echo "Created item: $ITEM_ID" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
@@ -168,16 +146,11 @@ echo "# Second scenario: agent gates a new item, human rejects it." | tee -a "$O
 echo "# After rejection, item stays in waiting (gate unresolved until approved)." | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-ITEM2_JSON=$(cd "$PROJECT" && CF_HOME="$AGENT_CF" "$RD" create \
-    --title "Refactor payment processor" \
+ITEM2_ID=$(cd "$PROJECT" && CF_HOME="$AGENT_CF" "$RD" create \
+    "Refactor payment processor" \
     --type task \
-    --priority p2 \
-    --json)
-echo "$ CF_HOME=\$AGENT_CF rd create --title 'Refactor payment processor' --type task --priority p2 --json" | tee -a "$OUT"
-echo "$ITEM2_JSON" | tee -a "$OUT"
-echo "" | tee -a "$OUT"
-
-ITEM2_ID=$(echo "$ITEM2_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+    --priority p2)
+echo "$ CF_HOME=\$AGENT_CF rd create 'Refactor payment processor' --type task --priority p2" | tee -a "$OUT"
 echo "Created item: $ITEM2_ID" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 

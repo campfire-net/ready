@@ -3,7 +3,7 @@
 #
 # Demonstrates the org-observer role:
 #   - Owner creates a project and populates items
-#   - Observer identity is admitted with --role org-observer
+#   - Observer identity is admitted with --role org-observer via invite token
 #   - Observer joins the summary campfire (not the main project campfire)
 #   - Observer sees work:item-summary projections (title, status, priority, assignee, eta)
 #   - Observer CANNOT create items (no write access to main campfire)
@@ -26,8 +26,6 @@ OWNER_CF=$(mktemp -d /tmp/rdtest-observer-owner-XXXX)
 OBS_CF=$(mktemp -d /tmp/rdtest-observer-obs-XXXX)
 PROJECT=$(mktemp -d /tmp/rdtest-observer-proj-XXXX)
 trap "rm -rf $OWNER_CF $OBS_CF $PROJECT" EXIT
-
-export PATH="/tmp/go/bin:$PATH"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,20 +65,17 @@ run_expect_fail() {
 echo "# Ready Org-Observer Demo — $(date)" | tee -a "$OUT"
 echo "# Owner grants read-only summary access to an external observer." | tee -a "$OUT"
 
-# ── 1. Setup: initialize identities ──────────────────────────────────────────
+# ── 1. Setup: initialize owner identity ──────────────────────────────────────
 section "=== SECTION: setup ==="
 
 run "cf init --cf-home \$OWNER_CF  (owner identity)" \
     cf init --cf-home "$OWNER_CF"
 
-run "cf init --cf-home \$OBS_CF  (observer identity)" \
-    cf init --cf-home "$OBS_CF"
-
 # ── 2. Owner initializes project ─────────────────────────────────────────────
 section "=== SECTION: init-project ==="
 
-run "CF_HOME=\$OWNER_CF  rd init --name acme-platform --confirm  (in \$PROJECT)" \
-    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' init --name acme-platform --confirm"
+run "CF_HOME=\$OWNER_CF  rd init --name acme-platform  (in \$PROJECT)" \
+    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' init --name acme-platform"
 
 CAMPFIRE_ID=$(cat "$PROJECT/.campfire/root")
 SUMMARY_CAMPFIRE_ID=$(python3 -c "import json; d=json.load(open('$PROJECT/.ready/config.json')); print(d['summary_campfire_id'])")
@@ -102,31 +97,31 @@ echo "# Current project state (owner view):" | tee -a "$OUT"
 run "CF_HOME=\$OWNER_CF  rd list" \
     bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' list"
 
-# ── 3. Admit observer ─────────────────────────────────────────────────────────
+# ── 3. Admit observer via invite token with org-observer role ─────────────────
 section "=== SECTION: admit-observer ==="
-
-OBS_PUBKEY=$(CF_HOME="$OBS_CF" cf id --json | python3 -c "import sys,json; print(json.load(sys.stdin)['public_key'])")
-echo "Observer public key: $OBS_PUBKEY" | tee -a "$OUT"
-echo "" | tee -a "$OUT"
 
 # --role org-observer admits to the shadow summary campfire only.
 # The summary campfire receives work:item-summary projections.
 # Main campfire content is NOT accessible to the observer.
-run "CF_HOME=\$OWNER_CF  rd admit <observer-pubkey> --role org-observer" \
-    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' admit '$OBS_PUBKEY' --role org-observer"
-
-# ── 4. Observer joins the summary campfire ────────────────────────────────────
-section "=== SECTION: observer-join ==="
-
-# NOTE: org-observers join the SUMMARY campfire (not the main project campfire).
-# The summary campfire ID is in .ready/config.json as "summary_campfire_id".
-# Joining the main campfire would be rejected — the observer was not admitted there.
-echo "# Observer joins the summary campfire (not the main project campfire)." | tee -a "$OUT"
-echo "# Summary campfire ID: $SUMMARY_CAMPFIRE_ID" | tee -a "$OUT"
+echo "# Owner generates an invite token with org-observer role." | tee -a "$OUT"
+echo "# The token admits to the summary campfire — not the main project campfire." | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-run "CF_HOME=\$OBS_CF  rd join <summary-campfire-id>" \
-    bash -c "cd '$PROJECT' && CF_HOME='$OBS_CF' '$RD' join '$SUMMARY_CAMPFIRE_ID'"
+INVITE_TOKEN=$(cd "$PROJECT" && CF_HOME="$OWNER_CF" "$RD" invite --role org-observer --cf-home "$OWNER_CF" 2>&1 | grep '^rdx1_')
+run "CF_HOME=\$OWNER_CF  rd invite --role org-observer" \
+    bash -c "echo 'rdx1_...  (observer invite token)'"
+
+# ── 4. Observer joins via invite token ────────────────────────────────────────
+section "=== SECTION: observer-join ==="
+
+# NOTE: org-observers join the SUMMARY campfire via the invite token.
+# The token is pre-authorized for the summary campfire only.
+echo "# Observer joins using the invite token (no cf init needed)." | tee -a "$OUT"
+echo "# --force overwrites the auto-generated identity from protocol.Init." | tee -a "$OUT"
+echo "" | tee -a "$OUT"
+
+run "CF_HOME=\$OBS_CF  rd join <observer-invite-token> --force" \
+    bash -c "cd '$PROJECT' && CF_HOME='$OBS_CF' '$RD' join '$INVITE_TOKEN' --force"
 
 echo "# For comparison: joining the main campfire is rejected for org-observers." | tee -a "$OUT"
 run_expect_fail \

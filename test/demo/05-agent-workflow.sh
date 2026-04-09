@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 05-agent-workflow.sh — Agent/programmatic workflow demo
 # An automated agent (CI bot, Claude session, automaton) that:
-#   1. Joins a project campfire programmatically
+#   1. Joins a project campfire via invite token
 #   2. Queries the ready queue for work assigned to it
 #   3. Claims an item
 #   4. Posts progress notes
@@ -21,7 +21,6 @@ AGENT_CF=$(mktemp -d /tmp/rdtest-agent-XXXX)
 OWNER_CF=$(mktemp -d /tmp/rdtest-agent-owner-XXXX)
 PROJECT=$(mktemp -d /tmp/rdtest-agent-proj-XXXX)
 trap "rm -rf $AGENT_CF $OWNER_CF $PROJECT" EXIT
-export PATH="/tmp/go/bin:$PATH"
 
 tee_section() {
     local header="$1"
@@ -51,35 +50,28 @@ echo "" | tee -a "$OUT"
 echo "=== SECTION: setup ===" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-# Initialize owner and agent identities
+# Initialize owner and create project
 run "cf init --cf-home \$OWNER_CF  (owner)" \
     cf init --cf-home "$OWNER_CF"
 
-run "cf init --cf-home \$AGENT_CF  (agent)" \
-    cf init --cf-home "$AGENT_CF"
-
-# Owner creates project
-run "CF_HOME=\$OWNER_CF rd init --name ci-project --confirm  (in \$PROJECT)" \
-    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' init --name ci-project --confirm"
+run "CF_HOME=\$OWNER_CF rd init --name ci-project  (in \$PROJECT)" \
+    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' init --name ci-project"
 
 CAMPFIRE_ID=$(cat "$PROJECT/.campfire/root")
 echo "Project campfire ID: $CAMPFIRE_ID" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-# Get agent pubkey
-AGENT_PUBKEY=$(CF_HOME="$AGENT_CF" cf id --json | python3 -c "import sys,json; print(json.load(sys.stdin)['public_key'])")
-run "CF_HOME=\$AGENT_CF cf id --json  (agent identity)" \
-    bash -c "CF_HOME='$AGENT_CF' cf id --json"
-echo "Agent pubkey: $AGENT_PUBKEY" | tee -a "$OUT"
+# Owner generates agent invite token
+echo "# Owner generates an invite token for the agent (agent role)" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-# Owner admits agent
-run "CF_HOME=\$OWNER_CF rd admit <agent-pubkey>" \
-    bash -c "cd '$PROJECT' && CF_HOME='$OWNER_CF' '$RD' admit '$AGENT_PUBKEY'"
+AGENT_TOKEN=$(cd "$PROJECT" && CF_HOME="$OWNER_CF" "$RD" invite --role agent --cf-home "$OWNER_CF" 2>&1 | grep '^rdx1_')
+run "CF_HOME=\$OWNER_CF rd invite --role agent  (owner generates agent token)" \
+    bash -c "echo 'rdx1_...  (agent invite token)'"
 
-# Agent joins the project campfire
-run "CF_HOME=\$AGENT_CF rd join <campfire-id>" \
-    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' join '$CAMPFIRE_ID'"
+# Agent joins via token
+run "CF_HOME=\$AGENT_CF rd join <agent-token> --force  (agent joins)" \
+    bash -c "cd '$PROJECT' && CF_HOME='$AGENT_CF' '$RD' join '$AGENT_TOKEN' --force"
 
 echo "=== SECTION: create-work ===" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
@@ -88,24 +80,20 @@ echo "" | tee -a "$OUT"
 echo "# Owner creates two work items" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-ITEM1_JSON=$(cd "$PROJECT" && CF_HOME="$OWNER_CF" "$RD" create "Reindex search corpus" \
-    --type task --priority p1 --json)
-echo "$ CF_HOME=\$OWNER_CF rd create \"Reindex search corpus\" --type task --priority p1 --json" | tee -a "$OUT"
-echo "$ITEM1_JSON" | tee -a "$OUT"
+ITEM1_ID=$(cd "$PROJECT" && CF_HOME="$OWNER_CF" "$RD" create "Reindex search corpus" \
+    --type task --priority p1)
+echo "$ CF_HOME=\$OWNER_CF rd create \"Reindex search corpus\" --type task --priority p1" | tee -a "$OUT"
+echo "Created: $ITEM1_ID" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
-ITEM2_JSON=$(cd "$PROJECT" && CF_HOME="$OWNER_CF" "$RD" create "Update dependency manifest" \
-    --type task --priority p2 --json)
-echo "$ CF_HOME=\$OWNER_CF rd create \"Update dependency manifest\" --type task --priority p2 --json" | tee -a "$OUT"
-echo "$ITEM2_JSON" | tee -a "$OUT"
-echo "" | tee -a "$OUT"
-
-ITEM1_ID=$(echo "$ITEM1_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-ITEM2_ID=$(echo "$ITEM2_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-echo "# Created items: $ITEM1_ID, $ITEM2_ID" | tee -a "$OUT"
+ITEM2_ID=$(cd "$PROJECT" && CF_HOME="$OWNER_CF" "$RD" create "Update dependency manifest" \
+    --type task --priority p2)
+echo "$ CF_HOME=\$OWNER_CF rd create \"Update dependency manifest\" --type task --priority p2" | tee -a "$OUT"
+echo "Created: $ITEM2_ID" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 
 # Owner delegates one item to the agent
+AGENT_PUBKEY=$(CF_HOME="$AGENT_CF" cf id --json | python3 -c "import sys,json; print(json.load(sys.stdin)['public_key'])")
 echo "# Owner delegates $ITEM1_ID to the agent" | tee -a "$OUT"
 echo "" | tee -a "$OUT"
 

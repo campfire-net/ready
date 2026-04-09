@@ -89,9 +89,9 @@
       </p>
 
       <div class="demo-block">
-        <div class="ds-code-block"><span class="comment"># Create a work item</span>
-<span class="cmd">rd create --title "Ship login page" --priority p1 --type task</span>
-<span class="output">{"id":"myproject-45e","title":"Ship login page","priority":"p1","type":"task",...}</span>
+        <div class="ds-code-block"><span class="comment"># Create a work item — returns the item ID directly</span>
+<span class="cmd">rd create "Ship login page" --priority p1 --type task</span>
+<span class="output">myproject-45e</span>
 
 <span class="comment"># What needs attention right now?</span>
 <span class="cmd">rd ready</span>
@@ -132,7 +132,7 @@
           <table>
             <tbody>
               <tr><td><code>rd init --name &lt;project&gt;</code></td><td>Create a work campfire with convention declarations</td></tr>
-              <tr><td><code>rd create --title "..." --type task --priority p1</code></td><td>Create a work item</td></tr>
+              <tr><td><code>rd create "..." --type task --priority p1</code></td><td>Create a work item (returns item ID)</td></tr>
               <tr><td><code>rd ready</code></td><td>What needs attention now</td></tr>
               <tr><td><code>rd list [--status ...] [--by ...] [--all]</code></td><td>List items with filters</td></tr>
               <tr><td><code>rd show &lt;id&gt;</code></td><td>Item details + audit trail</td></tr>
@@ -167,7 +167,7 @@ This project uses `rd` for work management.
 - Check what needs attention: `rd ready`
 - When starting work: `rd claim &lt;id&gt;`
 - When done: `rd close &lt;id&gt; --reason "..."`
-- To create new items: `rd create --title "..." --type task --priority p1`
+- To create new items: `ITEM=$(rd create "..." --type task --priority p1)`
 - All commands support `--json` for structured output</span></div>
       </div>
 
@@ -231,15 +231,15 @@ This project uses `rd` for work management.
             <li>Named views &amp; attention engine</li>
             <li>JSONL audit trail</li>
           </ul>
-          <div class="ds-code-block tier-code"><span class="cmd">rd init --name myproject --confirm</span>
+          <div class="ds-code-block tier-code"><span class="cmd">rd init --name myproject</span>
 <span class="output">initialized myproject</span>
 <span class="output">  campfire: 6ef132115eed...</span>
 <span class="output">  declarations: 16 operations published</span>
 
-<span class="cmd">rd create --title "Ship login page" --priority p1 --type task</span>
+<span class="cmd">ITEM=$(rd create "Ship login page" --priority p1 --type task)</span>
 <span class="cmd">rd ready</span>
 <span class="output">  myproject-45e  p1  inbox  3h  Ship login page</span>
-<span class="cmd">rd claim myproject-45e && rd done myproject-45e --reason "..."</span>
+<span class="cmd">rd claim $ITEM && rd done $ITEM --reason "..."</span>
 <span class="output">claimed myproject-45e</span>
 <span class="output">closed myproject-45e (done)</span></div>
           <p class="tier-note">No account. No server. Just <code>rd init</code> and go.</p>
@@ -286,19 +286,20 @@ This project uses `rd` for work management.
             <li>Agent + human on same queue</li>
             <li>Git-backed or hosted persistent</li>
           </ul>
-          <div class="ds-code-block tier-code"><span class="comment"># Hosted — always on, zero infrastructure</span>
+          <div class="ds-code-block tier-code"><span class="comment"># Owner creates project and invites a teammate</span>
 <span class="cmd">cf init --remote https://mcp.getcampfire.dev</span>
 <span class="cmd">rd init --name backend</span>
+<span class="cmd">rd invite</span>
+<span class="output">rdx1_eyJ2IjoxLCJjYW1...  (share this token)</span>
 
-<span class="comment"># Or git-backed — campfire state in repo</span>
-<span class="cmd">cf init</span>
-<span class="cmd">rd init --name backend</span>
-<span class="cmd">echo ".ready/" >> .gitignore</span>
+<span class="comment"># Teammate joins with one command — no key exchange</span>
+<span class="cmd">rd join rdx1_eyJ2... --force</span>
+<span class="output">joined d8301552fa3f... via invite token (expires in 1h59m0s)</span>
 
 <span class="comment"># Delegate to agents and humans</span>
-<span class="cmd">rd delegate myapp-a1b --to claude-session-xyz</span>
+<span class="cmd">rd delegate myapp-a1b --to &lt;identity&gt;</span>
 <span class="cmd">rd ready --view delegated</span></div>
-          <p class="tier-note">Teammates join with <code>cf join &lt;campfire-id&gt;</code>. Items sync via the campfire protocol.</p>
+          <p class="tier-note">Owner runs <code>rd invite</code>. Teammate joins with <code>rd join &lt;token&gt; --force</code>. No key exchange needed.</p>
         </div>
 
         <!-- Tier 4: Enterprise -->

@@ -1,4 +1,4 @@
-# Ready Org-Observer Demo — Tue Apr  7 23:48:36 UTC 2026
+# Ready Org-Observer Demo — Thu Apr  9 00:00:42 UTC 2026
 # Owner grants read-only summary access to an external observer.
 
 ═══════════════════════════════════════════════════════════
@@ -6,14 +6,7 @@
 ═══════════════════════════════════════════════════════════
 
 $ cf init --cf-home $OWNER_CF  (owner identity)
-Your identity campfire: 276007b56088695eea1ebb11501cdb2a23226856953ca6a574ff7a3497d6a1e7. Share it like any beacon.
-
-Next: cf discover    find campfires
-      cf create      start one
-      cf join <id>   join one
-
-$ cf init --cf-home $OBS_CF  (observer identity)
-Your identity campfire: 9f92348122800b7700e8037639d6bff8911ca24752a1a9335d2d02be17e517e9. Share it like any beacon.
+Your identity campfire: 12798a2a8ce93dd21211a0f1a70d72040e1082e8b69362443884010f013603b2. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -24,78 +17,67 @@ Next: cf discover    find campfires
   === SECTION: init-project ===
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF  rd init --name acme-platform --confirm  (in $PROJECT)
-warning: campfire durability check — sync may be unreliable:
-  no durability tags declared — retention is unknown
-  operator is unverified — do not commit irreplaceable state regardless of durability claims
-  minimum requirements: max-ttl:0 + lifecycle:persistent + provenance:basic or higher
-  set RD_CAMPFIRE_TAGS and RD_PROVENANCE to configure, or pass --confirm to proceed anyway
+$ CF_HOME=$OWNER_CF  rd init --name acme-platform  (in $PROJECT)
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
 initialized acme-platform
-  campfire: c798c111cf9e...
-  summary campfire: 70678a7e517d...
-  inbox campfire: 31816c2f28cb...
+  campfire: e37a1836edd6...
+  summary campfire: cdebbda4009d...
+  inbox campfire: c1412886922e...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  sync config stored with warnings (see .ready/config.json)
-
-  home campfire: found (276007b56088...)
+  home campfire: found (12798a2a8ce9...)
   run 'rd register --org <name>' to add naming
 
-Project campfire ID:  c798c111cf9ed0f435f53600ab7b2ff2ac2e1133d795de87c24e266c5f841cac
-Summary campfire ID:  70678a7e517d8fc5cef993229941fb69a4f62c3596d7eefd79e04e46b7e4b1e9
+Project campfire ID:  e37a1836edd66117a9387231341579dafa5ee200f3c653c919393cd6cc9695b6
+Summary campfire ID:  cdebbda4009db1d13a3459bb80689523e47115282c9497936e0d94aa7fd28063
 
 $ rd create "Migrate auth to OAuth2" --type task --priority p0
-created rdtestobserverprojgwj-f1f (msg: c85a4dd3-e21f-43e0-a7be-06dfbace1ee0)
+rdtestobserverprojd8f-d0b
 
 $ rd create "Refactor billing module" --type task --priority p1
-created rdtestobserverprojgwj-79d (msg: 102e41a6-8afa-444f-90a7-c6b6e4d73b0e)
+rdtestobserverprojd8f-3ce
 
 $ rd create "Update API docs" --type task --priority p2
-created rdtestobserverprojgwj-fce (msg: d4abcac2-09cc-43a8-8c45-27abd2225c67)
+rdtestobserverprojd8f-e4b
 
 # Current project state (owner view):
 $ CF_HOME=$OWNER_CF  rd list
-  rdtestobserverprojgwj-f1f  p0        inbox       overdue     Migrate auth to OAuth2
-  rdtestobserverprojgwj-79d  p1        inbox       3h          Refactor billing module
-  rdtestobserverprojgwj-fce  p2        inbox       23h         Update API docs
+  rdtestobserverprojd8f-d0b  p0        inbox       overdue     Migrate auth to OAuth2
+  rdtestobserverprojd8f-3ce  p1        inbox       3h          Refactor billing module
+  rdtestobserverprojd8f-e4b  p2        inbox       23h         Update API docs
 
 
 ═══════════════════════════════════════════════════════════
   === SECTION: admit-observer ===
 ═══════════════════════════════════════════════════════════
 
-Observer public key: bdd24966a1bdbf07d47ef3c1e6ce62f742dc57c0aaf47203908363adaaa0b7ce
+# Owner generates an invite token with org-observer role.
+# The token admits to the summary campfire — not the main project campfire.
 
-$ CF_HOME=$OWNER_CF  rd admit <observer-pubkey> --role org-observer
-admitted bdd24966a1bd... to summary campfire (70678a7e517d...)
-  org-observers receive work:item-summary projections only
-  main campfire content is not accessible to this identity
+$ CF_HOME=$OWNER_CF  rd invite --role org-observer
+rdx1_...  (observer invite token)
 
 
 ═══════════════════════════════════════════════════════════
   === SECTION: observer-join ===
 ═══════════════════════════════════════════════════════════
 
-# Observer joins the summary campfire (not the main project campfire).
-# Summary campfire ID: 70678a7e517d8fc5cef993229941fb69a4f62c3596d7eefd79e04e46b7e4b1e9
+# Observer joins using the invite token (no cf init needed).
+# --force overwrites the auto-generated identity from protocol.Init.
 
-$ CF_HOME=$OBS_CF  rd join <summary-campfire-id>
-warning: could not start in-process convention server: conventionserver: inbox campfire 31816c2f28cb56d2c1cbfff3c63136dbd659443a451309a5476ee3a3d28cabac not in client membership list
-joined campfire 70678a7e517d... (invite-only)
-  cross-campfire deps referencing this campfire will now resolve
+$ CF_HOME=$OBS_CF  rd join <observer-invite-token> --force
+joined e37a1836edd6... via invite token (expires in 1h59m0s)
 
 # For comparison: joining the main campfire is rejected for org-observers.
 $ CF_HOME=$OBS_CF  rd join <main-campfire-id>  (expect rejection)
-warning: could not start in-process convention server: conventionserver: inbox campfire 31816c2f28cb56d2c1cbfff3c63136dbd659443a451309a5476ee3a3d28cabac not in client membership list
-Error: campfire is invite-only — ask a member to admit your public key, then run 'rd join' again
-  your public key: bdd24966a1bdbf07d47ef3c1e6ce62f742dc57c0aaf47203908363adaaa0b7ce
+Error: joining campfire: protocol.Client.Join: admitting member: admission: recording membership: adding membership: constraint failed: UNIQUE constraint failed: campfire_memberships.campfire_id (1555)
 Usage:
   rd join <name-or-campfire-id> [flags]
 
 Flags:
       --confirm             confirm beacon root deviation without prompting
+      --force               overwrite existing identity when joining via invite token
   -h, --help                help for join
       --reset-beacon-root   clear the pinned beacon root
       --role string         role to request: member or agent (default "member")
@@ -107,8 +89,7 @@ Global Flags:
       --debug            show hex IDs for diagnostics
       --json             output as JSON
 
-campfire is invite-only — ask a member to admit your public key, then run 'rd join' again
-  your public key: bdd24966a1bdbf07d47ef3c1e6ce62f742dc57c0aaf47203908363adaaa0b7ce
+joining campfire: protocol.Client.Join: admitting member: admission: recording membership: adding membership: constraint failed: UNIQUE constraint failed: campfire_memberships.campfire_id (1555)
 (exit code: 1)
 
 
@@ -118,14 +99,12 @@ campfire is invite-only — ask a member to admit your public key, then run 'rd 
 
 # Observer runs rd list — sees item summary projections:
 $ CF_HOME=$OBS_CF  rd list
-warning: could not start in-process convention server: conventionserver: inbox campfire 31816c2f28cb56d2c1cbfff3c63136dbd659443a451309a5476ee3a3d28cabac not in client membership list
-  rdtestobserverprojgwj-f1f  p0        inbox       overdue     Migrate auth to OAuth2
-  rdtestobserverprojgwj-79d  p1        inbox       3h          Refactor billing module
-  rdtestobserverprojgwj-fce  p2        inbox       23h         Update API docs
+  rdtestobserverprojd8f-d0b  p0        inbox       overdue     Migrate auth to OAuth2
+  rdtestobserverprojd8f-3ce  p1        inbox       3h          Refactor billing module
+  rdtestobserverprojd8f-e4b  p2        inbox       23h         Update API docs
 
 # Observer runs rd ready — sees actionable items:
 $ CF_HOME=$OBS_CF  rd ready
-warning: could not start in-process convention server: conventionserver: inbox campfire 31816c2f28cb56d2c1cbfff3c63136dbd659443a451309a5476ee3a3d28cabac not in client membership list
 nothing ready
 
 
@@ -140,9 +119,7 @@ nothing ready
 # is the enforcement signal. Write isolation is at the campfire layer.
 
 $ CF_HOME=$OBS_CF  rd create 'Sneaky item' --type task --priority p3  (blocked at campfire layer)
-warning: could not start in-process convention server: conventionserver: inbox campfire 31816c2f28cb56d2c1cbfff3c63136dbd659443a451309a5476ee3a3d28cabac not in client membership list
-warning: campfire send failed (buffered to pending.jsonl): send message: not a member of campfire c798c111cf9e
-created rdtestobserverprojgwj-13a (msg: ad4378bf-c68c-4afa-8777-ae2cc17ebcc1)
+rdtestobserverprojd8f-00b
 
 # NOTE: The item was written to the project's local mutations.jsonl (local-first
 # architecture). Because the observer shares the project directory, the item
@@ -157,26 +134,25 @@ created rdtestobserverprojgwj-13a (msg: ad4378bf-c68c-4afa-8777-ae2cc17ebcc1)
 
 # Owner creates a new high-priority item:
 $ CF_HOME=$OWNER_CF  rd create "Deploy v2 to production" --type task --priority p0
-created rdtestobserverprojgwj-6c3 (msg: 24a4919b-ba03-44b3-9c47-c98b7db01b24)
+rdtestobserverprojd8f-30d
 
 # Observer list — new owner item appears as a summary projection.
 # (The earlier 'Sneaky item' also appears because it was written to the shared
 #  project directory's local mutations.jsonl — visible locally but not synced.)
 $ CF_HOME=$OBS_CF  rd list
-warning: could not start in-process convention server: conventionserver: inbox campfire 31816c2f28cb56d2c1cbfff3c63136dbd659443a451309a5476ee3a3d28cabac not in client membership list
-  rdtestobserverprojgwj-6c3  p0        inbox       overdue     Deploy v2 to production
-  rdtestobserverprojgwj-f1f  p0        inbox       overdue     Migrate auth to OAuth2
-  rdtestobserverprojgwj-79d  p1        inbox       3h          Refactor billing module
-  rdtestobserverprojgwj-fce  p2        inbox       23h         Update API docs
-  rdtestobserverprojgwj-13a  p3        inbox       2d          Sneaky item
+  rdtestobserverprojd8f-30d  p0        inbox       overdue     Deploy v2 to production
+  rdtestobserverprojd8f-d0b  p0        inbox       overdue     Migrate auth to OAuth2
+  rdtestobserverprojd8f-3ce  p1        inbox       3h          Refactor billing module
+  rdtestobserverprojd8f-e4b  p2        inbox       23h         Update API docs
+  rdtestobserverprojd8f-00b  p3        inbox       2d          Sneaky item
 
 # Owner list (full view for comparison — same four items plus the local-only sneaky item):
 $ CF_HOME=$OWNER_CF  rd list
-  rdtestobserverprojgwj-6c3  p0        inbox       overdue     Deploy v2 to production
-  rdtestobserverprojgwj-f1f  p0        inbox       overdue     Migrate auth to OAuth2
-  rdtestobserverprojgwj-79d  p1        inbox       3h          Refactor billing module
-  rdtestobserverprojgwj-fce  p2        inbox       23h         Update API docs
-  rdtestobserverprojgwj-13a  p3        inbox       2d          Sneaky item
+  rdtestobserverprojd8f-30d  p0        inbox       overdue     Deploy v2 to production
+  rdtestobserverprojd8f-d0b  p0        inbox       overdue     Migrate auth to OAuth2
+  rdtestobserverprojd8f-3ce  p1        inbox       3h          Refactor billing module
+  rdtestobserverprojd8f-e4b  p2        inbox       23h         Update API docs
+  rdtestobserverprojd8f-00b  p3        inbox       2d          Sneaky item
 
 ══════════════════════════════════════════════════════════════
   Demo complete. Transcript saved to: /home/baron/projects/ready/test/demo/output/04-org-observer.txt

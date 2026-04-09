@@ -24,18 +24,14 @@ cf init --cf-home "$CF_HOME"
 
 echo ""
 echo "=== SECTION: project ==="
-echo "$ cd PROJECT && rd init --name \"myproject\" --confirm"
+echo "$ cd PROJECT && rd init --name \"myproject\""
 cd "$PROJECT"
-"$RD" init --name "myproject" --confirm --cf-home "$CF_HOME"
+"$RD" init --name "myproject" --cf-home "$CF_HOME"
 
 echo ""
 echo "=== SECTION: create ==="
-echo '$ rd create --title "Ship login page" --priority p1 --type task --json'
-CREATE_JSON=$("$RD" create --title "Ship login page" --priority p1 --type task --json --cf-home "$CF_HOME")
-echo "$CREATE_JSON"
-
-# Parse the item ID from JSON output
-ITEM_ID=$(echo "$CREATE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+echo '$ rd create "Ship login page" --priority p1 --type task'
+ITEM_ID=$("$RD" create "Ship login page" --priority p1 --type task --cf-home "$CF_HOME")
 echo "# item ID: $ITEM_ID"
 
 echo ""

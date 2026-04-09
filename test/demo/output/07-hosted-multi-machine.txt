@@ -1,0 +1,159 @@
+# Ready Demo 07 — Hosted Real-Time Multi-Machine — Thu Apr  9 00:00:55 UTC 2026
+# Three identities: owner, member, and intruder (unadmitted)
+
+═══════════════════════════════════════════════════════════
+  1. Initialize hosted identities (owner and intruder)
+═══════════════════════════════════════════════════════════
+
+$ cf init --cf-home $OWNER_CF --remote https://mcp.getcampfire.dev  (owner)
+Your identity campfire: a7189b1b659cabb6751f13f0281f775324da80ef1fdf165c25c2d4db2edcf64a. Share it like any beacon.
+
+Next: cf discover    find campfires
+      cf create      start one
+      cf join <id>   join one
+
+$ cf init --cf-home $INTRUDER_CF --remote https://mcp.getcampfire.dev  (intruder)
+Your identity campfire: cd28a3303ad25cb4cc563395d5df9fb54966b61c2a6f2ca3042b955d413e0f3c. Share it like any beacon.
+
+Next: cf discover    find campfires
+      cf create      start one
+      cf join <id>   join one
+
+
+═══════════════════════════════════════════════════════════
+  2. Owner creates hosted project (Machine A)
+═══════════════════════════════════════════════════════════
+
+$ cd $PROJ_A && CF_HOME=$OWNER_CF rd init --name hosted-demo
+warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
+initialized hosted-demo
+  campfire: e9aa7b9ee2dd...
+  summary campfire: d3ad74946006...
+  inbox campfire: 52b6c424da99...
+  encrypted: true (E2E intent set; SDK encryption enabled when available)
+  declarations: 16 operations published
+
+  home campfire: found (a7189b1b659c...)
+  run 'rd register --org <name>' to add naming
+
+Project campfire ID: e9aa7b9ee2dd...
+
+
+═══════════════════════════════════════════════════════════
+  3. Owner creates work item
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$OWNER_CF rd create 'Deploy staging env' --type task --priority p1
+Created item: rdtesthostedprojcch1-9d5
+
+
+═══════════════════════════════════════════════════════════
+  4. Owner generates invite token for member
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$OWNER_CF rd invite  (owner generates member token)
+rdx1_...  (invite token — share securely)
+
+
+═══════════════════════════════════════════════════════════
+  5. SECURITY: unadmitted intruder is rejected
+═══════════════════════════════════════════════════════════
+
+Intruder has a valid hosted identity but was NEVER invited.
+The campfire is invite-only — membership is enforced at the protocol layer.
+
+--- 5a. Join attempt (should be rejected) ---
+$ CF_HOME=$INTRUDER_CF rd join <campfire-id>  (intruder)
+  REJECTED: Error: campfire is invite-only — ask a member to admit your public key, then run 'rd join' again
+  your public key: 8881ec63b5f711e1871a8650381e3aeda3cf432354307fd341cae89fd7a5eef0
+Usage:
+  rd join <name-or-campfire-id> [flags]
+
+Flags:
+      --confirm             confirm beacon root deviation without prompting
+      --force               overwrite existing identity when joining via invite token
+  -h, --help                help for join
+      --reset-beacon-root   clear the pinned beacon root
+      --role string         role to request: member or agent (default "member")
+      --root string         beacon root campfire ID to use for TOFU pinning
+      --timeout duration    how long to wait for admission grant (default 5m0s)
+
+Global Flags:
+      --cf-home string   campfire home directory (default: ~/.cf)
+      --debug            show hex IDs for diagnostics
+      --json             output as JSON
+
+campfire is invite-only — ask a member to admit your public key, then run 'rd join' again
+  your public key: 8881ec63b5f711e1871a8650381e3aeda3cf432354307fd341cae89fd7a5eef0
+
+--- 5b. Intruder manually creates .campfire/root and tries rd create ---
+$ CF_HOME=$INTRUDER_CF rd create 'Injected item' --priority p0 --type task
+warning: campfire send failed (buffered to pending.jsonl): send message: not a member of campfire e9aa7b9ee2dd
+rdtesthostedproj5r-d15
+
+  CAMPFIRE REJECTED: send failed — intruder is not a member.
+  Item buffered locally only. Will never reach the campfire.
+
+--- 5c. Intruder tries rd sync pull (should get 0 messages) ---
+$ CF_HOME=$INTRUDER_CF rd sync pull
+sync pull: already up to date
+
+--- 5d. Verify: owner sees NO intruder items ---
+$ CF_HOME=$OWNER_CF rd list --all  (should NOT contain 'Injected item')
+  rdtesthostedprojcch1-9d5  p1        inbox       3h          Deploy staging env
+
+  VERIFIED: intruder's item does not appear. Campfire membership enforced.
+
+
+═══════════════════════════════════════════════════════════
+  6. Member joins via invite token (Machine B)
+═══════════════════════════════════════════════════════════
+
+$ cd $PROJ_B && CF_HOME=$MEMBER_CF rd join <invite-token> --force  (member)
+synced 1 item(s)
+joined e9aa7b9ee2dd... via invite token (expires in 1h59m0s)
+
+Verify bootstrap:
+  .campfire/root: EXISTS ✓
+  .ready/config.json: EXISTS ✓
+
+
+═══════════════════════════════════════════════════════════
+  7. Member sees owner's item (auto-synced on join)
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$MEMBER_CF rd ready  (from Machine B)
+nothing ready
+
+
+═══════════════════════════════════════════════════════════
+  8. Member claims item
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$MEMBER_CF rd update rdtesthostedprojcch1-9d5 --status active
+updated rdtesthostedprojcch1-9d5
+
+
+═══════════════════════════════════════════════════════════
+  9. Member closes item (ready-c0c: admitted member can close)
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$MEMBER_CF rd done rdtesthostedprojcch1-9d5 --reason 'Staging deployed'
+warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
+closed rdtesthostedprojcch1-9d5 (done)
+
+
+═══════════════════════════════════════════════════════════
+  10. Owner syncs back — sees member's close
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$OWNER_CF rd sync pull  (from Machine A)
+sync pull: 1 message(s) pulled, 1 duplicate(s) skipped
+
+$ CF_HOME=$OWNER_CF rd list --all  (from Machine A)
+  rdtesthostedprojcch1-9d5  p1        active      3h          Deploy staging env
+
+══════════════════════════════════════════════════════════════
+  Demo 07 complete. Hosted multi-machine + security verified.
+  Transcript saved to: /home/baron/projects/ready/test/demo/output/07-hosted-multi-machine.txt
+══════════════════════════════════════════════════════════════

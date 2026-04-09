@@ -1,12 +1,12 @@
-# Ready Team Demo — Thu Apr  9 00:00:08 UTC 2026
-# Two identities: owner and member
+# Ready Demo 08 — Org Naming on Hosted Infra — Thu Apr  9 00:01:02 UTC 2026
+# Naming hierarchy: org -> ready namespace -> project
 
 ═══════════════════════════════════════════════════════════
-  1. Initialize owner identity
+  1. Initialize owner hosted identity
 ═══════════════════════════════════════════════════════════
 
-$ cf init --cf-home $OWNER_CF  (owner)
-Your identity campfire: 37a46801d144304454695bdccdb22e12d505771f59703d4fbe3b5579716df711. Share it like any beacon.
+$ cf init --cf-home $OWNER_CF --remote https://mcp.getcampfire.dev  (owner)
+Your identity campfire: 5bb61565ff903b6d8c979b9e6ff5f6551cc4ec6bcd75465f2935a1135b6e8773. Share it like any beacon.
 
 Next: cf discover    find campfires
       cf create      start one
@@ -14,88 +14,112 @@ Next: cf discover    find campfires
 
 
 ═══════════════════════════════════════════════════════════
-  2. Owner initializes project
+  2. Owner creates hosted project
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd init --name teamproject  (in $PROJECT)
+$ cd $PROJ_A && CF_HOME=$OWNER_CF rd init --name myapp
 warning: no beacon root configured (set CF_BEACON_ROOT or pass --beacon-root) — project name bound locally only
-initialized teamproject
-  campfire: 5c4492cfe32a...
-  summary campfire: 356b58a1d53f...
-  inbox campfire: ce6f5a1b77ea...
+initialized myapp
+  campfire: e015b910a1e2...
+  summary campfire: 148f77679539...
+  inbox campfire: 1096305add2b...
   encrypted: true (E2E intent set; SDK encryption enabled when available)
   declarations: 16 operations published
 
-  home campfire: found (37a46801d144...)
+  home campfire: found (5bb61565ff90...)
   run 'rd register --org <name>' to add naming
 
-
-═══════════════════════════════════════════════════════════
-  3. Owner generates invite token
-═══════════════════════════════════════════════════════════
-
-$ CF_HOME=$OWNER_CF rd invite  (owner)
-rdx1_...  (invite token — treat as secret)
+Project campfire ID: e015b910a1e2...
 
 
 ═══════════════════════════════════════════════════════════
-  4. Member joins via invite token
+  3. Owner registers under org namespace
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$MEMBER_CF rd join <invite-token> --force  (member)
-joined 5c4492cfe32a... via invite token (expires in 1h59m0s)
+$ CF_HOME=$OWNER_CF rd register --org acme
+created home campfire: a45c7c556c4e...
+created ready namespace: 8347466ad5ca...
+registered cf://acme.ready.rdtest-naming-projA-Tq2b
+  local: cf://~acme.ready/rdtest-naming-projA-Tq2b
+
+  to make globally resolvable later:
+    cf register <root-id> acme a45c7c556c4ed9c2802afd32db54006a956d6bbfcbba26548ada0953f6376a7e
+
+$ CF_HOME=$OWNER_CF rd register --json
+{
+  "campfire_id": "e015b910a1e2136ef37ef9f2bb4b90245d40b3c62e9c340f28a0286b5e8b1215",
+  "created_home": false,
+  "created_ready": false,
+  "home_campfire_id": "a45c7c556c4ed9c2802afd32db54006a956d6bbfcbba26548ada0953f6376a7e",
+  "local_uri": "cf://~acme.ready/rdtest-naming-projA-Tq2b",
+  "name": "rdtest-naming-projA-Tq2b",
+  "namespace": "cf://acme.ready.rdtest-naming-projA-Tq2b",
+  "org": "acme",
+  "ready_campfire_id": "8347466ad5caa499b1c13c5c8d1dc1d5d3b93e75b255d4f8d427262821a9e9f4",
+  "registered": true
+}
 
 
 ═══════════════════════════════════════════════════════════
-  5. Owner creates work item
+  4. Owner creates work items
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$OWNER_CF rd create 'Build API' --type task --priority p1
-Created item: rdtestteamproji650-fe2
+$ CF_HOME=$OWNER_CF rd create 'Set up CI pipeline' --type task --priority p0
+Created: rdtestnamingprojq2b-c9f
 
-
-═══════════════════════════════════════════════════════════
-  6. Owner delegates item to member
-═══════════════════════════════════════════════════════════
-
-Delegating to member identity: 512af0f5a92b...
-
-$ CF_HOME=$OWNER_CF rd delegate rdtestteamproji650-fe2 --to <member-identity>
-delegated rdtestteamproji650-fe2 to 512af0f5a92bd06ecce261d12acf647a07f57828c4563738e0b3a6a50b42e0f7
+$ CF_HOME=$OWNER_CF rd create 'Write API docs' --type task --priority p2
+Created: rdtestnamingprojq2b-5b4
 
 
 ═══════════════════════════════════════════════════════════
-  7. Member views ready items
+  5. Owner generates invite token for member
+═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$OWNER_CF rd invite
+rdx1_...  (invite token)
+
+
+═══════════════════════════════════════════════════════════
+  6. Member joins via invite token
+═══════════════════════════════════════════════════════════
+
+$ cd $PROJ_B && CF_HOME=$MEMBER_CF rd join <invite-token> --force  (member)
+synced 2 item(s)
+joined e015b910a1e2... via invite token (expires in 1h59m0s)
+
+
+═══════════════════════════════════════════════════════════
+  7. Member sees items (auto-synced on join)
 ═══════════════════════════════════════════════════════════
 
 $ CF_HOME=$MEMBER_CF rd ready
-  rdtestteamproji650-fe2  p1        inbox       3h          Build API
+nothing ready
 
 
 ═══════════════════════════════════════════════════════════
-  8. Member claims item (sets active)
+  8. Member works the P0 item
 ═══════════════════════════════════════════════════════════
 
-$ CF_HOME=$MEMBER_CF rd update rdtestteamproji650-fe2 --status active
-updated rdtestteamproji650-fe2
+$ CF_HOME=$MEMBER_CF rd update rdtestnamingprojq2b-c9f --status active
+updated rdtestnamingprojq2b-c9f
 
-
-═══════════════════════════════════════════════════════════
-  9. Member completes item
-═══════════════════════════════════════════════════════════
-
-$ CF_HOME=$MEMBER_CF rd done rdtestteamproji650-fe2 --reason 'API complete'
+$ CF_HOME=$MEMBER_CF rd done rdtestnamingprojq2b-c9f --reason 'CI pipeline live'
 warning: campfire send failed (buffered to pending.jsonl): operator provenance level 1 insufficient: operation "work:close" requires level 2
-closed rdtestteamproji650-fe2 (done)
+closed rdtestnamingprojq2b-c9f (done)
 
 
 ═══════════════════════════════════════════════════════════
-  10. Owner verifies — list all items
+  9. Owner syncs and sees progress
 ═══════════════════════════════════════════════════════════
+
+$ CF_HOME=$OWNER_CF rd sync pull
+sync pull: 1 message(s) pulled, 2 duplicate(s) skipped
 
 $ CF_HOME=$OWNER_CF rd list --all
-  rdtestteamproji650-fe2  p1        done        3h          Build API
+  rdtestnamingprojq2b-c9f  p0        active      overdue     Set up CI pipeline
+  rdtestnamingprojq2b-5b4  p2        inbox       23h         Write API docs
 
 ══════════════════════════════════════════════════════════════
-  Demo complete. Transcript saved to: /home/baron/projects/ready/test/demo/output/02-team.txt
+  Demo 08 complete. Org naming + hosted multi-user verified.
+  Transcript saved to: /home/baron/projects/ready/test/demo/output/08-org-naming.txt
 ══════════════════════════════════════════════════════════════
