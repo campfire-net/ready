@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 03-multiproject.sh — Multi-project cross-dependency demo
-# Shows rd init for two separate projects, item creation in each, and the
-# clear error messages when cross-project dep wiring is attempted.
-# Cross-project deps are not supported — rd dep operates within a single
-# project's campfire. This demo documents what works and what doesn't.
+# Shows rd init for two separate projects, item creation in each, and real
+# cross-project dep wiring via local placeholder items.
+# Cross-project deps are not natively supported — rd dep operates within a
+# single project's campfire. This demo documents the recommended pattern.
 # Produces a real terminal transcript for documentation.
 set -euo pipefail
 
@@ -29,31 +29,27 @@ cf init --cf-home "$CF_HOME"
 
 echo ""
 echo "=== SECTION: init-frontend ==="
-echo "$ cd FRONTEND && rd init --name \"frontend\" --confirm"
+echo "$ cd FRONTEND && rd init --name \"frontend\""
 cd "$FRONTEND"
-"$RD" init --name "frontend" --confirm --cf-home "$CF_HOME"
+"$RD" init --name "frontend" --cf-home "$CF_HOME"
 
 echo ""
 echo "=== SECTION: init-backend ==="
-echo "$ cd BACKEND && rd init --name \"backend\" --confirm"
+echo "$ cd BACKEND && rd init --name \"backend\""
 cd "$BACKEND"
-"$RD" init --name "backend" --confirm --cf-home "$CF_HOME"
+"$RD" init --name "backend" --cf-home "$CF_HOME"
 
 echo ""
 echo "=== SECTION: create-items ==="
-echo "$ cd BACKEND && rd create --title \"Expose /api/v1/users endpoint\" --priority p1 --type task --json"
+echo '$ cd BACKEND && rd create "Expose /api/v1/users endpoint" --priority p1 --type task'
 cd "$BACKEND"
-BACKEND_JSON=$("$RD" create --title "Expose /api/v1/users endpoint" --priority p1 --type task --json --cf-home "$CF_HOME")
-echo "$BACKEND_JSON"
-BACKEND_ID=$(echo "$BACKEND_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+BACKEND_ID=$("$RD" create "Expose /api/v1/users endpoint" --priority p1 --type task --cf-home "$CF_HOME")
 echo "# backend item ID: $BACKEND_ID"
 
 echo ""
-echo "$ cd FRONTEND && rd create --title \"Build user list page\" --priority p1 --type task --json"
+echo '$ cd FRONTEND && rd create "Build user list page" --priority p1 --type task'
 cd "$FRONTEND"
-FRONTEND_JSON=$("$RD" create --title "Build user list page" --priority p1 --type task --json --cf-home "$CF_HOME")
-echo "$FRONTEND_JSON"
-FRONTEND_ID=$(echo "$FRONTEND_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+FRONTEND_ID=$("$RD" create "Build user list page" --priority p1 --type task --cf-home "$CF_HOME")
 echo "# frontend item ID: $FRONTEND_ID"
 
 echo ""
@@ -77,22 +73,21 @@ echo "# Wire dependencies within one project, or track cross-project"
 echo "# coordination manually (e.g. item notes or campfire messages)."
 
 echo ""
-echo "# --- Within-project dep wiring (supported) ---"
-echo "# Create a local placeholder tracking the backend dependency:"
-echo "$ cd FRONTEND && rd create --title \"[backend] API endpoint ready\" --type task --priority p1 --json"
+echo "# --- Real cross-project dep wiring (supported pattern) ---"
+echo "# Create a local placeholder in the frontend project tracking the backend dep:"
+echo '$ cd FRONTEND && rd create "[backend] API endpoint ready" --type task --priority p1'
 cd "$FRONTEND"
-PLACEHOLDER_JSON=$("$RD" create --title "[backend] API endpoint ready" --type task --priority p1 --json --cf-home "$CF_HOME")
-echo "$PLACEHOLDER_JSON"
-PLACEHOLDER_ID=$(echo "$PLACEHOLDER_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+PLACEHOLDER_ID=$("$RD" create "[backend] API endpoint ready" --type task --priority p1 --cf-home "$CF_HOME")
 echo "# placeholder item ID: $PLACEHOLDER_ID"
 
 echo ""
-echo "=== SECTION: show-blocked ==="
+echo "# Wire: frontend page blocked by placeholder"
 echo "$ cd FRONTEND && rd dep add $FRONTEND_ID $PLACEHOLDER_ID"
 cd "$FRONTEND"
 "$RD" dep add "$FRONTEND_ID" "$PLACEHOLDER_ID" --cf-home "$CF_HOME"
 
 echo ""
+echo "=== SECTION: show-blocked ==="
 echo "$ rd dep tree $FRONTEND_ID"
 "$RD" dep tree "$FRONTEND_ID" --cf-home "$CF_HOME"
 
@@ -103,13 +98,24 @@ echo "# (frontend item is blocked by placeholder — not shown in ready)"
 
 echo ""
 echo "=== SECTION: close-blocker ==="
-echo "# Backend team ships the endpoint; mark the placeholder done:"
-echo "$ rd done $PLACEHOLDER_ID --reason \"Backend confirmed /api/v1/users deployed\""
+echo "# Backend team ships the endpoint; close the placeholder in the backend project:"
+echo "$ cd BACKEND && rd update $BACKEND_ID --status active"
+cd "$BACKEND"
+"$RD" update "$BACKEND_ID" --status active --cf-home "$CF_HOME"
+
+echo ""
+echo "$ cd BACKEND && rd done $BACKEND_ID --reason \"API endpoint /api/v1/users deployed\""
+"$RD" done "$BACKEND_ID" --reason "API endpoint /api/v1/users deployed" --cf-home "$CF_HOME"
+
+echo ""
+echo "# Mark the placeholder done (signal to frontend project that backend shipped):"
+echo "$ cd FRONTEND && rd done $PLACEHOLDER_ID --reason \"Backend confirmed /api/v1/users deployed\""
+cd "$FRONTEND"
 "$RD" done "$PLACEHOLDER_ID" --reason "Backend confirmed /api/v1/users deployed" --cf-home "$CF_HOME"
 
 echo ""
 echo "=== SECTION: verify-unblocked ==="
-echo "$ rd ready"
+echo "$ cd FRONTEND && rd ready"
 "$RD" ready --cf-home "$CF_HOME"
 echo "# frontend item is now unblocked and ready"
 
