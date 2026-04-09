@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 
-	"github.com/spf13/cobra"
 	"github.com/campfire-net/ready/pkg/state"
+	"github.com/mattn/go-isatty"
+	"github.com/spf13/cobra"
 )
 
 var listCmd = &cobra.Command{
@@ -68,11 +70,21 @@ Example:
 		}
 
 		if len(filtered) == 0 {
-			fmt.Println("no items found")
+			if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+				fmt.Println("no items found")
+			}
 			return nil
 		}
 
-		printItemTable(filtered)
+		// Pipe-friendly output: print bare IDs when stdout is not a TTY so
+		// scripts can do: for id in $(rd list); do ...; done
+		if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+			printItemTable(filtered)
+		} else {
+			for _, item := range filtered {
+				fmt.Println(item.ID)
+			}
+		}
 		return nil
 	},
 }
