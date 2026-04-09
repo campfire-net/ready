@@ -15,6 +15,10 @@ package main
 //   - Invite-only campfire join: client.Join() returns "invite-only" error (ready-1b5)
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -1160,4 +1164,167 @@ func TestResolveName_EdgeCases_MixedCaseHex(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestJoinViaInviteToken_FreshCFHome_NoForceRequired is the regression test for
+// ready-167. When joining via an invite token with a FRESH CF_HOME (no existing
+// identity), rd join must succeed WITHOUT --force.
+//
+// Historically, protocol.Init() (called in PersistentPreRunE) auto-generated an
+// identity before joinViaInviteToken ran, causing it to see an "existing" identity
+// and refuse. The fix: PersistentPreRunE skips protocol.Init for rdx1_ tokens,
+// so joinViaInviteToken sees a clean CF_HOME with no identity.
+//
+// Three scenarios:
+//  1. Fresh CF_HOME — joinViaInviteToken(token, false) succeeds; identity from token.
+//  2. Existing identity + force=false — fails with "identity already exists".
+//  3. Existing identity + force=true — succeeds (overwrite).
+func TestJoinViaInviteToken_FreshCFHome_NoForceRequired(t *testing.T) {
+	sharedTransportDir := t.TempDir()
+	origTransportDir := os.Getenv("CF_TRANSPORT_DIR")
+	os.Setenv("CF_TRANSPORT_DIR", sharedTransportDir)
+	t.Cleanup(func() {
+		if origTransportDir != "" {
+			os.Setenv("CF_TRANSPORT_DIR", origTransportDir)
+		} else {
+			os.Unsetenv("CF_TRANSPORT_DIR")
+		}
+	})
+
+	// --- Identity A: campfire creator ---
+	cfHomeA := t.TempDir()
+	origRDHome := rdHome
+	rdHome = cfHomeA
+	origClient := protocolClient
+	protocolClient = nil
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+		rdHome = origRDHome
+	})
+
+	clientA, err := requireClient()
+	if err != nil {
+		t.Fatalf("requireClient (A): %v", err)
+	}
+
+	// A creates an open campfire so the admitted token identity can join.
+	createResult, err := clientA.Create(protocol.CreateRequest{
+		JoinProtocol: "open",
+		Transport:    protocol.FilesystemTransport{Dir: sharedTransportDir},
+	})
+	if err != nil {
+		t.Fatalf("A.Create: %v", err)
+	}
+	campfireID := createResult.CampfireID
+
+	// Build a valid invite token (identity admitted by A).
+	token := makeTestInviteToken(t, clientA, campfireID)
+
+	// Scenario 1: Fresh CF_HOME — no pre-existing identity.
+	// joinViaInviteToken must succeed WITHOUT --force.
+	// This is the regression path: before the fix, PersistentPreRunE would call
+	// protocol.Init, auto-generate an identity, and the join would fail here.
+	t.Run("fresh_cf_home_no_force", func(t *testing.T) {
+		cfHomeB := t.TempDir()
+		rdHome = cfHomeB
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = nil
+
+		if err := joinViaInviteToken(token, false /* force */); err != nil {
+			t.Fatalf("joinViaInviteToken on fresh CF_HOME without --force: %v\n"+
+				"(ready-167: --force must not be required on fresh CF_HOME)", err)
+		}
+
+		// Identity must have been written from the token.
+		idPath := filepath.Join(cfHomeB, "identity.json")
+		if _, err := os.Stat(idPath); err != nil {
+			t.Fatalf("identity.json not created after join via token: %v", err)
+		}
+	})
+
+	// Build a second token for scenarios 2 & 3 (tokens are single-use by convention,
+	// though in this test setup the campfire is open so re-use works).
+	// We reuse the same token since open campfires allow re-join.
+
+	// Set up a CF_HOME that already has a real identity.
+	cfHomeExisting := t.TempDir()
+	rdHome = cfHomeExisting
+	if protocolClient != nil {
+		protocolClient.Close()
+	}
+	protocolClient = nil
+	// Generate identity by calling requireClient.
+	if _, err := requireClient(); err != nil {
+		t.Fatalf("requireClient for existing identity setup: %v", err)
+	}
+	protocolClient.Close()
+	protocolClient = nil
+
+	// Scenario 2: Existing identity + force=false → must fail.
+	t.Run("existing_identity_no_force_fails", func(t *testing.T) {
+		rdHome = cfHomeExisting
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = nil
+
+		if err := joinViaInviteToken(token, false /* force */); err == nil {
+			t.Fatal("joinViaInviteToken with existing identity and force=false should fail, got nil")
+		} else if !strings.Contains(err.Error(), "identity already exists") {
+			t.Errorf("error should mention 'identity already exists', got: %v", err)
+		}
+	})
+
+	// Scenario 3: Existing identity + force=true → must succeed.
+	t.Run("existing_identity_with_force_succeeds", func(t *testing.T) {
+		rdHome = cfHomeExisting
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = nil
+
+		if err := joinViaInviteToken(token, true /* force */); err != nil {
+			t.Fatalf("joinViaInviteToken with existing identity and force=true: %v", err)
+		}
+	})
+}
+
+// makeTestInviteToken generates a valid invite token whose identity has been
+// admitted to campfireID by clientA. The token is valid for 2 hours.
+func makeTestInviteToken(t *testing.T, clientA campfireAdmitter, campfireID string) string {
+	t.Helper()
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("makeTestInviteToken: generating keypair: %v", err)
+	}
+
+	pubHex := hex.EncodeToString(pub)
+
+	// Admit the generated identity so the join will succeed.
+	if err := admitMemberWithRole(clientA, campfireID, pubHex, "", "test invite"); err != nil {
+		t.Fatalf("makeTestInviteToken: admitting identity: %v", err)
+	}
+
+	payload := invitePayload{
+		Version:    1,
+		CampfireID: campfireID,
+		PrivateKey: hex.EncodeToString(priv.Seed()),
+		Role:       "member",
+		IssuedAt:   time.Now().Unix(),
+		ExpiresAt:  time.Now().Add(2 * time.Hour).Unix(),
+		Issuer:     pubHex,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("makeTestInviteToken: marshaling payload: %v", err)
+	}
+
+	return inviteTokenPrefix + base64.RawURLEncoding.EncodeToString(data)
 }
