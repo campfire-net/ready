@@ -1294,6 +1294,132 @@ func TestJoinViaInviteToken_FreshCFHome_NoForceRequired(t *testing.T) {
 	})
 }
 
+// TestJoinViaInviteToken_FailedJoinRestoresIdentity is the regression test for
+// ready-f3c. When joinViaInviteToken writes the new identity and then the
+// client.Join() call fails, the original identity must be restored.
+//
+// Two scenarios:
+//  1. Existing identity + join fails → original identity is intact.
+//  2. No pre-existing identity + join fails → identity.json does not exist.
+func TestJoinViaInviteToken_FailedJoinRestoresIdentity(t *testing.T) {
+	// Use an empty transport dir — no campfire state exists there,
+	// so client.Join() will fail for any campfire ID.
+	emptyTransportDir := t.TempDir()
+	origTransportDir := os.Getenv("CF_TRANSPORT_DIR")
+	os.Setenv("CF_TRANSPORT_DIR", emptyTransportDir)
+	t.Cleanup(func() {
+		if origTransportDir != "" {
+			os.Setenv("CF_TRANSPORT_DIR", origTransportDir)
+		} else {
+			os.Unsetenv("CF_TRANSPORT_DIR")
+		}
+	})
+
+	origClient := protocolClient
+	origRDHome := rdHome
+	t.Cleanup(func() {
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = origClient
+		rdHome = origRDHome
+	})
+
+	// Build a token with a valid format but pointing to a campfire that does
+	// not exist in emptyTransportDir. Join will fail.
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generating keypair: %v", err)
+	}
+	nonexistentCampfireID := pubkeyHex("de") // 64-char hex, never created
+	payload := invitePayload{
+		Version:    1,
+		CampfireID: nonexistentCampfireID,
+		PrivateKey: hex.EncodeToString(priv.Seed()),
+		Role:       "member",
+		IssuedAt:   time.Now().Unix(),
+		ExpiresAt:  time.Now().Add(2 * time.Hour).Unix(),
+		Issuer:     pubkeyHex("ca"),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshaling payload: %v", err)
+	}
+	badToken := inviteTokenPrefix + base64.RawURLEncoding.EncodeToString(data)
+
+	// Scenario 1: Existing identity — join fails — original identity is restored.
+	t.Run("existing_identity_restored_on_join_failure", func(t *testing.T) {
+		cfHome := t.TempDir()
+		rdHome = cfHome
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = nil
+
+		// Create an existing identity by initialising a client.
+		if _, err := requireClient(); err != nil {
+			t.Fatalf("requireClient for existing identity: %v", err)
+		}
+		protocolClient.Close()
+		protocolClient = nil
+
+		idPath := filepath.Join(cfHome, "identity.json")
+		originalIdentity, err := os.ReadFile(idPath)
+		if err != nil {
+			t.Fatalf("reading original identity: %v", err)
+		}
+
+		// Attempt join with --force so the identity-exists check is bypassed.
+		// The join itself will fail because the campfire doesn't exist.
+		joinErr := joinViaInviteToken(badToken, true /* force */)
+		if joinErr == nil {
+			t.Fatal("joinViaInviteToken should have failed (campfire does not exist)")
+		}
+		if !strings.Contains(joinErr.Error(), "join failed, identity restored") {
+			t.Errorf("error message should mention restoration, got: %v", joinErr)
+		}
+
+		// Original identity must still be on disk, unchanged.
+		restoredIdentity, err := os.ReadFile(idPath)
+		if err != nil {
+			t.Fatalf("identity.json not found after failed join (ready-f3c): %v", err)
+		}
+		if string(restoredIdentity) != string(originalIdentity) {
+			t.Errorf("identity.json was modified by failed join (ready-f3c): original %d bytes, got %d bytes",
+				len(originalIdentity), len(restoredIdentity))
+		}
+	})
+
+	// Scenario 2: No pre-existing identity — join fails — identity.json must not exist.
+	t.Run("no_identity_removed_on_join_failure", func(t *testing.T) {
+		cfHome := t.TempDir()
+		rdHome = cfHome
+		if protocolClient != nil {
+			protocolClient.Close()
+		}
+		protocolClient = nil
+
+		idPath := filepath.Join(cfHome, "identity.json")
+		// Confirm no identity exists before we start.
+		if _, err := os.Stat(idPath); !os.IsNotExist(err) {
+			t.Fatalf("expected no identity before join, got: %v", err)
+		}
+
+		joinErr := joinViaInviteToken(badToken, false /* force */)
+		if joinErr == nil {
+			t.Fatal("joinViaInviteToken should have failed (campfire does not exist)")
+		}
+		if !strings.Contains(joinErr.Error(), "join failed, identity restored") {
+			t.Errorf("error message should mention restoration, got: %v", joinErr)
+		}
+
+		// identity.json must have been removed (rollback of the newly-written identity).
+		if _, err := os.Stat(idPath); !os.IsNotExist(err) {
+			t.Errorf("identity.json should not exist after failed join on fresh CF_HOME (ready-f3c), got: %v", err)
+		}
+	})
+}
+
 // makeTestInviteToken generates a valid invite token whose identity has been
 // admitted to campfireID by clientA. The token is valid for 2 hours.
 func makeTestInviteToken(t *testing.T, clientA campfireAdmitter, campfireID string) string {
