@@ -11,6 +11,7 @@ import (
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/state"
 	"github.com/campfire-net/ready/pkg/views"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
 
@@ -64,7 +65,7 @@ Example:
 			items = views.Apply(items, filter)
 
 			// For views that don't filter by identity internally, scope to
-			// items where the current identity is involved — either as the
+			// items where the current identity is involved -- either as the
 			// outcome owner (for) or the performer (by). This covers items
 			// you created, items delegated to you, and items you own.
 			switch viewName {
@@ -87,11 +88,21 @@ Example:
 			}
 
 			if len(items) == 0 {
-				fmt.Println("nothing ready")
+				if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+					fmt.Println("nothing ready")
+				}
 				return nil
 			}
 
-			printItemTable(items)
+			// Pipe-friendly output: print bare IDs when stdout is not a TTY so
+			// scripts can do: for id in $(rd ready); do ...; done
+			if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+				printItemTable(items)
+			} else {
+				for _, item := range items {
+					fmt.Println(item.ID)
+				}
+			}
 			return nil
 		})
 	},

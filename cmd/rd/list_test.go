@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,7 +55,7 @@ func TestList_MultipleStatus_ORSemantics(t *testing.T) {
 }
 
 // TestList_SingleStatus verifies backward compatibility: a single --status flag
-// still filters to exactly that status (no regression from StringVar → StringArrayVar).
+// still filters to exactly that status (no regression from StringVar -> StringArrayVar).
 func TestList_SingleStatus(t *testing.T) {
 	items := []*state.Item{
 		makeListItem("t1", state.StatusInbox),
@@ -261,7 +262,7 @@ func TestList_NoHexInOutputWhenProjectNameConfigured(t *testing.T) {
 	rdHome = ""
 	defer func() { rdHome = origRDHome }()
 
-	// Write alias store: "listproject" → hexID.
+	// Write alias store: "listproject" -> hexID.
 	aliasContent, _ := json.Marshal(map[string]string{"listproject": hexID})
 	if err := os.WriteFile(filepath.Join(tmpDir, "aliases.json"), aliasContent, 0600); err != nil {
 		t.Fatalf("WriteFile aliases.json: %v", err)
@@ -325,7 +326,7 @@ func TestList_NoHexInOutputWhenProjectNameConfigured(t *testing.T) {
 
 	output := buf.String()
 
-	// The item must appear in the list.
+	// The item must appear in the list (piped mode: bare ID on its own line).
 	if !strings.Contains(output, "ready-list1") {
 		t.Errorf("list output does not contain item ID; output:\n%s", output)
 	}
@@ -351,4 +352,175 @@ func isHexString(s string) bool {
 		}
 	}
 	return true
+}
+
+// setupMutationsDir creates a temp dir with a .ready/mutations.jsonl containing
+// the given items and wires CF_HOME / rdHome accordingly.
+// Returns tmpDir and a cleanup function.
+func setupMutationsDir(t *testing.T, items []struct{ id, title string }) (string, func()) {
+	t.Helper()
+	tmpDir, err := os.MkdirTemp("", "test-pipe-output")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+
+	hexID := strings.Repeat("ee", 32) // 64-char hex campfire ID
+
+	origCFHome := os.Getenv("CF_HOME")
+	os.Setenv("CF_HOME", tmpDir)
+
+	origRDHome := rdHome
+	rdHome = ""
+
+	// Write alias store.
+	aliasContent, _ := json.Marshal(map[string]string{"pipeproject": hexID})
+	if err := os.WriteFile(filepath.Join(tmpDir, "aliases.json"), aliasContent, 0600); err != nil {
+		t.Fatalf("WriteFile aliases.json: %v", err)
+	}
+
+	readyDir := filepath.Join(tmpDir, ".ready")
+	if err := os.MkdirAll(readyDir, 0700); err != nil {
+		t.Fatalf("MkdirAll .ready: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(readyDir, "config.json"), []byte(`{"project_name":"pipeproject"}`), 0600); err != nil {
+		t.Fatalf("WriteFile config.json: %v", err)
+	}
+
+	// Write mutations for each item.
+	var mutations string
+	for i, item := range items {
+		payload := `{"id":"` + item.id + `","title":"` + item.title + `","type":"task","for":"agent@test","priority":"p2"}`
+		mutation := `{"msg_id":"test-msg-` + item.id + `","campfire_id":"` + hexID + `","timestamp":` + fmt.Sprintf("%d", 1000000000000000001+int64(i)) + `,"operation":"work:create","payload":` + payload + `,"tags":["work:create"],"sender":"testsender"}`
+		mutations += mutation + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(readyDir, "mutations.jsonl"), []byte(mutations), 0600); err != nil {
+		t.Fatalf("WriteFile mutations.jsonl: %v", err)
+	}
+
+	origCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	cleanup := func() {
+		_ = os.Chdir(origCwd)
+		if origCFHome != "" {
+			os.Setenv("CF_HOME", origCFHome)
+		} else {
+			os.Unsetenv("CF_HOME")
+		}
+		rdHome = origRDHome
+		os.RemoveAll(tmpDir)
+	}
+	return tmpDir, cleanup
+}
+
+// captureStdoutPipe replaces os.Stdout with a pipe, calls fn, then returns the output.
+func captureStdoutPipe(t *testing.T, fn func()) string {
+	t.Helper()
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	fn()
+	w.Close()
+	os.Stdout = origStdout
+
+	var buf strings.Builder
+	outBuf := make([]byte, 4096)
+	for {
+		n, readErr := r.Read(outBuf)
+		if n > 0 {
+			buf.Write(outBuf[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	r.Close()
+	return buf.String()
+}
+
+// TestList_PipedOutput_BareIDs verifies that when stdout is not a TTY (piped),
+// rd list prints one item ID per line with no table formatting.
+func TestList_PipedOutput_BareIDs(t *testing.T) {
+	origDebug := debugOutput
+	defer func() { debugOutput = origDebug }()
+	debugOutput = false
+
+	origJSON := jsonOutput
+	defer func() { jsonOutput = origJSON }()
+	jsonOutput = false
+
+	_, cleanup := setupMutationsDir(t, []struct{ id, title string }{
+		{"pipe-list-a1b", "First Item"},
+		{"pipe-list-c3d", "Second Item"},
+	})
+	defer cleanup()
+
+	output := captureStdoutPipe(t, func() {
+		if err := listCmd.RunE(listCmd, []string{}); err != nil {
+			t.Errorf("listCmd.RunE error: %v", err)
+		}
+	})
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines in piped output, got %d; output:\n%s", len(lines), output)
+	}
+
+	// Each line must be exactly an item ID -- no leading spaces, no extra columns.
+	ids := map[string]bool{}
+	for _, line := range lines {
+		if strings.ContainsAny(line, " \t") {
+			t.Errorf("piped output line %q contains whitespace -- expected bare ID only", line)
+		}
+		ids[line] = true
+	}
+	if !ids["pipe-list-a1b"] {
+		t.Errorf("expected pipe-list-a1b in piped output; output:\n%s", output)
+	}
+	if !ids["pipe-list-c3d"] {
+		t.Errorf("expected pipe-list-c3d in piped output; output:\n%s", output)
+	}
+}
+
+// TestList_PipedOutput_JSON_Unchanged verifies that --json output is not
+// affected by the pipe-friendly mode change.
+func TestList_PipedOutput_JSON_Unchanged(t *testing.T) {
+	origDebug := debugOutput
+	defer func() { debugOutput = origDebug }()
+	debugOutput = false
+
+	origJSON := jsonOutput
+	defer func() { jsonOutput = origJSON }()
+	jsonOutput = true // --json mode
+
+	_, cleanup := setupMutationsDir(t, []struct{ id, title string }{
+		{"pipe-json-a1b", "JSON Item"},
+	})
+	defer cleanup()
+
+	output := captureStdoutPipe(t, func() {
+		if err := listCmd.RunE(listCmd, []string{}); err != nil {
+			t.Errorf("listCmd.RunE error: %v", err)
+		}
+	})
+
+	// Must be valid JSON array.
+	var items []map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &items); err != nil {
+		t.Fatalf("piped --json output is not valid JSON: %v; output:\n%s", err, output)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 JSON item, got %d", len(items))
+	}
+	if id, _ := items[0]["id"].(string); id != "pipe-json-a1b" {
+		t.Errorf("expected id=pipe-json-a1b, got %q", id)
+	}
 }
