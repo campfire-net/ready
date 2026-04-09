@@ -1,11 +1,11 @@
 {
-  "campfire_id": "6aee4fd6a802fd679cbaed3b1a6b34e18875c0f46a8641a2c93b1e6f1510ef3a",
+  "campfire_id": "f69420dff082b568f28579457bd6ba4cb040556276a0f4bb806c8f31ea8363bf",
+  "project_name": "ready",
+  "summary_campfire_id": "da11900280f359806bfb482f8764e02a51a06818b4f4884c3a3ba0154454fdeb",
+  "encrypted": true,
+  "inbox_campfire_id": "6ce23147043499e2111eda1b3b8262d5724d70fdd229290b59fb03c4f694f7db",
   "durability": {
-    "meets_minimum": false,
-    "weight": "minimal",
-    "warnings": [
-      "no durability tags declared — retention is unknown",
-      "operator is unverified — do not commit irreplaceable state regardless of durability claims"
-    ]
+    "meets_minimum": true,
+    "weight": ""
   }
 }
