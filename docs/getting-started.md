@@ -6,27 +6,23 @@ Ready is work management as a campfire convention. Items, dependencies, gates, a
 
 - [Concepts](#concepts)
 - [Prerequisites](#prerequisites)
-- [Which topology?](#which-topology)
-- [Topology 1: Single Project (Quick Start)](#topology-1-single-project-quick-start)
-- [Topology 2: Multiple Projects](#topology-2-multiple-projects)
-- [Topology 3: Git-Backed Project (Team Collaboration)](#topology-3-git-backed-project-team-collaboration)
-- [Topology 4: Hosted Persistent Campfire](#topology-4-hosted-persistent-campfire)
+- [Part 1: Solo (5 minutes)](#part-1-solo-5-minutes)
+- [Part 2: Team (invite tokens)](#part-2-team-invite-tokens)
+- [Part 3: Multi-agent (walk-up config)](#part-3-multi-agent-walk-up-config)
+- [Part 4: Dependencies](#part-4-dependencies)
+- [Part 5: Gate escalation](#part-5-gate-escalation)
+- [Part 6: Resuming work (for agents)](#part-6-resuming-work-for-agents)
+- [Part 7: Reference](#part-7-reference)
 
 ---
 
 ## Concepts
 
-**Center** — your identity anchor. Created once per operator via `cf init`. Every campfire you create or join is rooted in your center. Centers can live on the filesystem (local dev) or on a hosted instance (cloud).
+**Campfire** — an append-only message log with named views, compaction, and convention enforcement. `rd init` creates one campfire per project. The campfire is the work item store.
 
-**Campfire** — an append-only message log with named views, compaction, and convention enforcement. Each `rd init` creates one campfire per project. The campfire is the work item store.
+**Item** — a convention-conforming message. Fields: `id`, `title`, `type`, `priority`, `status`, `for`, `by`, `eta`, `due`. All state transitions are messages — the log is the audit trail.
 
-**Convention** — a typed schema registered on a campfire. The work management convention defines `work:create`, `work:close`, `work:status`, and so on. The campfire runtime validates every message against the convention before accepting it. `rd` is a thin wrapper that calls these convention operations.
-
-**Item** — a convention-conforming message on the campfire. Fields: `id`, `title`, `context`, `type`, `priority`, `status`, `for`, `by`, `eta`, `due`, `parent_id`, `blocks`. All state transitions are messages — the message log is the audit trail.
-
-**Views** — named filter predicates registered on the campfire. `rd ready` runs the `ready` view: items that are not done, not blocked, have no parent, and need attention within 4 hours. `rd list` runs `my-work`. Views are evaluated server-side.
-
-**Context key** — a file (`cf.key` or `.campfire/key`) that `cf` walks up from the current directory to find. This is how project campfires are discovered automatically when you run `rd` in a project directory.
+**Views** — named filter predicates evaluated server-side. `rd ready` runs the `ready` view: items that are not done, not blocked, and need attention within 4 hours. `rd list` runs `my-work`. Auto-sync means every read pulls the latest state — no manual sync required.
 
 ---
 
@@ -51,333 +47,373 @@ cf version
 rd version
 ```
 
-If `~/.local/bin` is not in your PATH, the installers will print the exact lines to add to your shell profile.
-
 ---
 
-## Which topology?
+## Part 1: Solo (5 minutes)
 
-| Situation | Use |
-|-----------|-----|
-| One person, one project, trying it out | [Topology 1: Single Project](#topology-1-single-project-quick-start) |
-| One person, several projects | [Topology 2: Multiple Projects](#topology-2-multiple-projects) |
-| A team sharing work state via git | [Topology 3: Git-Backed Project](#topology-3-git-backed-project-team-collaboration) |
-| A team that wants always-on, no git sync | [Topology 4: Hosted Persistent Campfire](#topology-4-hosted-persistent-campfire) |
+One person, one project.
 
----
-
-## Topology 1: Single Project (Quick Start)
-
-One person, one project. The simplest path.
-
-### Setup
+### Initialize
 
 ```bash
 # Create your identity (once per machine)
-cf init
+cf init --cf-home ~/.cf
 
 # Initialize a work campfire in your project
 cd ~/projects/myproject
 rd init --name myproject
 ```
 
-Expected output from `rd init`:
+Output:
 
 ```
-Created campfire: myproject-a1b2c3
-Registered work convention v0.3
-Named views: ready, work, pending, overdue, my-work, delegated
-Context key written to .campfire/root
+initialized myproject
+  campfire: 7b0929f77f95...
+  declarations: 16 operations published
 ```
 
 ### Daily workflow
 
 ```bash
-# Create an item
-rd create "Design the API" --priority p1 --type task
-
-# Output:
-# Created myproject-001
-# Priority: P1  ETA: +4h  Status: inbox
+# Create an item — capture the ID for scripting
+ITEM=$(rd create "Ship login page" --priority p1 --type task)
 
 # See what needs attention now
 rd ready
+# rdtestsoloproja-e1f
 
-# Output:
-# myproject-001  Design the API  P1  inbox
+# Claim it — transitions to active
+rd claim $ITEM
 
-# Claim and start working it
-rd update myproject-001 --status active
+# Post progress as work proceeds
+rd progress $ITEM --notes "Wired up auth middleware"
 
-# Show item detail and audit trail
-rd show myproject-001
-
-# Close it when done
-rd done myproject-001 --reason "API design finalized in docs/api.md"
+# Close when done (reason is required)
+rd done $ITEM --reason "Login page ships with JWT auth"
 ```
 
-### Dependencies
+When stdout is piped, `rd create` emits only the bare item ID — no decoration. This makes shell assignment reliable without parsing.
+
+### Show item detail
 
 ```bash
-# Create two items
-rd create "Write tests" --priority p1 --type task
-# → myproject-002
-
-rd create "Deploy to staging" --priority p1 --type task
-# → myproject-003
-
-# Wire the dependency: deploy blocks on tests
-rd dep add myproject-003 myproject-002
-
-# View the dependency graph
-rd dep tree myproject-003
-
-# Output:
-# myproject-003  Deploy to staging  [blocked]
-# └── myproject-002  Write tests  [active]
-
-# rd ready will not surface myproject-003 until myproject-002 is closed
+rd show <id>
 ```
 
-### Useful commands
+Output (from `test/demo/output/06-gate-escalation.txt`):
+
+```
+ID:       rdtestgateprojyar-dd6
+Title:    Migrate auth layer to new token format
+Status:   active
+Type:     task
+Priority: p1
+ETA:      2026-04-09T06:19:08Z (3h)
+
+History:
+  [2026-04-09T02:19:08Z] inbox → inbox — created
+  [2026-04-09T02:19:08Z] inbox → active
+```
+
+### Other item operations
 
 ```bash
-rd list                            # all items in this project
-rd list --status active            # filter by status
-rd show <id>                       # detail + audit trail
-rd update <id> --priority p0       # change priority
-rd update <id> --note "blocked on review from alice"  # add context
-rd done <id> --reason "..."        # close with reason (required)
-rd cancel <id> --reason "..."      # cancel with reason
+rd list                              # all items in this project
+rd list --all                        # include done/cancelled
+rd list --status active              # filter by status
+rd update <id> --priority p0         # change priority
+rd update <id> --note "blocked on review from alice"
+rd cancel <id> --reason "..."        # cancel with reason
 ```
 
 ---
 
-## Topology 2: Multiple Projects
+## Part 2: Team (invite tokens)
 
-One identity, many projects. Each project gets its own campfire. `rd` auto-detects which campfire to talk to based on the current directory.
+Teammates join via single-use invite tokens. No pubkey exchange. Tokens expire server-side (default 2 hours).
 
-### Setup
-
-```bash
-# Create your identity once
-cf init
-
-# Initialize each project separately
-cd ~/projects/backend
-rd init --name backend
-
-cd ~/projects/frontend
-rd init --name frontend
-
-cd ~/projects/infra
-rd init --name infra
-```
-
-### Project-scoped vs. cross-project queries
+### Owner: generate an invite token
 
 ```bash
-# In ~/projects/backend — shows only backend items
-cd ~/projects/backend
-rd ready
-
-# In ~/projects/frontend — shows only frontend items
-cd ~/projects/frontend
-rd ready
-
-# Cross-project: list items in another project by name
-rd list --project backend
-
-# Cross-project: ready items across all your projects
-rd ready --all
+cd ~/projects/myproject
+rd invite
+# rdx1_...  (invite token — treat as secret, share out of band)
 ```
 
-### How project detection works
-
-When you run `rd` in a directory, it walks up looking for `.campfire/root` (written by `rd init`). The first one it finds is the active project. This means:
+For agents, include a role flag:
 
 ```bash
-cd ~/projects/backend/src/api
-rd ready        # still sees backend project — walked up and found .campfire/root
+rd invite --role agent
+# rdx1_...  (agent invite token)
 ```
-
-If no `.campfire/root` is found in any parent, `rd` falls back to your center's default project (if configured) or returns an error.
-
-### Cross-project dependencies
-
-```bash
-# Wire a dep across projects using full item IDs
-rd dep add frontend-042 backend-017
-
-# View it
-rd dep tree frontend-042
-# frontend-042  Ship login UI  [blocked]
-# └── backend-017  Auth endpoint  [active]  (backend)
-```
-
----
-
-## Topology 3: Git-Backed Project (Team Collaboration)
-
-For teams using git. The campfire context key is committed to the repo. Teammates clone the repo, join the campfire, and share the same work state. No separate infrastructure needed.
-
-### Lead developer: initialize
-
-```bash
-# Create identity (once per machine)
-cf init
-
-cd ~/projects/myrepo
-
-# Initialize the work campfire
-rd init --name myrepo
-
-# Output includes:
-# Context key written to .campfire/root
-
-# Exclude local mutation state from git (not the context key)
-echo ".ready/" >> .gitignore
-
-# Commit the campfire context key — this is how teammates find the campfire
-git add .campfire/ .gitignore
-git commit -m "chore: add work campfire"
-git push
-```
-
-The `.campfire/root` file contains the campfire ID. Anyone who clones the repo can resolve the campfire from it.
 
 ### Teammate: join
 
 ```bash
-# Create identity if you don't have one
-cf init
+# One-time identity bootstrap (cf init creates .cf/identity.json)
+cf init --cf-home ~/projects/myproject/.cf
 
-# Clone the repo as usual
-git clone git@github.com:org/myrepo.git
-cd myrepo
+# Join the project campfire using the token
+rd join rdx1_...
+# joined 00d5716f0154... via invite token (expires in 1h59m0s)
 
-# Join the campfire (reads .campfire/root automatically)
-rd join
-
-# Output:
-# Joined campfire: myrepo-a1b2c3
-# Syncing...  47 messages pulled
-# Named views: ready, work, pending, overdue, my-work, delegated
-
-# Now you're in
+# Items are auto-synced — no rd sync needed
 rd ready
 ```
 
-### Assigning work to teammates
+### Delegate work to a teammate
 
 ```bash
-# Create and assign an item to a teammate
-rd create "Implement rate limiting" --priority p1 --type task --by alice@example.com
+# Owner creates and delegates an item
+rd create "Build API" --type task --priority p1
+rd delegate <item-id> --to <member-identity>
+# delegated <item-id> to <member-identity>
 
-# Alice runs rd ready and sees items assigned to her
-# Baron runs rd delegated and sees items he delegated that are in progress
+# Teammate claims it
+rd update <item-id> --status active
 
-# Alice claims it
-rd update myrepo-007 --status active
-
-# Alice closes it
-rd done myrepo-007 --reason "Rate limiting implemented, PR #42 merged"
+# Teammate closes it
+rd done <item-id> --reason "API complete"
 ```
 
-### Sync behavior
+Real transcript excerpt (`test/demo/output/02-team.txt`):
 
-The campfire protocol handles sync. Messages are append-only and replicated. When Alice posts a `work:close` message, anyone running `rd ready` next will see the updated state — no explicit pull needed for reads.
+```
+$ rd invite
+rdx1_...  (invite token — treat as secret)
 
-For filesystem-based campfires, `rd sync` forces an immediate pull if you want to guarantee you're current:
+$ rd join <invite-token>
+joined 00d5716f0154... via invite token (expires in 1h59m0s)
 
-```bash
-rd sync          # pull latest from campfire
-rd ready         # now reflects latest state
+$ rd ready
+rdtestteamproj-776
+
+$ rd done rdtestteamproj-776 --reason 'API complete'
+closed rdtestteamproj-776 (done)
 ```
 
 ---
 
-## Topology 4: Hosted Persistent Campfire
+## Part 3: Multi-agent (walk-up config)
 
-For teams that want always-on work management with no filesystem state to manage. Uses `mcp.getcampfire.dev` as the campfire host. Items persist in the cloud. Agents and humans connect via campfire ID.
+Multiple agents on the same project each get their own identity. `rd` walks up from the current directory to find `.cf/identity.json` — no env vars needed at runtime.
+
+### Filesystem layout
+
+```
+myproject/
+  .campfire/root              ← project campfire pointer (committed to git)
+  .cf/identity.json           ← owner identity
+  worktree-a/
+    .cf/identity.json         ← agent A identity
+  worktree-b/
+    .cf/identity.json         ← agent B identity
+```
 
 ### Setup
 
 ```bash
-# Create identity anchored to the hosted instance
-cf init --remote https://mcp.getcampfire.dev
-
-# Output:
-# Center created: https://mcp.getcampfire.dev/c/your-center-id
-# Identity: your-key@mcp.getcampfire.dev
-
-# Initialize a project campfire (also lives on the hosted instance)
+# Owner initializes the project
 cd ~/projects/myproject
-rd init --name myproject --remote https://mcp.getcampfire.dev
+cf init --cf-home .cf
+rd init --name myproject
 
-# Output:
-# Created campfire: https://mcp.getcampfire.dev/c/myproject-a1b2c3
-# Registered work convention v0.3
-# Named views: ready, work, pending, overdue, my-work, delegated
+# Add the campfire pointer to git (how teammates find the campfire)
+echo ".cf/" >> .gitignore          # don't commit identity keys
+git add .campfire/ .gitignore
+git commit -m "chore: add work campfire"
+
+# Create worktrees for agents
+git worktree add worktree-a
+git worktree add worktree-b
+
+# Bootstrap each agent identity and join
+cf init --cf-home worktree-a/.cf
+cd ~/projects/myproject && CF_HOME=worktree-a/.cf rd join rdx1_<token-for-agent-a>
+
+cf init --cf-home worktree-b/.cf
+cd ~/projects/myproject && CF_HOME=worktree-b/.cf rd join rdx1_<token-for-agent-b>
 ```
 
-### Daily workflow
-
-Same commands as Topology 1 — the campfire URL is transparent:
+### Each agent works independently
 
 ```bash
-rd create "Ship the feature" --priority p0 --type task
+# Agent A — walk-up finds worktree-a/.cf/identity.json automatically
+cd ~/projects/myproject/worktree-a
+rd ready                            # sees items assigned to agent A
+
+# Agent B — walk-up finds worktree-b/.cf/identity.json
+cd ~/projects/myproject/worktree-b
+rd ready                            # sees items assigned to agent B
+```
+
+Walk-up resolution order: current directory → parent directories → `~/.cf/identity.json`. The first `.cf/identity.json` found wins. No `CF_HOME` needed after initial bootstrap.
+
+---
+
+## Part 4: Dependencies
+
+### Within a project
+
+```bash
+cd ~/projects/myproject
+
+rd create "Build backend API" --priority p1 --type task
+# → myproject-001
+
+rd create "Wire frontend to API" --priority p1 --type task
+# → myproject-002
+
+# frontend work blocks on backend
+rd dep add myproject-002 myproject-001
+
+# View the dep graph
+rd dep tree myproject-002
+# myproject-002  [inbox]  Wire frontend to API
+
+# rd ready hides myproject-002 until myproject-001 is closed
 rd ready
-rd update <id> --status active
-rd done <id> --reason "Feature shipped"
-```
+# myproject-001  p1  inbox  3h  Build backend API
 
-### Sharing with teammates and agents
+rd done myproject-001 --reason "API endpoint deployed"
+# closed myproject-001 (done)
 
-The campfire ID is the sharing primitive. Give it to anyone who needs access:
-
-```bash
-# Get your campfire ID
-rd info
-# Campfire: https://mcp.getcampfire.dev/c/myproject-a1b2c3
-
-# Teammate joins using the ID
-cf join https://mcp.getcampfire.dev/c/myproject-a1b2c3
-rd ready   # sees the same items, same views
-
-# An agent (Claude Code, rudi automaton, etc.) joins the same way
-# The campfire is the coordination bus — no polling, no webhooks
-```
-
-### Gate operations (human escalation)
-
-Hosted campfires make gate operations practical across timezones:
-
-```bash
-# Agent flags a decision needed
-rd gate <id> --type design --note "Two viable approaches, need direction before proceeding"
-
-# Human sees it in their ready view (gate items surface immediately)
 rd ready
-# myproject-019  Design the caching layer  P0  [GATE: design]
-
-# Human resolves it
-rd gate-resolve myproject-019 --resolution approved --note "Go with approach A"
-
-# Agent's await unblocks, work continues
+# myproject-002  p1  inbox  3h  Wire frontend to API
+# ↑ unblocked
 ```
 
-### Local state
+### Cross-project
 
-With hosted campfires, `.ready/` holds only local cache and credentials — no campfire state. Safe to delete if you need to reset:
+Cross-project deps work when both projects use identities from the same `cf init`. The dep add resolves the blocker across campfires automatically.
 
-```bash
-echo ".ready/" >> .gitignore   # standard practice — don't commit local cache
+Real transcript excerpt (`test/demo/output/03-multiproject.txt`):
+
+```
+$ cd FRONTEND && rd dep add rdtestfrontendtisl-a91 rdtestbackendn8e2-322
+blocked: rdtestfrontendtisl-a91 is now blocked by db468d83b830....rdtestbackendn8e2-322 [cross]
+
+$ cd FRONTEND && rd ready
+# (frontend item blocked — not shown)
+
+$ cd BACKEND && rd done rdtestbackendn8e2-322 --reason "API endpoint /api/v1/users deployed"
+closed rdtestbackendn8e2-322 (done)
+
+$ cd FRONTEND && rd ready
+rdtestfrontendtisl-a91
+# frontend item is now unblocked
 ```
 
 ---
 
-## Reference
+## Part 5: Gate escalation
+
+Agents use `rd gate` when they hit a decision point that requires human judgment. The item transitions to `waiting`. The human runs `rd gates`, then `rd approve` or `rd reject`. Approval transitions the item back to `active`.
+
+### Agent gates an item
+
+```bash
+rd gate <item-id> \
+  --gate-type design \
+  --description "Two approaches: option A saves 2ms but breaks caching, option B is safe. Need direction."
+```
+
+Gate types: `design`, `scope`, `risk`, `legal`, `other`.
+
+### Human reviews and approves
+
+```bash
+# See all pending gates
+rd gates
+
+# Output:
+#   rdtestgateprojyar-dd6  p1  Two viable approaches...  Migrate auth layer
+
+# Approve — item returns to active
+rd approve <item-id> --reason "Use option B. Safety over 2ms gain."
+
+# Or reject — item stays in waiting for further discussion
+rd reject <item-id> --reason "Split into smaller items first."
+```
+
+Real transcript excerpt (`test/demo/output/06-gate-escalation.txt`):
+
+```
+$ rd gate rdtestgateprojyar-dd6 --gate-type design --description '...'
+{"gate_type":"design","id":"rdtestgateprojyar-dd6","msg_id":"396874de-..."}
+
+$ rd gates
+  rdtestgateprojyar-dd6  p1  Two viable approaches...  Migrate auth layer to new token format
+
+$ rd approve rdtestgateprojyar-dd6 --reason 'Use option B. Safety over 2ms gain.'
+{"id":"rdtestgateprojyar-dd6","resolution":"approved"}
+
+$ rd show rdtestgateprojyar-dd6
+Status:   active
+```
+
+After approval, the agent checks `rd gates` — no pending entries — and continues work.
+
+---
+
+## Part 6: Resuming work (for agents)
+
+Agents resuming after a context reset (compaction, restart) follow this pattern:
+
+```bash
+# What's actionable right now?
+rd ready
+
+# What am I currently working?
+rd ready --view work
+
+# Load the spec for the active item
+rd show <id>
+
+# Continue from where the spec says
+```
+
+The `work` view surfaces items in `active` status. `rd show` includes the full history and any progress notes posted during previous sessions.
+
+### Programmatic agent loop
+
+Agents can query JSON directly — no parsing wrapper needed:
+
+```bash
+# Get assigned work as JSON
+rd ready --view my-work --json
+
+# Claim the first item
+ITEM_ID=$(rd ready --view my-work --json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+rd claim $ITEM_ID --reason "Starting batch job"
+
+# Post incremental progress
+rd progress $ITEM_ID --notes "Processed 47/142 records"
+rd progress $ITEM_ID --notes "Processed 142/142 records — complete"
+
+# Close
+rd done $ITEM_ID --reason "Batch complete: 142 records processed, 0 errors"
+```
+
+Real transcript excerpt (`test/demo/output/05-agent-workflow.txt`):
+
+```
+$ rd ready --view my-work --json
+[{"id":"rdtestagentprojs-f79","title":"Reindex search corpus","status":"inbox",...}]
+
+$ rd claim rdtestagentprojs-f79 --reason "Starting batch reindex job"
+claimed rdtestagentprojs-f79
+
+$ rd progress rdtestagentprojs-f79 --notes "Processed 47/142 records, 0 errors"
+progress noted on rdtestagentprojs-f79
+
+$ rd done rdtestagentprojs-f79 --reason "Batch complete: 142 records processed, 0 errors"
+closed rdtestagentprojs-f79 (done)
+```
+
+---
+
+## Part 7: Reference
 
 ### Status values
 
@@ -386,7 +422,7 @@ echo ".ready/" >> .gitignore   # standard practice — don't commit local cache
 | `inbox` | Created, not yet claimed |
 | `active` | Being worked now |
 | `scheduled` | Planned for later |
-| `waiting` | Blocked on an external party |
+| `waiting` | Blocked on a gate or external party |
 | `blocked` | Blocked on another item (dep) |
 | `done` | Completed |
 | `cancelled` | Abandoned with reason |
@@ -413,167 +449,28 @@ rd create "Quarterly review" --priority p2 --eta "2026-04-15T09:00"
 
 `task`, `decision`, `review`, `reminder`, `deadline`, `prep`, `message`, `directive`
 
+### Views
+
+| View | `rd` command | Shows |
+|------|-------------|-------|
+| `ready` | `rd ready` | Unblocked, not done, ETA within 4h |
+| `work` | `rd ready --view work` | Items you have active |
+| `my-work` | `rd ready --view my-work` | Items assigned to you |
+| `delegated` | `rd ready --view delegated` | Items you delegated, still open |
+| `pending` | `rd list --view pending` | Scheduled for later |
+| `overdue` | `rd list --view overdue` | Past ETA, not done |
+
+### Common flags
+
+| Flag | Works with | Effect |
+|------|-----------|--------|
+| `--json` | `rd ready`, `rd list`, `rd gates`, `rd show`, `rd gate`, `rd approve` | Machine-readable output |
+| `--all` | `rd list` | Include done and cancelled items |
+| `--view <name>` | `rd ready`, `rd list` | Use a named view predicate |
+| `--role agent` | `rd invite` | Generate an agent-scoped token |
+
 ### Further reading
 
 - Convention spec: `docs/convention/work-management.md` — full operation declarations, field validation, compaction policy
 - Named view predicates: `pkg/views/` — S-expression predicates for each built-in view
 - Campfire protocol: https://getcampfire.dev/docs
-
----
-
-## Real transcripts
-
-The following excerpts are captured from `test/demo/` scripts that run the actual `rd` binary against real campfire sessions. No fabricated output.
-
-### Use case 1 — Solo developer
-
-```
-$ rd init --name myproject --confirm
-initialized myproject
-  campfire: 6ef132115eed...
-  declarations: 16 operations published
-
-$ rd create --title "Ship login page" --priority p1 --type task --json
-{"id":"rdtestsoloprojf0-45e","title":"Ship login page","priority":"p1","type":"task",...}
-
-$ rd ready
-  rdtestsoloprojf0-45e  p1        inbox       3h          Ship login page
-
-$ rd claim rdtestsoloprojf0-45e
-claimed rdtestsoloprojf0-45e
-
-$ rd progress rdtestsoloprojf0-45e --notes "Wired up auth middleware"
-updated rdtestsoloprojf0-45e
-
-$ rd done rdtestsoloprojf0-45e --reason "Login page ships with JWT auth"
-closed rdtestsoloprojf0-45e (done)
-```
-
-Full transcript: `test/demo/output/01-solo.txt`
-
-### Use case 2 — Team (admit + join)
-
-```
-# Owner admits member by pubkey
-$ CF_HOME=$OWNER_CF rd admit <member-pubkey>
-admitted <member-pubkey>
-
-# Member joins the project campfire
-$ CF_HOME=$MEMBER_CF rd join <campfire-id>
-joined <campfire-id>
-
-# Owner delegates item to member
-$ CF_HOME=$OWNER_CF rd delegate rdtestteamprojoz-db5 --to <member-pubkey>
-
-# Member sees their work
-$ CF_HOME=$MEMBER_CF rd ready --view my-work
-  rdtestteamprojoz-db5  p1  inbox  3h  Build API
-
-# Member completes it
-$ CF_HOME=$MEMBER_CF rd done rdtestteamprojoz-db5 --reason "API complete"
-closed rdtestteamprojoz-db5 (done)
-```
-
-Full transcript: `test/demo/output/02-team.txt`
-
-### Use case 3 — Multi-project deps
-
-Cross-project deps are not yet supported (`rd dep add` returns `cross-project deps not supported`). Within a project, deps work:
-
-```
-$ rd dep add frontend-003 frontend-002
-added dependency: frontend-003 blocked by frontend-002
-
-$ rd dep tree frontend-003
-frontend-003 [blocked]
-  └── frontend-002 [inbox]
-
-$ rd ready
-  frontend-002  p1  inbox  3h  Build backend API
-  # frontend-003 is blocked — not shown
-
-$ rd done frontend-002 --reason "Backend shipped"
-closed frontend-002 (done)
-
-$ rd ready
-  frontend-003  p1  inbox  3h  Wire frontend to API
-  # unblocked
-```
-
-Full transcript: `test/demo/output/03-multiproject.txt`
-
-### Use case 5 — Agent workflow (programmatic)
-
-```
-# Agent queries its queue via JSON
-$ CF_HOME=$AGENT_CF rd ready --view my-work --json
-[{"id":"rdtestagentprojbr4-e70","title":"Reindex search corpus",...}]
-
-# Agent claims and posts progress
-$ CF_HOME=$AGENT_CF rd claim rdtestagentprojbr4-e70 --reason "Starting batch reindex job"
-claimed rdtestagentprojbr4-e70
-
-$ CF_HOME=$AGENT_CF rd progress rdtestagentprojbr4-e70 --notes "Processed 142 records"
-updated rdtestagentprojbr4-e70
-
-$ CF_HOME=$AGENT_CF rd done rdtestagentprojbr4-e70 --reason "Batch complete: 142 records processed, 0 errors"
-closed rdtestagentprojbr4-e70 (done)
-```
-
-Full transcript: `test/demo/output/05-agent-workflow.txt`
-
-### Use case 6 — Gate escalation
-
-```
-# Agent gates an item for human review
-$ CF_HOME=$AGENT_CF rd gate rdtestgateproj6-13d \
-    --gate-type design \
-    --description "Two approaches: option A saves 2ms but breaks caching, option B is safe"
-{"id":"rdtestgateproj6-13d","gate_type":"design","status":"waiting","msg_id":"..."}
-
-# Human sees pending escalations
-$ CF_HOME=$HUMAN_CF rd gates
-  rdtestgateproj6-13d  p1  Two viable approaches...  Migrate auth layer
-
-# Human approves
-$ CF_HOME=$HUMAN_CF rd approve rdtestgateproj6-13d --reason "Use option B. Safety over 2ms gain."
-{"id":"rdtestgateproj6-13d","status":"active",...}
-
-# Item returns to active — agent continues
-$ CF_HOME=$AGENT_CF rd gates
-(empty — gate resolved)
-```
-
-Full transcript: `test/demo/output/06-gate-escalation.txt`
-
-### Use case 4 — Org observer (read-only summary access)
-
-The observer is admitted to the project's **summary campfire** only, not the main campfire. They see item projections but cannot propagate writes.
-
-```
-# Owner admits observer to summary campfire (read-only role)
-$ CF_HOME=$OWNER_CF rd admit <observer-pubkey> --role org-observer
-admitted <observer-pubkey> (org-observer)
-
-# Observer joins the summary campfire ID
-$ CF_HOME=$OBS_CF rd join <summary-campfire-id>
-joined <summary-campfire-id>
-
-# Direct join of main campfire is rejected
-$ CF_HOME=$OBS_CF rd join <main-campfire-id>
-error: campfire rejected join: invite-only
-
-# Observer sees item projections
-$ CF_HOME=$OBS_CF rd list
-  rdtestobserverprojgwj-f1f  p0  inbox  overdue  Migrate auth to OAuth2
-  rdtestobserverprojgwj-79d  p1  inbox  3h       Refactor billing module
-  rdtestobserverprojgwj-fce  p2  inbox  23h      Update API docs
-
-# Observer write attempt is blocked at the campfire layer
-$ CF_HOME=$OBS_CF rd create "Sneaky item" --type task --priority p3
-warning: campfire send failed (buffered to pending.jsonl): not a member of campfire c798c111...
-```
-
-Write isolation is enforced at the campfire layer, not locally. Observer-created items buffer to `pending.jsonl` and are never delivered to project members.
-
-Full transcript: `test/demo/output/04-org-observer.txt`

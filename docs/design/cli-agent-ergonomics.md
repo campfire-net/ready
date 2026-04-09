@@ -1,7 +1,7 @@
 # CLI Agent Ergonomics — Design Brief
 
 **Date:** 2026-04-08
-**Status:** Approved (Baron, session 2026-04-07)
+**Status:** Approved (Baron, session 2026-04-07) — updated 2026-04-08 for v0.9.4
 **Items:** ready-42c, ready-00f, ready-731, ready-519, ready-bd6, ready-d2b
 
 ## Problem
@@ -12,6 +12,18 @@
 2. **Warnings on stdout**: Durability, inbox membership, and provenance warnings go to stdout, contaminating machine-parseable output. An agent piping `rd ready` to `jq` gets garbage.
 3. **No agent onboarding**: Getting-started guide is for humans. No `.well-known/agent.json` for A2A discovery. README leads with human workflow.
 
+## v0.9.x Shipped
+
+The following items shipped in the v0.9.x cycle:
+
+- ✅ **Pipe-friendly output** (ready-e09, ready-72e): `rd create`, `rd ready`, `rd list` print bare IDs when output is not a TTY. `ITEM=$(rd create ...)` and `for id in $(rd ready)` now work without `--json`. See notes on ready-42c below.
+- ✅ **Inbox warning suppressed for non-owners** (ready-3ce): convention server inbox warning no longer shown to agents who aren't the campfire owner.
+- ✅ **Durability warnings suppressed for local filesystem** (ready-b56): noise removed for the common dev case.
+- ✅ **Demo script refresh** (ready-d2b): all 11 demos rebuilt and output files updated.
+- ✅ **Invite tokens** (ready-c31): `rd admit` replaced with `rd invite` / `rd join`.
+- ✅ **Walk-up identity** (ready-c4b): agents no longer need `CF_HOME` set before running rd.
+- ✅ **Auto-sync** (ready-341): `rd sync pull` no longer required manually.
+
 ## Decisions (shipped this session)
 
 - ReadyFilter no longer gates on ETA. ETA is for sort order. `scheduled` status is the gate for work that can't start yet. (commit bc1cb43)
@@ -19,11 +31,15 @@
 
 ## Remaining work
 
-### ready-42c: JSON default output
+### ready-42c: JSON default output — Reconsidering
 
-**Change:** `root.go:68` — flip `jsonOutput` default to `true`. Add `--human` / `--pretty` flag that sets `jsonOutput = false`.
+**Original change:** `root.go:68` — flip `jsonOutput` default to `true`. Add `--human` / `--pretty` flag that sets `jsonOutput = false`.
 
-**Scope:**
+**Status:** Reconsidering. Pipe-friendly output (ready-e09, ready-72e) may make this unnecessary for most agent use cases. When output is not a TTY, commands print bare IDs — `ITEM=$(rd create ...)` just works, and `for id in $(rd ready)` iterates without `--json`. Structured JSON is still available via `--json` for agents that need full objects.
+
+The JSON-default approach would make `--json` the default for *all* output, breaking scripts that parse table format. Pipe-friendly is non-breaking and covers the primary agent case (capturing IDs). JSON default may still be worth doing for agents that need structured fields without explicit `--json`, but it is no longer urgent.
+
+**Scope (if pursued):**
 - `cmd/rd/root.go` — default and flag
 - Every command that checks `jsonOutput` — verify JSON path is the primary code path
 - `printItemTable` and similar formatters become `--human`-only
@@ -33,22 +49,28 @@
 
 **Test:** `go test ./cmd/rd/...` — existing tests that assert table output need updating to assert JSON or use `--human`.
 
-### ready-00f: Warnings to stderr
+### ready-00f: Warnings to stderr — Partial
 
 **Change:** All `fmt.Printf("warning: ...")` and `log.Printf("warning: ...")` calls in `cmd/rd/` must write to `os.Stderr`, not `os.Stdout`.
 
-**Scope:**
+**Progress:** Two high-noise warnings are suppressed:
+- Inbox membership warning (ready-3ce): suppressed for non-owners
+- Durability warning for local filesystem (ready-b56): suppressed for the common dev case
+
+The broader migration — moving all remaining warnings to stderr rather than suppressing them — is still open. Agents piping to `jq` may still see non-fatal warnings on stdout from other code paths.
+
+**Remaining scope:**
 - `cmd/rd/root.go` — the `warn()` helper (if it exists) or all inline warning prints
-- `cmd/rd/init.go` — durability warnings
-- `cmd/rd/join.go` — inbox membership warnings
 - `cmd/rd/send.go` — campfire send failure warnings
-- Any command that prints "warning:" to stdout
+- Any command that prints "warning:" to stdout outside the two suppressed cases
 
 **Pattern:** Create a `warnf(format, args...)` helper that writes to stderr. Replace all warning prints.
 
 **Test:** Capture stderr separately from stdout in tests. Verify stdout is clean JSON.
 
-### ready-731: docs/agent.md
+### ready-731: docs/agent.md — In Progress (getting-started.md rewrite)
+
+**Status:** The dedicated agent guide is being written as a rewrite of `docs/getting-started.md` rather than a new `docs/agent.md`. The getting-started guide is being restructured to lead with agent workflow. The content below remains the target spec; the file path may land as `docs/getting-started.md` or `docs/agent.md` depending on the rewrite outcome.
 
 Primary getting-started guide for agents. Content:
 
@@ -76,7 +98,7 @@ rd show <id>               # returns JSON object
 # warnings go to stderr, data goes to stdout
 ```
 
-### ready-519: .well-known/agent.json
+### ready-519: .well-known/agent.json — Open
 
 A2A discovery file. Format:
 
@@ -98,10 +120,12 @@ A2A discovery file. Format:
 }
 ```
 
-### ready-bd6: README restructure
+### ready-bd6: README restructure — In Progress
 
-Lead with agent workflow. Move operator setup to "Setting up a project" section below. Link to docs/agent.md as the primary guide.
+**Status:** Happening now alongside the getting-started.md rewrite.
 
-### ready-d2b: Demo script refresh
+Lead with agent workflow. Move operator setup to "Setting up a project" section below. Link to the agent guide (docs/getting-started.md or docs/agent.md) as the primary entry point.
 
-After D1+D2 ship, re-run all 6 demo scripts (`test/demo/01-06.sh`). Output will change (JSON default, warnings to stderr). Update `test/demo/output/*.txt` and the transcript excerpts in `docs/getting-started.md` and `site/index.html`.
+### ready-d2b: Demo script refresh — ✅ Done
+
+All 11 demo scripts rebuilt and output files updated (`test/demo/output/*.txt`). The output reflects pipe-friendly behavior and suppressed warnings. Note: output changed due to pipe-friendly output (bare IDs when piped) and suppressed warnings — not JSON default as originally anticipated.
