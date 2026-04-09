@@ -133,9 +133,10 @@ func requireConventionServer(ctx context.Context, client *protocol.Client) {
 // Detection order:
 // (1) rdHome flag set → use it
 // (2) CF_HOME env set → use it
-// (3) ~/.cf exists → use it (new install path)
-// (4) ~/.campfire exists → use it (legacy user migration path)
-// (5) neither → default to ~/.cf
+// (3) walk up from cwd looking for .cf/identity.json → use that .cf/
+// (4) ~/.cf exists → use it (new install path)
+// (5) ~/.campfire exists → use it (legacy user migration path)
+// (6) neither → default to ~/.cf
 func CFHome() string {
 	if rdHome != "" {
 		return rdHome
@@ -143,6 +144,13 @@ func CFHome() string {
 	if env := os.Getenv("CF_HOME"); env != "" {
 		return env
 	}
+
+	// Walk up from cwd looking for a .cf/ directory containing identity.json.
+	// This enables per-worktree identity isolation without CF_HOME env vars.
+	if found := cfHomeWalkUp(); found != "" {
+		return found
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: cannot determine home directory: %v\n", err)
@@ -158,6 +166,33 @@ func CFHome() string {
 		return legacyPath
 	}
 	return newPath
+}
+
+// cfHomeWalkUp walks up from the current working directory looking for a .cf/
+// directory that contains identity.json. Returns the .cf/ path if found, or
+// empty string if not. Stops at the filesystem root. Skips ~/.cf to avoid
+// short-circuiting the global fallback logic.
+func cfHomeWalkUp() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	home, _ := os.UserHomeDir()
+	for {
+		candidate := filepath.Join(dir, ".cf")
+		// Skip ~/.cf — that's handled by the global fallback path.
+		if home == "" || candidate != filepath.Join(home, ".cf") {
+			if _, err := os.Stat(filepath.Join(candidate, "identity.json")); err == nil {
+				return candidate
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // IdentityPath returns the path to the identity file.
