@@ -455,7 +455,7 @@ func IsSoloMode(client *protocol.Client, campfireID, selfPubKeyHex string) bool 
 		// No bindings = solo mode.
 		return true
 	}
-	now := time.Now().Unix()
+	now := time.Now().UnixNano()
 	for _, msg := range result.Messages {
 		var b serverBindingPayload
 		if err := json.Unmarshal(msg.Payload, &b); err != nil {

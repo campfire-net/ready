@@ -76,6 +76,16 @@ func init() {
 	// successfully and we're in solo mode, the server starts as a background goroutine
 	// tied to the command's context (cancelled when the command exits).
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Skip protocol.Init (and its auto-identity generation) when the user is
+		// joining via an invite token. The token carries a pre-provisioned identity;
+		// joinViaInviteToken writes it to disk and then calls requireClient() itself.
+		// If we let protocol.Init run here first, it auto-generates a throwaway
+		// identity, causing joinViaInviteToken to see an "existing" identity and
+		// refuse without --force. (ready-167)
+		if cmd.Name() == "join" && len(args) > 0 && strings.HasPrefix(args[0], inviteTokenPrefix) {
+			return nil
+		}
+
 		client, err := requireClient()
 		if err != nil {
 			// Client init failure is non-fatal here — individual commands report it.
