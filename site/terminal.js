@@ -7,6 +7,7 @@
   const DEMOS = {
     solo: {
       title: 'Solo workflow',
+      subtitle: 'test/demo/01-solo.sh',
       source: 'https://github.com/campfire-net/ready/blob/main/test/demo/01-solo.sh',
       lines: [
         { type: 'comment', text: '# Initialize a project' },
@@ -36,13 +37,13 @@
 
     team: {
       title: 'Team with invite tokens',
+      subtitle: 'test/demo/02-team.sh',
       source: 'https://github.com/campfire-net/ready/blob/main/test/demo/02-team.sh',
       lines: [
         { type: 'comment', text: '# Owner creates project and generates invite' },
         { type: 'cmd', text: 'rd init --name backend' },
         { type: 'output', text: 'initialized backend' },
         { type: 'cmd', text: 'TOKEN=$(rd invite)' },
-        { type: 'output', text: 'rdx1_eyJ2IjoxLCJjYW1...  (one-use, expires in 2h)' },
         { type: 'blank' },
         { type: 'comment', text: '# Teammate joins — one command, no key exchange' },
         { type: 'cmd', text: 'rd join $TOKEN' },
@@ -67,21 +68,22 @@
 
     gate: {
       title: 'Agent escalation',
+      subtitle: 'test/demo/06-gate-escalation.sh',
       source: 'https://github.com/campfire-net/ready/blob/main/test/demo/06-gate-escalation.sh',
       lines: [
         { type: 'comment', text: '# Agent hits a decision point' },
         { type: 'cmd', text: 'rd gate myapp-dd6 --gate-type design \\' },
-        { type: 'cmd-cont', text: '  --description "Option A saves 2ms but breaks caching. Option B is safe."' },
+        { type: 'cmd-cont', text: '  --description "Option A saves 2ms but breaks caching."' },
         { type: 'output', text: '{"gate_type":"design","id":"myapp-dd6","status":"waiting"}' },
         { type: 'blank' },
         { type: 'comment', text: '# Item moves to waiting' },
         { type: 'cmd', text: 'rd show myapp-dd6' },
         { type: 'output', text: 'Status:   waiting' },
-        { type: 'output', text: 'Waiting on: Option A saves 2ms but breaks caching... (gate)' },
+        { type: 'output', text: 'Waiting:  Option A saves 2ms but breaks caching... (gate)' },
         { type: 'blank' },
         { type: 'comment', text: '# Human sees it from anywhere' },
         { type: 'cmd', text: 'rd gates' },
-        { type: 'output', text: '  myapp-dd6  p1  Option A saves 2ms...  Migrate auth layer' },
+        { type: 'output', text: '  myapp-dd6  p1  design  Option A saves 2ms...  Migrate auth' },
         { type: 'blank' },
         { type: 'comment', text: '# Human approves — agent continues' },
         { type: 'cmd', text: 'rd approve myapp-dd6 --reason "Use option B. Safety over 2ms."' },
@@ -95,6 +97,7 @@
 
     isolation: {
       title: 'Walk-up agent isolation',
+      subtitle: 'test/demo/11-filesystem-isolation.sh',
       source: 'https://github.com/campfire-net/ready/blob/main/test/demo/11-filesystem-isolation.sh',
       lines: [
         { type: 'comment', text: '# Project directory with two agent worktrees' },
@@ -120,7 +123,7 @@
         { type: 'cmd', text: 'rd claim myproject-b22' },
         { type: 'output', text: 'claimed myproject-b22' },
         { type: 'blank' },
-        { type: 'comment', text: '# Owner sees both claims with different agent identities' },
+        { type: 'comment', text: '# Owner sees both — different identities, same queue' },
         { type: 'cmd', text: 'rd list --all --json | jq ".[].by"' },
         { type: 'output', text: '"a3f2...agent-a"' },
         { type: 'output', text: '"7c1e...agent-b"' },
@@ -128,245 +131,324 @@
     }
   };
 
-  // Timing constants
-  const CHAR_DELAY = 18;       // ms per character for commands
-  const LINE_PAUSE = 120;      // ms pause after each line
-  const CMD_PAUSE = 400;       // ms pause after command before output
-  const SECTION_PAUSE = 600;   // ms pause at blank lines
-  const RESTART_DELAY = 3000;  // ms before looping
+  // Timing
+  var CHAR_DELAY = 20;
+  var LINE_PAUSE = 100;
+  var CMD_PAUSE = 350;
+  var SECTION_PAUSE = 500;
+  var RESTART_DELAY = 4000;
 
-  class TerminalPlayer {
-    constructor(el, demo) {
-      this.container = el;
-      this.demo = demo;
-      this.lines = demo.lines;
-      this.currentLine = 0;
-      this.playing = false;
-      this.abortController = null;
-      this.render();
-    }
-
-    render() {
-      this.container.innerHTML = '';
-
-      // Header bar
-      const header = document.createElement('div');
-      header.className = 'term-header';
-
-      const dots = document.createElement('div');
-      dots.className = 'term-dots';
-      dots.innerHTML = '<span></span><span></span><span></span>';
-
-      const title = document.createElement('span');
-      title.className = 'term-title';
-      title.textContent = this.demo.title;
-
-      const controls = document.createElement('div');
-      controls.className = 'term-controls';
-
-      this.playBtn = document.createElement('button');
-      this.playBtn.className = 'term-play';
-      this.playBtn.textContent = '\u25B6';
-      this.playBtn.title = 'Play';
-      this.playBtn.addEventListener('click', () => this.toggle());
-
-      const sourceLink = document.createElement('a');
-      sourceLink.href = this.demo.source;
-      sourceLink.className = 'term-source';
-      sourceLink.textContent = 'source';
-      sourceLink.target = '_blank';
-      sourceLink.rel = 'noopener';
-
-      controls.appendChild(this.playBtn);
-      controls.appendChild(sourceLink);
-
-      header.appendChild(dots);
-      header.appendChild(title);
-      header.appendChild(controls);
-
-      // Terminal body
-      this.body = document.createElement('div');
-      this.body.className = 'term-body';
-
-      // Prompt (cursor)
-      this.prompt = document.createElement('div');
-      this.prompt.className = 'term-prompt';
-      this.prompt.innerHTML = '<span class="term-ps1">$</span> <span class="term-cursor"></span>';
-
-      this.body.appendChild(this.prompt);
-
-      this.container.appendChild(header);
-      this.container.appendChild(this.body);
-    }
-
-    toggle() {
-      if (this.playing) {
-        this.stop();
-      } else {
-        this.play();
-      }
-    }
-
-    async play() {
-      this.playing = true;
-      this.playBtn.textContent = '\u275A\u275A';
-      this.playBtn.title = 'Pause';
-      this.abortController = new AbortController();
-
-      // Clear previous output
-      this.body.innerHTML = '';
-      this.body.appendChild(this.prompt);
-      this.currentLine = 0;
-
-      try {
-        await this.runLines();
-      } catch (e) {
-        if (e.name !== 'AbortError') throw e;
-      }
-
-      if (this.playing) {
-        // Loop
-        await this.sleep(RESTART_DELAY);
-        if (this.playing) this.play();
-      }
-    }
-
-    stop() {
-      this.playing = false;
-      this.playBtn.textContent = '\u25B6';
-      this.playBtn.title = 'Play';
-      if (this.abortController) this.abortController.abort();
-    }
-
-    async runLines() {
-      for (let i = 0; i < this.lines.length; i++) {
-        this.checkAbort();
-        const line = this.lines[i];
-
-        if (line.type === 'blank') {
-          this.addBlank();
-          await this.sleep(SECTION_PAUSE);
-          continue;
-        }
-
-        if (line.type === 'comment') {
-          this.addLine('term-comment', line.text);
-          await this.sleep(LINE_PAUSE);
-          continue;
-        }
-
-        if (line.type === 'cmd' || line.type === 'cmd-cont') {
-          await this.typeCommand(line.text, line.type === 'cmd-cont');
-          await this.sleep(CMD_PAUSE);
-          continue;
-        }
-
-        if (line.type === 'output') {
-          this.addLine('term-output', line.text);
-          await this.sleep(LINE_PAUSE);
-          continue;
-        }
-      }
-    }
-
-    async typeCommand(text, isContinuation) {
-      // Hide prompt during typing
-      this.prompt.style.display = 'none';
-
-      const lineEl = document.createElement('div');
-      lineEl.className = 'term-line term-cmd';
-
-      if (!isContinuation) {
-        const ps1 = document.createElement('span');
-        ps1.className = 'term-ps1';
-        ps1.textContent = '$ ';
-        lineEl.appendChild(ps1);
-      } else {
-        // Indent continuation
-        const indent = document.createElement('span');
-        indent.className = 'term-ps1';
-        indent.textContent = '  ';
-        lineEl.appendChild(indent);
-      }
-
-      const textSpan = document.createElement('span');
-      lineEl.appendChild(textSpan);
-
-      const cursor = document.createElement('span');
-      cursor.className = 'term-cursor';
-      lineEl.appendChild(cursor);
-
-      // Insert before prompt
-      this.body.insertBefore(lineEl, this.prompt);
-      this.scrollToBottom();
-
-      // Type characters
-      for (let j = 0; j < text.length; j++) {
-        this.checkAbort();
-        textSpan.textContent += text[j];
-        this.scrollToBottom();
-        await this.sleep(CHAR_DELAY);
-      }
-
-      // Remove cursor from this line
-      cursor.remove();
-
-      // Show prompt again
-      this.prompt.style.display = '';
-      this.scrollToBottom();
-    }
-
-    addLine(className, text) {
-      const lineEl = document.createElement('div');
-      lineEl.className = 'term-line ' + className;
-      lineEl.textContent = text;
-      this.body.insertBefore(lineEl, this.prompt);
-      this.scrollToBottom();
-    }
-
-    addBlank() {
-      const lineEl = document.createElement('div');
-      lineEl.className = 'term-line term-blank';
-      lineEl.innerHTML = '&nbsp;';
-      this.body.insertBefore(lineEl, this.prompt);
-    }
-
-    scrollToBottom() {
-      this.body.scrollTop = this.body.scrollHeight;
-    }
-
-    sleep(ms) {
-      return new Promise((resolve, reject) => {
-        const id = setTimeout(resolve, ms);
-        if (this.abortController) {
-          this.abortController.signal.addEventListener('abort', () => {
-            clearTimeout(id);
-            reject(new DOMException('Aborted', 'AbortError'));
-          });
-        }
-      });
-    }
-
-    checkAbort() {
-      if (this.abortController && this.abortController.signal.aborted) {
-        throw new DOMException('Aborted', 'AbortError');
-      }
-    }
+  function TerminalPlayer(el, demo) {
+    this.el = el;
+    this.demo = demo;
+    this.lines = demo.lines;
+    this.renderedLines = [];
+    this.playing = false;
+    this.paused = false;
+    this.step = 0;        // current line index for scrubber
+    this.abortFn = null;
+    this.build();
   }
 
-  // Auto-init: find all [data-terminal-demo] elements
-  document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('[data-terminal-demo]').forEach(function(el) {
-      var demoName = el.getAttribute('data-terminal-demo');
-      if (DEMOS[demoName]) {
-        new TerminalPlayer(el, DEMOS[demoName]);
-      }
-    });
+  TerminalPlayer.prototype.build = function() {
+    this.el.innerHTML = '';
 
-    // Auto-play the first visible terminal
-    var first = document.querySelector('[data-terminal-demo]');
-    if (first && first._player) {
-      first._player.play();
+    // Chrome
+    var chrome = document.createElement('div');
+    chrome.className = 'term-chrome';
+
+    var dots = document.createElement('div');
+    dots.className = 'term-dots';
+    dots.innerHTML = '<span></span><span></span><span></span>';
+
+    var titleEl = document.createElement('div');
+    titleEl.className = 'term-chrome-title';
+    titleEl.textContent = this.demo.title;
+
+    var sourceLink = document.createElement('a');
+    sourceLink.href = this.demo.source;
+    sourceLink.className = 'term-chrome-source';
+    sourceLink.textContent = this.demo.subtitle;
+    sourceLink.target = '_blank';
+    sourceLink.rel = 'noopener';
+
+    chrome.appendChild(dots);
+    chrome.appendChild(titleEl);
+    chrome.appendChild(sourceLink);
+
+    // Viewport
+    this.viewport = document.createElement('div');
+    this.viewport.className = 'term-viewport';
+
+    // Content (scrollable)
+    this.content = document.createElement('div');
+    this.content.className = 'term-content';
+
+    // Cursor line
+    this.cursorLine = document.createElement('div');
+    this.cursorLine.className = 'term-line';
+    this.cursorLine.innerHTML = '<span class="t-ps1">$ </span><span class="t-cursor"></span>';
+    this.content.appendChild(this.cursorLine);
+
+    this.viewport.appendChild(this.content);
+
+    // Controls bar
+    var controls = document.createElement('div');
+    controls.className = 'term-bar';
+
+    this.playBtn = document.createElement('button');
+    this.playBtn.className = 'term-btn';
+    this.playBtn.innerHTML = '\u25B6';
+    this.playBtn.title = 'Play';
+    var self = this;
+    this.playBtn.onclick = function() { self.togglePlay(); };
+
+    this.restartBtn = document.createElement('button');
+    this.restartBtn.className = 'term-btn';
+    this.restartBtn.innerHTML = '\u23EE';
+    this.restartBtn.title = 'Restart';
+    this.restartBtn.onclick = function() { self.restart(); };
+
+    // Progress bar
+    this.progressWrap = document.createElement('div');
+    this.progressWrap.className = 'term-progress-wrap';
+    this.progressFill = document.createElement('div');
+    this.progressFill.className = 'term-progress-fill';
+    this.progressWrap.appendChild(this.progressFill);
+
+    // Click on progress bar to scrub
+    this.progressWrap.onclick = function(e) {
+      var rect = self.progressWrap.getBoundingClientRect();
+      var pct = (e.clientX - rect.left) / rect.width;
+      self.scrubTo(pct);
+    };
+
+    // Step counter
+    this.stepLabel = document.createElement('span');
+    this.stepLabel.className = 'term-step';
+    this.stepLabel.textContent = '0/' + this.lines.length;
+
+    controls.appendChild(this.playBtn);
+    controls.appendChild(this.restartBtn);
+    controls.appendChild(this.progressWrap);
+    controls.appendChild(this.stepLabel);
+
+    this.el.appendChild(chrome);
+    this.el.appendChild(this.viewport);
+    this.el.appendChild(controls);
+  };
+
+  TerminalPlayer.prototype.updateProgress = function() {
+    var pct = this.lines.length > 0 ? (this.step / this.lines.length) * 100 : 0;
+    this.progressFill.style.width = pct + '%';
+    this.stepLabel.textContent = this.step + '/' + this.lines.length;
+  };
+
+  TerminalPlayer.prototype.togglePlay = function() {
+    if (this.playing && !this.paused) {
+      this.pause();
+    } else if (this.paused) {
+      this.resume();
+    } else {
+      this.play();
+    }
+  };
+
+  TerminalPlayer.prototype.play = function() {
+    this.playing = true;
+    this.paused = false;
+    this.playBtn.innerHTML = '\u275A\u275A';
+    this.playBtn.title = 'Pause';
+    this.step = 0;
+    this.content.innerHTML = '';
+    this.content.appendChild(this.cursorLine);
+    this.renderedLines = [];
+    this.runNext();
+  };
+
+  TerminalPlayer.prototype.pause = function() {
+    this.paused = true;
+    this.playBtn.innerHTML = '\u25B6';
+    this.playBtn.title = 'Resume';
+    if (this.abortFn) this.abortFn();
+  };
+
+  TerminalPlayer.prototype.resume = function() {
+    this.paused = false;
+    this.playBtn.innerHTML = '\u275A\u275A';
+    this.playBtn.title = 'Pause';
+    this.runNext();
+  };
+
+  TerminalPlayer.prototype.stop = function() {
+    this.playing = false;
+    this.paused = false;
+    this.playBtn.innerHTML = '\u25B6';
+    this.playBtn.title = 'Play';
+    if (this.abortFn) this.abortFn();
+  };
+
+  TerminalPlayer.prototype.restart = function() {
+    this.stop();
+    this.play();
+  };
+
+  TerminalPlayer.prototype.scrubTo = function(pct) {
+    this.stop();
+    var target = Math.floor(pct * this.lines.length);
+    target = Math.max(0, Math.min(target, this.lines.length));
+
+    this.content.innerHTML = '';
+    this.renderedLines = [];
+    this.step = 0;
+
+    // Render all lines up to target instantly
+    for (var i = 0; i < target; i++) {
+      this.renderLineInstant(this.lines[i]);
+      this.step = i + 1;
+    }
+
+    this.content.appendChild(this.cursorLine);
+    this.updateProgress();
+    this.scrollToBottom();
+  };
+
+  TerminalPlayer.prototype.renderLineInstant = function(line) {
+    if (line.type === 'blank') {
+      var bl = document.createElement('div');
+      bl.className = 'term-line term-blank';
+      bl.innerHTML = '\u00A0';
+      this.content.appendChild(bl);
+      return;
+    }
+
+    var el = document.createElement('div');
+    el.className = 'term-line';
+
+    if (line.type === 'comment') {
+      el.className += ' t-comment';
+      el.textContent = line.text;
+    } else if (line.type === 'cmd') {
+      el.className += ' t-cmd';
+      el.innerHTML = '<span class="t-ps1">$ </span>' + this.escapeHtml(line.text);
+    } else if (line.type === 'cmd-cont') {
+      el.className += ' t-cmd';
+      el.innerHTML = '<span class="t-ps1">  </span>' + this.escapeHtml(line.text);
+    } else if (line.type === 'output') {
+      el.className += ' t-out';
+      el.textContent = line.text;
+    }
+
+    this.content.appendChild(el);
+    this.renderedLines.push(el);
+  };
+
+  TerminalPlayer.prototype.runNext = function() {
+    if (!this.playing || this.paused) return;
+    if (this.step >= this.lines.length) {
+      this.updateProgress();
+      var self = this;
+      this.delay(RESTART_DELAY, function() {
+        if (self.playing && !self.paused) self.play();
+      });
+      return;
+    }
+
+    var line = this.lines[this.step];
+    var self = this;
+
+    if (line.type === 'blank') {
+      this.renderLineInstant(line);
+      this.step++;
+      this.updateProgress();
+      this.delay(SECTION_PAUSE, function() { self.runNext(); });
+    } else if (line.type === 'comment') {
+      this.renderLineInstant(line);
+      this.scrollToBottom();
+      this.step++;
+      this.updateProgress();
+      this.delay(LINE_PAUSE, function() { self.runNext(); });
+    } else if (line.type === 'cmd' || line.type === 'cmd-cont') {
+      this.typeCmd(line, function() {
+        self.step++;
+        self.updateProgress();
+        self.delay(CMD_PAUSE, function() { self.runNext(); });
+      });
+    } else if (line.type === 'output') {
+      this.renderLineInstant(line);
+      this.scrollToBottom();
+      this.step++;
+      this.updateProgress();
+      this.delay(LINE_PAUSE, function() { self.runNext(); });
+    }
+  };
+
+  TerminalPlayer.prototype.typeCmd = function(line, cb) {
+    var isCont = line.type === 'cmd-cont';
+    var el = document.createElement('div');
+    el.className = 'term-line t-cmd';
+
+    var ps1 = document.createElement('span');
+    ps1.className = 't-ps1';
+    ps1.textContent = isCont ? '  ' : '$ ';
+    el.appendChild(ps1);
+
+    var textSpan = document.createElement('span');
+    el.appendChild(textSpan);
+
+    var cursor = document.createElement('span');
+    cursor.className = 't-cursor';
+    el.appendChild(cursor);
+
+    // Insert before the static cursor line
+    this.content.insertBefore(el, this.cursorLine);
+    this.cursorLine.style.display = 'none';
+    this.scrollToBottom();
+
+    var text = line.text;
+    var pos = 0;
+    var self = this;
+
+    function nextChar() {
+      if (!self.playing || self.paused) return;
+      if (pos >= text.length) {
+        cursor.remove();
+        self.cursorLine.style.display = '';
+        self.scrollToBottom();
+        cb();
+        return;
+      }
+      textSpan.textContent += text[pos];
+      pos++;
+      self.scrollToBottom();
+      self.delay(CHAR_DELAY, nextChar);
+    }
+    nextChar();
+  };
+
+  TerminalPlayer.prototype.delay = function(ms, fn) {
+    var id = setTimeout(fn, ms);
+    this.abortFn = function() { clearTimeout(id); };
+  };
+
+  TerminalPlayer.prototype.scrollToBottom = function() {
+    this.viewport.scrollTop = this.viewport.scrollHeight;
+  };
+
+  TerminalPlayer.prototype.escapeHtml = function(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  };
+
+  // Init
+  document.addEventListener('DOMContentLoaded', function() {
+    var els = document.querySelectorAll('[data-terminal-demo]');
+    for (var i = 0; i < els.length; i++) {
+      var name = els[i].getAttribute('data-terminal-demo');
+      if (DEMOS[name]) {
+        new TerminalPlayer(els[i], DEMOS[name]);
+      }
     }
   });
 })();
