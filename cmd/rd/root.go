@@ -273,7 +273,7 @@ func requireExecutor() (*convention.Executor, *protocol.Client, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	exec := convention.NewExecutor(client, client.PublicKeyHex())
+	exec := convention.NewExecutor(client)
 
 	// Wire in provenance checking so that min_operator_level gates work.
 	// Best-effort: if we can't open the store or find the campfire, fall back to
@@ -319,7 +319,7 @@ func requireClient() (*protocol.Client, error) {
 	if protocolClient != nil {
 		return protocolClient, nil
 	}
-	c, err := protocol.Init(CFHome(), protocol.WithAuthorizeFunc(centerAuthorize))
+	c, _, err := protocol.Init(CFHome(), protocol.WithAuthorizeFunc(centerAuthorize))
 	if err != nil {
 		return nil, fmt.Errorf("initializing campfire client: %w", err)
 	}

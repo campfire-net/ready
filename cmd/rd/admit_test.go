@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/campfire-net/campfire/pkg/convention"
-	"github.com/campfire-net/campfire/pkg/protocol"
 	"github.com/campfire-net/campfire/pkg/store"
 	"github.com/campfire-net/ready/pkg/rdconfig"
 	"github.com/campfire-net/ready/pkg/resolve"
@@ -216,10 +215,6 @@ func TestAdmitMemberWithRole_CallsClientAdmit(t *testing.T) {
 	}
 	if req.Role != "member" {
 		t.Errorf("Admit Role = %q, want %q", req.Role, "member")
-	}
-	if req.Transport.(protocol.FilesystemTransport).Dir != transportDir {
-		t.Errorf("Admit Transport.Dir = %q, want %q",
-			req.Transport.(protocol.FilesystemTransport).Dir, transportDir)
 	}
 }
 

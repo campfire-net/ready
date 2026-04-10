@@ -154,6 +154,16 @@ type SyncConfig struct {
 	// project campfire.
 	InboxCampfireID string `json:"inbox_campfire_id,omitempty"`
 
+	// RelayURL is the HTTP relay endpoint used to create or join this project's
+	// campfires. Non-empty when the project was initialized with a relay transport.
+	// rd sync uses this to reach the campfire when the relay is not discoverable
+	// from beacon metadata alone.
+	RelayURL string `json:"relay_url,omitempty"`
+
+	// Beacon is the portable beacon string (beacon:BASE64) for the main project
+	// campfire. Used by rd init --join on other machines to join the same project.
+	Beacon string `json:"beacon,omitempty"`
+
 	// Durability is the durability assessment at configuration time.
 	Durability *DurabilityAssessment `json:"durability,omitempty"`
 }

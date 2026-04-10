@@ -273,7 +273,6 @@ func admitThenGrant(ctx context.Context, client campfireAdmitter, exec *conventi
 		CampfireID:      campfireID,
 		MemberPubKeyHex: pubKeyHex,
 		Role:            grantRole,
-		Transport:       protocol.FilesystemTransport{Dir: m.TransportDir},
 	}); err != nil {
 		return "", fmt.Errorf("admitting member: %w", err)
 	}
@@ -317,7 +316,6 @@ func admitMemberWithRole(client campfireAdmitter, campfireID, pubKeyHex, role, l
 		CampfireID:      campfireID,
 		MemberPubKeyHex: pubKeyHex,
 		Role:            role,
-		Transport:       protocol.FilesystemTransport{Dir: m.TransportDir},
 	}); err != nil {
 		return fmt.Errorf("admitting to %s: %w", label, err)
 	}

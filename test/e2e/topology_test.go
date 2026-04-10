@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -390,16 +391,16 @@ func TestE2E_Topology3_GitBacked_FsTransport(t *testing.T) {
 
 func TestE2E_Topology4_Hosted_HTTPTransport(t *testing.T) {
 	// Connectivity gate: skip if hosted campfire is unreachable.
-	conn, err := net.DialTimeout("tcp", "mcp.getcampfire.dev:443", 5*time.Second)
+	conn, err := net.DialTimeout("tcp", "mcp.east.getcampfire.dev:443", 5*time.Second)
 	if err != nil {
-		t.Skipf("mcp.getcampfire.dev:443 not reachable (%v) — skipping hosted topology test", err)
+		t.Skipf("mcp.east.getcampfire.dev:443 not reachable (%v) — skipping hosted topology test", err)
 	}
 	conn.Close()
 
 	cfHome := t.TempDir()
 	projectDir := t.TempDir()
 
-	topologyCfInitRemote(t, cfHome, "https://mcp.getcampfire.dev")
+	topologyCfInitRemote(t, cfHome, "https://mcp.east.getcampfire.dev/api")
 
 	e := &Env{CFHome: cfHome, ProjectDir: projectDir, t: t}
 
@@ -487,15 +488,26 @@ func topologyCfInit(t *testing.T, cfHome string) {
 	}
 }
 
-// topologyCfInitRemote runs cf init with a --remote flag.
-func topologyCfInitRemote(t *testing.T, cfHome, remote string) {
+// topologyCfInitRemote runs cf init and writes a config.toml with the relay URL.
+// In cf 0.17+, the relay URL is configured via config.toml rather than a --remote flag.
+func topologyCfInitRemote(t *testing.T, cfHome, relay string) {
 	t.Helper()
-	cmd := exec.Command("cf", "init", "--cf-home", cfHome, "--remote", remote)
+
+	// Write config.toml with relay URL so cf create uses hosted transport.
+	configContent := fmt.Sprintf("[transport]\nrelay = %q\n", relay)
+	if err := os.MkdirAll(cfHome, 0700); err != nil {
+		t.Fatalf("creating cfHome dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfHome, "config.toml"), []byte(configContent), 0600); err != nil {
+		t.Fatalf("writing config.toml: %v", err)
+	}
+
+	cmd := exec.Command("cf", "init", "--cf-home", cfHome)
 	cmd.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("cf init --remote failed: %v\n%s", err, out)
+		t.Fatalf("cf init failed: %v\n%s", err, out)
 	}
 }

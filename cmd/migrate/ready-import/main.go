@@ -194,7 +194,7 @@ func main() {
 	}
 
 	// Initialize campfire client.
-	client, err := protocol.Init(cfHomeDir, protocol.WithNoWalkUp())
+	client, _, err := protocol.Init(cfHomeDir, protocol.WithNoWalkUp())
 	if err != nil {
 		fatalf("initializing campfire client: %v", err)
 	}

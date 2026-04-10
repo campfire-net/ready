@@ -37,7 +37,11 @@ func sendToProjectCampfire(agentID *identity.Identity, s store.Store, payload st
 	campfireID, _, hasCampfire := projectRoot()
 
 	// Phase 1 — build the message object (we always need it for JSONL).
-	msg, err := message.NewMessage(agentID.PrivateKey, agentID.PublicKey, []byte(payload), tags, antecedents)
+	signer, err := message.NewEd25519Signer(agentID.PrivateKey, agentID.PublicKey)
+	if err != nil {
+		return nil, "", fmt.Errorf("creating signer: %w", err)
+	}
+	msg, err := message.NewMessage(signer, []byte(payload), tags, antecedents)
 	if err != nil {
 		return nil, "", fmt.Errorf("creating message: %w", err)
 	}
@@ -130,7 +134,11 @@ func executeConventionOp(agentID *identity.Identity, s store.Store, exec *conven
 			return nil, "", fmt.Errorf("encoding args: %w", err)
 		}
 		primaryTag := jsonl.WorkTagPrefix + decl.Operation
-		msg, err := message.NewMessage(agentID.PrivateKey, agentID.PublicKey, payloadJSON, []string{primaryTag}, nil)
+		signer, err := message.NewEd25519Signer(agentID.PrivateKey, agentID.PublicKey)
+		if err != nil {
+			return nil, "", fmt.Errorf("creating signer: %w", err)
+		}
+		msg, err := message.NewMessage(signer, payloadJSON, []string{primaryTag}, nil)
 		if err != nil {
 			return nil, "", fmt.Errorf("creating message: %w", err)
 		}
@@ -182,7 +190,11 @@ func executeConventionOpToCampfire(agentID *identity.Identity, s store.Store, ex
 	result, execErr := exec.Execute(ctx, decl, campfireID, argsMap)
 	if execErr != nil {
 		// Executor failed — fall back to locally-generated ID for JSONL and pending buffer.
-		msg, msgErr := message.NewMessage(agentID.PrivateKey, agentID.PublicKey, payloadJSON, []string{primaryTag}, nil)
+		signer, signerErr := message.NewEd25519Signer(agentID.PrivateKey, agentID.PublicKey)
+		if signerErr != nil {
+			return nil, "", fmt.Errorf("creating signer: %w", signerErr)
+		}
+		msg, msgErr := message.NewMessage(signer, payloadJSON, []string{primaryTag}, nil)
 		if msgErr != nil {
 			return nil, "", fmt.Errorf("creating fallback message: %w", msgErr)
 		}

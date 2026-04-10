@@ -262,7 +262,7 @@ func TestD6_MessageID_NonEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identity.Generate: %v", err)
 	}
-	msg, err := message.NewMessage(id.PrivateKey, id.PublicKey, []byte(`{"op":"test"}`), []string{"work:create"}, nil)
+	msg, err := message.NewMessage(mustSigner(t, id), []byte(`{"op":"test"}`), []string{"work:create"}, nil)
 	if err != nil {
 		t.Fatalf("message.NewMessage: %v", err)
 	}
@@ -282,11 +282,11 @@ func TestD6_TwoDistinctMessages_HaveDifferentIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identity.Generate: %v", err)
 	}
-	msg1, err := message.NewMessage(id.PrivateKey, id.PublicKey, []byte(`{"op":"test1"}`), []string{"work:create"}, nil)
+	msg1, err := message.NewMessage(mustSigner(t, id), []byte(`{"op":"test1"}`), []string{"work:create"}, nil)
 	if err != nil {
 		t.Fatalf("NewMessage (1): %v", err)
 	}
-	msg2, err := message.NewMessage(id.PrivateKey, id.PublicKey, []byte(`{"op":"test2"}`), []string{"work:create"}, nil)
+	msg2, err := message.NewMessage(mustSigner(t, id), []byte(`{"op":"test2"}`), []string{"work:create"}, nil)
 	if err != nil {
 		t.Fatalf("NewMessage (2): %v", err)
 	}
@@ -855,4 +855,14 @@ func TestProjectRoot_NameOnly(t *testing.T) {
 	}
 	// If ok=false, that's acceptable for a unit test without mocking CFHome().
 	// The important thing is that the code attempts to read ProjectName and resolve it.
+}
+
+// mustSigner creates a message.Signer from an identity, fatal on error.
+func mustSigner(t *testing.T, id *identity.Identity) message.Signer {
+	t.Helper()
+	s, err := message.NewEd25519Signer(id.PrivateKey, id.PublicKey)
+	if err != nil {
+		t.Fatalf("NewEd25519Signer: %v", err)
+	}
+	return s
 }
