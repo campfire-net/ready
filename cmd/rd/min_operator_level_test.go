@@ -21,31 +21,31 @@ func (s *staticProvenanceChecker) Level(key string) int {
 	return 0
 }
 
-// TestMinOperatorLevel_WorkCloseRejectedAtLevel1 verifies that work:close operation
-// with min_operator_level=2 is rejected when a level-1 caller attempts execution.
+// TestMinOperatorLevel_WorkCloseRejectedAtLevel0 verifies that work:close operation
+// with min_operator_level=1 is rejected when a level-0 caller attempts execution.
 // This is the integration test verifying the real close.json declaration is enforced.
-func TestMinOperatorLevel_WorkCloseRejectedAtLevel1(t *testing.T) {
-	// Load the actual close.json declaration (min_operator_level=2).
+func TestMinOperatorLevel_WorkCloseRejectedAtLevel0(t *testing.T) {
+	// Load the actual close.json declaration (min_operator_level=1).
 	decl, err := loadDeclaration("close")
 	if err != nil {
 		t.Fatalf("loadDeclaration(close): %v", err)
 	}
 
 	// Verify the declaration has the expected min_operator_level.
-	if decl.MinOperatorLevel != 2 {
-		t.Fatalf("expected close.json to have min_operator_level=2, got %d", decl.MinOperatorLevel)
+	if decl.MinOperatorLevel != 1 {
+		t.Fatalf("expected close.json to have min_operator_level=1, got %d", decl.MinOperatorLevel)
 	}
 
-	testKey := "test-key-level1"
+	testKey := "test-key-level0"
 	backend := &noopBackend{}
 	exec := convention.NewExecutorForTest(backend, testKey)
 
-	// Attach a provenance checker that returns level=1 for the test key.
+	// Attach a provenance checker that returns level=0 for the test key.
 	exec = exec.WithProvenance(&staticProvenanceChecker{
-		levels: map[string]int{testKey: 1},
+		levels: map[string]int{testKey: 0},
 	})
 
-	// Attempt to execute work:close with a level-1 caller.
+	// Attempt to execute work:close with a level-0 caller.
 	argsMap := map[string]any{
 		"target":     "msg-target-abc",
 		"resolution": "done",
@@ -56,7 +56,7 @@ func TestMinOperatorLevel_WorkCloseRejectedAtLevel1(t *testing.T) {
 
 	// Must be rejected with an operator-level error.
 	if err == nil {
-		t.Fatal("expected rejection for level-1 caller on work:close (min_operator_level=2), got nil error")
+		t.Fatal("expected rejection for level-0 caller on work:close (min_operator_level=1), got nil error")
 	}
 
 	// Error must mention operator provenance level.
@@ -65,8 +65,8 @@ func TestMinOperatorLevel_WorkCloseRejectedAtLevel1(t *testing.T) {
 	}
 
 	// Error must indicate the required level.
-	if !strings.Contains(err.Error(), "requires level 2") {
-		t.Errorf("expected 'requires level 2' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "requires level 1") {
+		t.Errorf("expected 'requires level 1' in error, got: %v", err)
 	}
 }
 
@@ -151,25 +151,25 @@ func TestMinOperatorLevel_RoleGrantAcceptedAtLevel2(t *testing.T) {
 	}
 }
 
-// TestMinOperatorLevel_WorkCloseAcceptedAtLevel2 verifies that work:close operation
-// with min_operator_level=2 is accepted when a level-2 caller attempts execution.
-func TestMinOperatorLevel_WorkCloseAcceptedAtLevel2(t *testing.T) {
-	// Load the actual close.json declaration (min_operator_level=2).
+// TestMinOperatorLevel_WorkCloseAcceptedAtLevel1 verifies that work:close operation
+// with min_operator_level=1 is accepted when a level-1 caller attempts execution.
+func TestMinOperatorLevel_WorkCloseAcceptedAtLevel1(t *testing.T) {
+	// Load the actual close.json declaration (min_operator_level=1).
 	decl, err := loadDeclaration("close")
 	if err != nil {
 		t.Fatalf("loadDeclaration(close): %v", err)
 	}
 
-	testKey := "test-key-level2"
+	testKey := "test-key-level1"
 	backend := &noopBackend{}
 	exec := convention.NewExecutorForTest(backend, testKey)
 
-	// Attach a provenance checker that returns level=2 for the test key.
+	// Attach a provenance checker that returns level=1 for the test key.
 	exec = exec.WithProvenance(&staticProvenanceChecker{
-		levels: map[string]int{testKey: 2},
+		levels: map[string]int{testKey: 1},
 	})
 
-	// Attempt to execute work:close with a level-2 caller.
+	// Attempt to execute work:close with a level-1 caller.
 	argsMap := map[string]any{
 		"target":     "msg-target-abc",
 		"resolution": "done",
@@ -180,6 +180,6 @@ func TestMinOperatorLevel_WorkCloseAcceptedAtLevel2(t *testing.T) {
 
 	// Must succeed (no error).
 	if err != nil {
-		t.Fatalf("expected success for level-2 caller on work:close, got error: %v", err)
+		t.Fatalf("expected success for level-1 caller on work:close, got error: %v", err)
 	}
 }

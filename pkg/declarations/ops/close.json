@@ -14,5 +14,5 @@
   ],
   "antecedents": "exactly_one(target)",
   "signing": "member_key",
-  "min_operator_level": 2
+  "min_operator_level": 1
 }
