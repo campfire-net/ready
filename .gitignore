@@ -1,5 +1,6 @@
 # Binary (top-level only, not cmd/rd/)
 /rd
+*.exe
 
 # Campfire local state
 .campfire/
@@ -17,5 +18,5 @@ docs/resonant/
 
 # Local state (not committed)
 .cf/
-.ready/pending.jsonl
+.ready/
 cover.out
