@@ -23,6 +23,7 @@ Self-contained binary. For MCP access: `npx @campfire-net/campfire-mcp`.
 rd is available on PATH. It auto-detects the project from your working directory.
 Run `rd ready` at session start. Claim before working. Close with a reason.
 After context loss: `rd ready --view work` to see what you were doing, `rd show <id>` to reload context.
+For recurring work shapes (incident runbooks, release prep, feature rollouts), check `rd playbook list` before decomposing by hand — `rd engage <id>` stamps a template into real items with deps wired.
 ```
 
 ### Install the skill
@@ -130,6 +131,10 @@ rd approve <gate-id> --ruling "Pessimistic. Reason: concurrent request rate too 
 | `rd dep tree <id>` | View dependency hierarchy |
 | `rd gate <id> --question "..."` | Block item on human decision |
 | `rd approve <gate-id> --ruling "..."` | Fulfill a gate |
+| `rd playbook list` | List registered playbook templates |
+| `rd playbook create "..." --id <id> --items-file <path>` | Register a reusable work tree |
+| `rd playbook show <id>` | Inspect a playbook's item tree |
+| `rd engage <id> --project <p> --for <who> --var k=v` | Stamp a playbook into work items |
 
 **Item fields:** `type` (task, decision, review, reminder, deadline), `priority` (p0–p3), `status` (inbox, in_progress, waiting, blocked, done, cancelled, failed), `due`, `eta`
 

@@ -10,9 +10,10 @@ Ready is work management as a campfire convention. Items, dependencies, gates, a
 - [Part 2: Team (invite tokens)](#part-2-team-invite-tokens)
 - [Part 3: Multi-agent (walk-up config)](#part-3-multi-agent-walk-up-config)
 - [Part 4: Dependencies](#part-4-dependencies)
-- [Part 5: Gate escalation](#part-5-gate-escalation)
-- [Part 6: Resuming work (for agents)](#part-6-resuming-work-for-agents)
-- [Part 7: Reference](#part-7-reference)
+- [Part 5: Playbooks (reusable work trees)](#part-5-playbooks-reusable-work-trees)
+- [Part 6: Gate escalation](#part-6-gate-escalation)
+- [Part 7: Resuming work (for agents)](#part-7-resuming-work-for-agents)
+- [Part 8: Reference](#part-8-reference)
 
 ---
 
@@ -306,7 +307,115 @@ rdtestfrontendtisl-a91
 
 ---
 
-## Part 5: Gate escalation
+## Part 5: Playbooks (reusable work trees)
+
+A **playbook** is a template — a reusable pattern of work items with dependencies and variable substitution. `rd engage` stamps a playbook into concrete items, wires the deps, and records the engagement as an audit entry.
+
+Reach for a playbook whenever you find yourself typing the same decomposition twice: incident runbook, feature rollout, release prep, migration, onboarding flow.
+
+### Register a playbook
+
+Create a JSON file describing the item tree:
+
+```json
+[
+  {
+    "title": "Triage {{env}} incident",
+    "type": "task",
+    "priority": "p0",
+    "context": "Identify blast radius in {{env}}. Page on-call if >10% users affected.",
+    "deps": []
+  },
+  {
+    "title": "Root cause for {{env}} incident",
+    "type": "task",
+    "priority": "p0",
+    "context": "Find the commit or config change. Link it in progress notes.",
+    "deps": [0]
+  },
+  {
+    "title": "Remediate {{env}}",
+    "type": "task",
+    "priority": "p0",
+    "context": "Roll back or forward-fix. Verify metrics recover.",
+    "deps": [1]
+  },
+  {
+    "title": "Post-incident review for {{env}}",
+    "type": "review",
+    "priority": "p1",
+    "context": "Write up timeline, contributing factors, action items.",
+    "deps": [2]
+  }
+]
+```
+
+Per-item fields: `title`, `type`, `priority` (required); `level`, `context`, `deps` (optional). `deps` are 0-based indices into the items array. `{{variable}}` placeholders can appear in `title` and `context` and are substituted at engage time.
+
+Register it:
+
+```bash
+rd playbook create "SRE Incident Response" \
+  --id sre-incident \
+  --description "Standard incident runbook" \
+  --items-file sre-incident.json
+# playbook sre-incident registered (4 items, msg: ...)
+```
+
+### List and inspect
+
+```bash
+rd playbook list
+#   sre-incident   4 items   Standard incident runbook
+
+rd playbook show sre-incident
+# ID:          sre-incident
+# Title:       SRE Incident Response
+# Description: Standard incident runbook
+# Items:       4
+#
+# Item tree:
+#   [0] p0  task    Triage {{env}} incident
+#   [1] p0  task    Root cause for {{env}} incident   (after: [0])
+#   [2] p0  task    Remediate {{env}}                 (after: [1])
+#   [3] p1  review  Post-incident review for {{env}}  (after: [2])
+```
+
+### Engage — instantiate into work items
+
+```bash
+rd engage sre-incident \
+  --project myapp \
+  --for oncall@myteam.dev \
+  --var env=prod
+# engaged playbook sre-incident → 4 items
+#
+#   myapp-a2f   p0  Triage prod incident
+#   myapp-4x1   p0  Root cause for prod incident      (blocked by: myapp-a2f)
+#   myapp-7b3   p0  Remediate prod                    (blocked by: myapp-4x1)
+#   myapp-9c0   p1  Post-incident review for prod     (blocked by: myapp-7b3)
+```
+
+What engage does:
+
+1. Finds the playbook by ID.
+2. Generates item IDs (`<project>-<random-3-chars>` per template item).
+3. Substitutes `{{variable}}` placeholders (unknown vars are left as-is).
+4. Sends `work:create` for each item.
+5. Sends `work:block` for each dependency edge.
+6. Records a `work:engage` message linking every created ID — audit trail from engagement back to items.
+
+### When agents should reach for playbooks
+
+**Before decomposing work by hand**, run `rd playbook list`. If a registered playbook fits the shape of the task, `rd engage` it and edit the resulting items as needed. Faster than creating from scratch, and it preserves accumulated team knowledge about which steps matter.
+
+**After producing a clean item tree for non-trivial work**, consider registering it as a playbook so the next engagement reuses the decomposition instead of re-deriving it.
+
+Playbooks and the `work:engage` message are fully specified in `docs/convention/work-management.md` §4.12–4.13.
+
+---
+
+## Part 6: Gate escalation
 
 Agents use `rd gate` when they hit a decision point that requires human judgment. The item transitions to `waiting`. The human runs `rd gates`, then `rd approve` or `rd reject`. Approval transitions the item back to `active`.
 
@@ -356,7 +465,7 @@ After approval, the agent checks `rd gates` — no pending entries — and conti
 
 ---
 
-## Part 6: Resuming work (for agents)
+## Part 7: Resuming work (for agents)
 
 Agents resuming after a context reset (compaction, restart) follow this pattern:
 
@@ -413,7 +522,7 @@ closed rdtestagentprojs-f79 (done)
 
 ---
 
-## Part 7: Reference
+## Part 8: Reference
 
 ### Status values
 
