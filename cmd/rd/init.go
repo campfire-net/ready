@@ -780,16 +780,39 @@ func initJoin(cwd, name, beaconStr string) error {
 		return fmt.Errorf("beacon p2p-http transport missing 'endpoint' config key")
 	}
 
-	// Load identity and store.
-	agentID, err := identity.Load(IdentityPath())
-	if err != nil {
-		return fmt.Errorf("loading identity: %w", err)
-	}
+	// Open store first — we may not need identity at all if this machine is
+	// already a member of the campfire (idempotent re-init below).
 	s, err := openStore()
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}
 	defer s.Close()
+
+	// Idempotent re-init: if this identity is already a member of the campfire
+	// on this machine (e.g. .ready/ was wiped but ~/.cf/store.db still has the
+	// row), skip the SDK join and the AdmitMember insert — both would fail with
+	// UNIQUE constraint violations on campfire_memberships.campfire_id. Refresh
+	// the relay peer endpoint (idempotent upsert) and re-link the project.
+	existing, err := s.GetMembership(campfireID)
+	if err != nil {
+		return fmt.Errorf("checking existing membership: %w", err)
+	}
+	if existing != nil {
+		if err := s.UpsertPeerEndpoint(store.PeerEndpoint{
+			CampfireID:   campfireID,
+			MemberPubkey: campfireID,
+			Endpoint:     relayEndpoint,
+		}); err != nil {
+			return fmt.Errorf("refreshing relay peer endpoint: %w", err)
+		}
+		return writeJoinedProjectFiles(cwd, name, campfireID, relayEndpoint, beaconStr, true)
+	}
+
+	// New member path — needs identity to call cfhttp.Join.
+	agentID, err := identity.Load(IdentityPath())
+	if err != nil {
+		return fmt.Errorf("loading identity: %w", err)
+	}
 
 	// Join via HTTP relay.
 	result, err := cfhttp.Join(relayEndpoint, campfireID, agentID, "")
@@ -836,6 +859,14 @@ func initJoin(cwd, name, beaconStr string) error {
 		return fmt.Errorf("storing relay peer endpoint: %w", err)
 	}
 
+	return writeJoinedProjectFiles(cwd, name, campfireID, relayEndpoint, beaconStr, false)
+}
+
+// writeJoinedProjectFiles writes .campfire/root and .ready/config.json for a
+// project that is now linked to an existing campfire (whether freshly joined
+// or already a member). When relinked is true, the human-readable output says
+// "linked" instead of "joined" to clarify that no network join occurred.
+func writeJoinedProjectFiles(cwd, name, campfireID, relayEndpoint, beaconStr string, relinked bool) error {
 	// Write .campfire/root.
 	campfireDir := filepath.Join(cwd, ".campfire")
 	if err := os.MkdirAll(campfireDir, 0700); err != nil {
@@ -847,14 +878,19 @@ func initJoin(cwd, name, beaconStr string) error {
 
 	// Write .ready/config.json.
 	syncCfg := &rdconfig.SyncConfig{
-		CampfireID: campfireID,
+		CampfireID:  campfireID,
 		ProjectName: name,
-		RelayURL:   relayEndpoint,
-		Beacon:     beaconStr,
-		Durability: &rdconfig.DurabilityAssessment{MeetsMinimum: true},
+		RelayURL:    relayEndpoint,
+		Beacon:      beaconStr,
+		Durability:  &rdconfig.DurabilityAssessment{MeetsMinimum: true},
 	}
 	if saveErr := rdconfig.SaveSyncConfig(cwd, syncCfg); saveErr != nil {
 		return fmt.Errorf("saving sync config: %w", saveErr)
+	}
+
+	verb := "joined"
+	if relinked {
+		verb = "linked"
 	}
 
 	if jsonOutput {
@@ -863,17 +899,21 @@ func initJoin(cwd, name, beaconStr string) error {
 			"name":        name,
 			"transport":   "relay",
 			"relay":       relayEndpoint,
-			"joined":      true,
+			"joined":      !relinked,
+			"linked":      relinked,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(out)
 	}
 
-	fmt.Printf("joined %s\n", name)
+	fmt.Printf("%s %s\n", verb, name)
 	fmt.Printf("  campfire: %s\n", campfireID[:12]+"...")
 	fmt.Printf("  relay: %s\n", relayEndpoint)
 	fmt.Println()
+	if relinked {
+		fmt.Println("  already a member on this machine — re-linked existing membership")
+	}
 	fmt.Println("  run 'rd sync pull' to fetch existing items")
 
 	return nil
