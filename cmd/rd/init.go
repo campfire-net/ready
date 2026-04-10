@@ -122,6 +122,16 @@ DURABILITY
 			return fmt.Errorf(".ready/ already exists — this project is already initialized (offline mode). Use 'rd sync' to connect to a campfire")
 		}
 
+		// --- Auto-join from [rd].beacon in .cf/config.toml ---
+		// If the project's .cf/config.toml has [rd].beacon set (typically because
+		// machine-1 already ran rd init and committed it), join that campfire
+		// instead of creating a new one. Zero-ceremony machine-2 onboarding.
+		if autoBeacon, err := rdconfig.LoadProjectBeacon(cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: reading .cf/config.toml [rd].beacon: %v\n", err)
+		} else if autoBeacon != "" {
+			return initJoin(cwd, name, autoBeacon)
+		}
+
 		// Load client.
 		client, err := requireClient()
 		if err != nil {
@@ -257,6 +267,14 @@ DURABILITY
 		}
 		if saveErr := rdconfig.SaveSyncConfig(cwd, syncCfg); saveErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not save sync config: %v\n", saveErr)
+		}
+
+		// Persist beacon to .cf/config.toml [rd].beacon so machine-2 can clone
+		// the repo and run `rd init` with no flags or arguments.
+		if mainBeacon != "" {
+			if saveErr := rdconfig.SaveProjectBeacon(cwd, mainBeacon); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not write [rd].beacon to .cf/config.toml: %v\n", saveErr)
+			}
 		}
 
 		// --- Check for home campfire ---
